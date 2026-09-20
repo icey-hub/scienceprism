@@ -1,8 +1,12 @@
 import { callOpenAICompatible } from '../services/llmService.js';
-import { runToolAgent } from '../services/agentService.js';
+import { getAgentRuntimeStatus, runAgentRuntime } from '../services/agentRuntime.js';
 import { getLang, t } from '../i18n/index.js';
 
 export function registerAgentRoutes(fastify) {
+  fastify.get('/api/agent/runtime', async (req) => {
+    return { ok: true, ...getAgentRuntimeStatus(req.query || {}) };
+  });
+
   fastify.post('/api/agent/run', async (req) => {
     const lang = getLang(req);
     const {
@@ -54,7 +58,7 @@ export function registerAgentRoutes(fastify) {
     }
 
     if (mode === 'tools') {
-      return runToolAgent({ projectId, activePath, task, prompt, selection, compileLog, llmConfig, lang });
+      return runAgentRuntime({ projectId, activePath, task, prompt, selection, compileLog, llmConfig, lang });
     }
 
     const system =

@@ -14,6 +14,7 @@ import { registerPlotRoutes } from './routes/plot.js';
 import { registerAgentRoutes } from './routes/agent.js';
 import { registerCollabRoutes } from './routes/collab.js';
 import { registerTransferRoutes } from './routes/transfer.js';
+import { registerResearchWorkflowRoutes } from './routes/researchWorkflow.js';
 import { tryStartTunnel } from './services/tunnel.js';
 import { requireAuthIfRemote } from './utils/authUtils.js';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +54,7 @@ registerPlotRoutes(fastify);
 registerAgentRoutes(fastify);
 registerCollabRoutes(fastify);
 registerTransferRoutes(fastify);
+registerResearchWorkflowRoutes(fastify);
 
 // Serve frontend static files in tunnel/production mode
 const __filename = fileURLToPath(import.meta.url);

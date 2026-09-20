@@ -2,6 +2,12 @@ node_modules/
 .DS_Store
 .env
 .env.local
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+secrets*.json
 apps/frontend/dist/
 apps/frontend/.vite/
 apps/backend/.cache/

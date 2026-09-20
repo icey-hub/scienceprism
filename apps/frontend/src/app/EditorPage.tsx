@@ -46,6 +46,9 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { yCollab } from 'y-codemirror.next';
 import { CollabProvider } from '../collab/provider';
+import ResearchWorkspacePage, { type ResearchWorkspaceState } from './ResearchWorkspacePage';
+import { ResearchStageNavigation } from './research/ResearchStageNavigation';
+import { getResearchStage, isResearchStageId, type ResearchStageId } from './research/researchStages';
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -68,6 +71,7 @@ interface PendingChange {
   original: string;
   proposed: string;
   diff: string;
+  deleted?: boolean;
 }
 
 type InlineEdit =
@@ -80,6 +84,7 @@ type AppSettings = {
   llmEndpoint: string;
   llmApiKey: string;
   llmModel: string;
+  agentRuntime: 'legacy' | 'deepseek-harness';
   searchEndpoint: string;
   searchApiKey: string;
   searchModel: string;
@@ -112,6 +117,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   llmEndpoint: 'https://api.openai.com/v1/chat/completions',
   llmApiKey: '',
   llmModel: 'gpt-4o-mini',
+  agentRuntime: 'legacy',
   searchEndpoint: '',
   searchApiKey: '',
   searchModel: '',
@@ -139,6 +145,7 @@ function loadSettings(): AppSettings {
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      agentRuntime: parsed.agentRuntime === 'deepseek-harness' ? 'deepseek-harness' : 'legacy',
       compileEngine
     };
   } catch {
@@ -197,6 +204,10 @@ const TEXT_EXTS = ['.sty', '.cls', '.bst', '.txt', '.md', '.json', '.yaml', '.ym
 function isTextPath(filePath: string) {
   const lower = filePath.toLowerCase();
   return lower.endsWith('.tex') || lower.endsWith('.bib') || TEXT_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+function isInternalProjectPath(filePath: string) {
+  return filePath === '.openprism' || filePath.startsWith('.openprism/');
 }
 
 const SECTION_LEVELS: Record<string, number> = {
@@ -1213,8 +1224,10 @@ function PdfPreview({
 export default function EditorPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
-  const { projectId: routeProjectId } = useParams();
+  const { projectId: routeProjectId, stage: researchStage } = useParams<{ projectId: string; stage?: string }>();
   const projectId = routeProjectId || '';
+  const researchMode = Boolean(researchStage);
+  const activeResearchStage: ResearchStageId = isResearchStageId(researchStage) ? researchStage : 'direction';
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
@@ -1270,8 +1283,9 @@ export default function EditorPage() {
   const [rightView, setRightView] = useState<'pdf' | 'figures' | 'diff' | 'log' | 'toc' | 'review'>('pdf');
   const [selectedFigure, setSelectedFigure] = useState<string>('');
   const [diffFocus, setDiffFocus] = useState<PendingChange | null>(null);
-  const [activeSidebar, setActiveSidebar] = useState<'files' | 'agent' | 'vision' | 'search' | 'websearch' | 'plot' | 'review' | 'collab'>('files');
+  const [activeSidebar, setActiveSidebar] = useState<'files' | 'agent' | 'vision' | 'search' | 'websearch' | 'plot' | 'review' | 'collab' | 'research'>('files');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [researchWorkspaceState, setResearchWorkspaceState] = useState<ResearchWorkspaceState | null>(null);
   const [columnSizes, setColumnSizes] = useState({ sidebar: 260, editor: 640, right: 420 });
   const [editorSplit, setEditorSplit] = useState(0.7);
   const [selectedPath, setSelectedPath] = useState('');
@@ -1364,11 +1378,15 @@ export default function EditorPage() {
   const collabActiveRef = useRef(false);
   const collabColorRef = useRef<string>(pickCollabColor(collabName));
   const collabCompartment = useMemo(() => new Compartment(), []);
+  const handleResearchStateChange = useCallback((next: ResearchWorkspaceState) => {
+    setResearchWorkspaceState(next);
+  }, []);
 
   const {
     llmEndpoint,
     llmApiKey,
     llmModel,
+    agentRuntime,
     searchEndpoint,
     searchApiKey,
     searchModel,
@@ -1381,6 +1399,15 @@ export default function EditorPage() {
   useEffect(() => {
     persistSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    if (researchMode) {
+      setActiveSidebar('research');
+      setSidebarOpen(true);
+      return;
+    }
+    setActiveSidebar((current) => current === 'research' ? 'files' : current);
+  }, [researchMode, researchStage]);
 
   useEffect(() => {
     if (collabServer) {
@@ -1409,9 +1436,10 @@ export default function EditorPage() {
     () => ({
       endpoint: llmEndpoint,
       apiKey: llmApiKey || undefined,
-      model: llmModel
+      model: llmModel,
+      runtime: agentRuntime
     }),
-    [llmEndpoint, llmApiKey, llmModel]
+    [agentRuntime, llmEndpoint, llmApiKey, llmModel]
   );
 
   const searchLlmConfig = useMemo(() => {
@@ -1577,11 +1605,13 @@ export default function EditorPage() {
   const refreshTree = async (keepActive = true) => {
     if (!projectId) return;
     const res = await getProjectTree(projectId);
-    setTree(res.items);
+    const visibleItems = res.items.filter((item) => !isInternalProjectPath(item.path));
+    setTree(visibleItems);
     setFileOrder(res.fileOrder || {});
-    if (!keepActive || !activePath || !res.items.find((item) => item.path === activePath)) {
-      const main = res.items.find((item) => item.path.endsWith('main.tex'))?.path;
-      const next = main || res.items.find((item) => item.type === 'file')?.path || '';
+    if (!keepActive || !activePath || !visibleItems.find((item) => item.path === activePath)) {
+      const main = visibleItems.find((item) => item.path.endsWith('main.tex'))?.path;
+      const firstTex = visibleItems.find((item) => item.type === 'file' && item.path.toLowerCase().endsWith('.tex'))?.path;
+      const next = main || firstTex || visibleItems.find((item) => item.type === 'file')?.path || '';
       if (next) {
         await openFile(next);
       }
@@ -2344,7 +2374,8 @@ export default function EditorPage() {
               filePath: patch.path,
               original: files[patch.path] ?? '',
               proposed: patch.content,
-              diff: patch.diff
+              diff: patch.diff,
+              deleted: patch.deleted
             }));
             setPendingChanges(nextPending);
             setRightView('diff');
@@ -2720,7 +2751,7 @@ export default function EditorPage() {
         // If deleted file was the active file, clear it
         if (target === activePath) {
           setActivePath('');
-          setContent('');
+          setEditorValue('');
         }
         // Refresh the file tree
         refreshTree();
@@ -3507,7 +3538,8 @@ export default function EditorPage() {
           filePath: patch.path,
           original: files[patch.path] ?? '',
           proposed: patch.content,
-          diff: patch.diff
+          diff: patch.diff,
+          deleted: patch.deleted
         }));
         setPendingChanges(nextPending);
         setRightView('diff');
@@ -3558,7 +3590,8 @@ export default function EditorPage() {
           filePath: patch.path,
           original: files[patch.path] ?? '',
           proposed: patch.content,
-          diff: patch.diff
+          diff: patch.diff,
+          deleted: patch.deleted
         }));
         setPendingChanges(nextPending);
         setRightView('diff');
@@ -3573,10 +3606,25 @@ export default function EditorPage() {
   const applyPending = async (change?: PendingChange) => {
     const list = change ? [change] : pendingChanges;
     for (const item of list) {
-      await writeFileCompat(item.filePath, item.proposed);
-      setFiles((prev) => ({ ...prev, [item.filePath]: item.proposed }));
-      if (activePath === item.filePath && !collabActiveRef.current) {
-        setEditorDoc(item.proposed);
+      if (item.deleted) {
+        const result = await deleteFile(projectId, item.filePath);
+        if (!result.ok) throw new Error(result.error || `Failed to delete ${item.filePath}`);
+        setFiles((prev) => {
+          const next = { ...prev };
+          delete next[item.filePath];
+          return next;
+        });
+        if (activePath === item.filePath && !collabActiveRef.current) {
+          setActivePath('');
+          setEditorValue('');
+          setEditorDoc('');
+        }
+      } else {
+        await writeFileCompat(item.filePath, item.proposed);
+        setFiles((prev) => ({ ...prev, [item.filePath]: item.proposed }));
+        if (activePath === item.filePath && !collabActiveRef.current) {
+          setEditorDoc(item.proposed);
+        }
       }
     }
     if (change) {
@@ -3669,6 +3717,9 @@ export default function EditorPage() {
         </div>
         <div className="toolbar">
           <Link to="/projects" className="btn ghost">{t('Projects')}</Link>
+          <Link to={researchMode ? `/editor/${projectId}` : `/editor/${projectId}/research/direction`} className="btn ghost">
+            {researchMode ? '论文编辑' : '研究流程'}
+          </Link>
           <button className="btn ghost" onClick={() => setSidebarOpen((prev) => !prev)}>
             {sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')}
           </button>
@@ -3724,7 +3775,7 @@ export default function EditorPage() {
       </div>
 
       <main
-        className="workspace"
+        className={`workspace${researchMode ? ' research-mode' : ''}`}
         ref={gridRef}
         style={{
           '--col-sidebar': sidebarOpen ? `${columnSizes.sidebar}px` : '0px',
@@ -3737,6 +3788,19 @@ export default function EditorPage() {
           <aside className="panel side-panel">
             <div className="sidebar-tabs">
               <div className="tab-group">
+                <button
+                  className={`tab-btn ${activeSidebar === 'research' ? 'active' : ''}`}
+                  data-testid="research-sidebar-tab"
+                  onClick={() => {
+                    setActiveSidebar('research');
+                    setSidebarOpen(true);
+                    if (!researchMode) navigate(`/editor/${projectId}/research/direction`);
+                  }}
+                  title="研究流程"
+                >
+                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6"/><path d="M10 9h4"/><path d="M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/></svg></span>
+                  <span className="tab-text">研究流程</span>
+                </button>
                 <button
                   className={`tab-btn ${activeSidebar === 'files' ? 'active' : ''}`}
                   onClick={() => setActiveSidebar('files')}
@@ -3804,7 +3868,27 @@ export default function EditorPage() {
               </div>
               <button className="icon-btn" onClick={() => setSidebarOpen(false)}>✕</button>
             </div>
-            {activeSidebar === 'files' ? (
+            {activeSidebar === 'research' ? (
+              <>
+                <div className="panel-header">
+                  <div>研究流程</div>
+                  <span className={`research-sidebar-harness is-${researchWorkspaceState?.harnessState || 'checking'}`}>
+                    {researchWorkspaceState?.harnessState === 'ready' ? 'Harness 已连接' : researchWorkspaceState?.harnessState === 'unavailable' ? 'Harness 未配置' : 'Harness 检查中'}
+                  </span>
+                </div>
+                <div className="research-sidebar-integrated" data-testid="research-stage-nav">
+                  <ResearchStageNavigation
+                    activeStage={activeResearchStage}
+                    stageStatuses={researchWorkspaceState?.stageStatuses}
+                    onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)}
+                  />
+                  <div className="research-sidebar-gate-note">
+                    <strong>人工确认门禁</strong>
+                    <span>AI 负责补充与执行建议，每一阶段由你输入并确认。</span>
+                  </div>
+                </div>
+              </>
+            ) : activeSidebar === 'files' ? (
               <>
                 <div className="panel-header">
                   <div>{t('Project Files')}</div>
@@ -4920,7 +5004,8 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                               filePath: patch.path,
                               original: files[patch.path] ?? '',
                               proposed: patch.content,
-                              diff: patch.diff
+                              diff: patch.diff,
+                              deleted: patch.deleted
                             }));
                             setPendingChanges(nextPending);
                             setRightView('diff');
@@ -5005,6 +5090,60 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
           />
         )}
 
+        {researchMode ? (
+          <>
+            <section className="panel research-workspace-panel" data-testid="research-stage-content">
+              <ResearchWorkspacePage embedded onStateChange={handleResearchStateChange} />
+            </section>
+
+            <div
+              className="drag-handle vertical main-handle"
+              onMouseDown={(e) => startColumnDrag('right', e)}
+            />
+
+            <section className="panel pdf-panel research-context-panel" data-testid="editor-right-panel">
+              <div className="panel-header">
+                <div>研究上下文</div>
+                <span className={`research-context-stage-status is-${researchWorkspaceState?.stageStatuses[activeResearchStage] || 'active'}`}>
+                  {getResearchStage(activeResearchStage).label}
+                </span>
+              </div>
+              <div className="right-body research-context-workspace">
+                <div className="research-context-summary">
+                  <span className="research-overline">CURRENT INPUT</span>
+                  <h3>{researchWorkspaceState?.direction.question || '等待你输入研究问题'}</h3>
+                  <p>{researchWorkspaceState?.direction.scope || '研究边界尚未填写'}</p>
+                </div>
+                <dl className="research-context-details">
+                  <dt>种子关键词</dt>
+                  <dd>{researchWorkspaceState?.direction.keywords.length ? researchWorkspaceState.direction.keywords.join(' · ') : '尚未填写'}</dd>
+                  <dt>论文质量门禁</dt>
+                  <dd>
+                    {researchWorkspaceState?.policy.venueLevel || 'CCF-A'} · {
+                      researchWorkspaceState?.policy.publicationType === 'journal'
+                        ? '期刊'
+                        : researchWorkspaceState?.policy.publicationType === 'conference'
+                          ? '会议'
+                          : '期刊/会议'
+                    } · {researchWorkspaceState?.policy.yearFrom || '2022'}-{researchWorkspaceState?.policy.yearTo || '2026'}
+                  </dd>
+                  <dt>当前阶段 Skill</dt>
+                  <dd>{researchWorkspaceState?.activeSkillNames.length ? researchWorkspaceState.activeSkillNames.join('、') : '使用阶段默认约束'}</dd>
+                  <dt>执行控制</dt>
+                  <dd>所有方向、论文、创新点和方法都由你输入或选择，AI 只补充候选并执行已确认任务。</dd>
+                </dl>
+                <div className="research-context-progress" aria-label="当前阶段">
+                  <span>{String(getResearchStage(activeResearchStage).index).padStart(2, '0')}</span>
+                  <div>
+                    <strong>{getResearchStage(activeResearchStage).label}</strong>
+                    <small>{getResearchStage(activeResearchStage).description}</small>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </>
+        ) : (
+          <>
         <section className="panel editor-panel">
           <div className="panel-header">{t('Editor')}</div>
           <div className="breadcrumb-bar">
@@ -5378,6 +5517,8 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
             </div>
           </div>
         </section>
+          </>
+        )}
       </main>
 
       {/* Top-bar dropdown portals — rendered outside top-bar to escape backdrop-filter stacking context */}
@@ -5462,6 +5603,21 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                   onChange={(e) => setSettings((prev) => ({ ...prev, llmModel: e.target.value }))}
                   placeholder="gpt-4o-mini"
                 />
+              </div>
+              <div className="field">
+                <label>{t('Agent Runtime')}</label>
+                <select
+                  className="input"
+                  value={agentRuntime}
+                  onChange={(e) => setSettings((prev) => ({
+                    ...prev,
+                    agentRuntime: e.target.value === 'deepseek-harness' ? 'deepseek-harness' : 'legacy'
+                  }))}
+                >
+                  <option value="legacy">{t('Legacy LangChain')}</option>
+                  <option value="deepseek-harness">{t('DeepSeek Harness')}</option>
+                </select>
+                <div className="muted">{t('仅影响 Agent 的 Tools 模式；Chat、补全和视觉功能继续使用普通 LLM 调用。')}</div>
               </div>
               <div className="field">
                 <label>{t('LLM API Key')}</label>

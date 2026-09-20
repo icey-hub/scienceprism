@@ -22,6 +22,7 @@ export interface LLMConfig {
   endpoint: string;
   apiKey: string;
   model: string;
+  runtime?: 'legacy' | 'deepseek-harness';
 }
 
 export interface TemplateMeta {
@@ -289,10 +290,25 @@ export function runAgent(payload: {
   interaction?: 'chat' | 'agent';
   history?: { role: 'user' | 'assistant'; content: string }[];
 }) {
-  return request<{ ok: boolean; reply: string; suggestion: string; patches?: { path: string; diff: string; content: string }[] }>(`/api/agent/run`, {
+  return request<{
+    ok: boolean;
+    reply: string;
+    suggestion: string;
+    runtime?: 'legacy' | 'deepseek-harness';
+    fallback?: boolean;
+    harnessError?: string;
+    fallbackError?: string;
+    patches?: { path: string; diff: string; content: string; deleted?: boolean }[];
+  }>(`/api/agent/run`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+}
+
+export function getAgentRuntime() {
+  return request<{ ok: boolean; runtime: 'legacy' | 'deepseek-harness'; harnessConfigured: boolean; fallback: boolean }>(
+    '/api/agent/runtime'
+  );
 }
 
 export function compileProject(payload: {
@@ -462,6 +478,113 @@ export async function visionToLatex(payload: {
     throw new Error(await res.text());
   }
   return res.json() as Promise<{ ok: boolean; latex?: string; assetPath?: string; error?: string }>;
+}
+
+export type ResearchStageId =
+  | 'direction'
+  | 'search'
+  | 'selection'
+  | 'replication'
+  | 'ideation'
+  | 'method'
+  | 'experiment'
+  | 'writing';
+
+export type ResearchStageStatus = 'pending' | 'in_progress' | 'awaiting_approval' | 'approved' | 'rejected' | 'skipped';
+
+export interface ResearchStageState {
+  id: ResearchStageId;
+  status: ResearchStageStatus;
+  data: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface ResearchWorkflowState {
+  version: number;
+  projectId: string;
+  title: string;
+  currentStage: ResearchStageId;
+  stages: ResearchStageState[];
+  policy: Record<string, unknown>;
+  audit: Array<{
+    id: string;
+    type: string;
+    stage: ResearchStageId;
+    at: string;
+    actor: 'human' | 'ai' | 'system';
+    details?: Record<string, unknown>;
+  }>;
+  updatedAt: string;
+  skillBindings?: Partial<Record<ResearchStageId, string[]>>;
+}
+
+export interface ResearchSkillSummary {
+  name: string;
+  description: string;
+  stages: ResearchStageId[];
+  source: 'built-in' | 'project';
+  enabled?: boolean;
+}
+
+export function getResearchWorkflow(projectId: string) {
+  return request<{ ok: boolean; workflow: ResearchWorkflowState }>(`/api/projects/${projectId}/research-workflow`);
+}
+
+export function createResearchWorkflow(projectId: string, payload: { title?: string; policy?: Record<string, unknown> } = {}) {
+  return request<{ ok: boolean; workflow: ResearchWorkflowState }>(`/api/projects/${projectId}/research-workflow`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateResearchWorkflow(projectId: string, payload: {
+  stage?: ResearchStageId;
+  status?: ResearchStageStatus;
+  data?: Record<string, unknown>;
+  policy?: Record<string, unknown>;
+  title?: string;
+}) {
+  return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function approveResearchWorkflow(projectId: string, payload: { stage: ResearchStageId; note?: string }) {
+  return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow/approve`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function resetResearchWorkflow(projectId: string, stage?: ResearchStageId) {
+  return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow/reset`, {
+    method: 'POST',
+    body: JSON.stringify(stage ? { stage } : {})
+  });
+}
+
+export function getResearchWorkflowSkills(projectId: string) {
+  return request<{
+    ok: boolean;
+    skills: ResearchSkillSummary[];
+    bindings: Partial<Record<ResearchStageId, string[]>>;
+  }>(`/api/projects/${projectId}/research-workflow/skills`);
+}
+
+export function updateResearchWorkflowSkillBindings(
+  projectId: string,
+  bindings: Partial<Record<ResearchStageId, string[]>>,
+  note?: string
+) {
+  return request<{
+    ok: boolean;
+    workflow: ResearchWorkflowState;
+    bindings: Partial<Record<ResearchStageId, string[]>>;
+  }>(`/api/projects/${projectId}/research-workflow/skills/bindings`, {
+    method: 'PUT',
+    body: JSON.stringify({ bindings, ...(note ? { note } : {}) })
+  });
 }
 
 // ─── Transfer Agent API ───
