@@ -113,6 +113,25 @@ Human-confirmed papers are written to the Evidence Ledger. Writing Brief Paper C
 
 See [docs/research-stage-contracts.md](docs/research-stage-contracts.md) and [docs/architecture-roadmap.md](docs/architecture-roadmap.md) for the stage contracts and implementation record.
 
+### Project Product Loop (Phase 7)
+
+Each project now has a control room at `/project/:projectId`. It projects the research question, stage progress, pending human approvals, recent Harness Runs, task failures, Evidence risks, paper-library signals, and the next action from backend-owned state. New projects open the first-run setup flow, which records the research question, model, Harness constraints, and the first Research Stage before the user enters the workflow.
+
+The project loop includes four connected views:
+
+- **Paper Library** — import search candidates, deduplicate by arXiv/DOI/URL/title, tag and favorite papers, track reading status, keep notes and annotations, generate BibTeX, run source metadata checks, and retain an Evidence reference.
+- **Task Center** — inspect Harness, paper-import, compile, research-stage, and Experiment Plan tasks with progress, logs, failure details, retry, cancel, and Harness replay actions. Experiment Plans remain plan-only until the controlled Experiment Runner phase.
+- **Writing Quality** — review the Claim-Evidence Matrix together with LaTeX citation completeness, keyword terminology variants, compile failures, and available Writing Harness checks.
+
+Project data is stored locally in `.scienceprism/paper-library.json` and `.scienceprism/tasks.json`. The corresponding HTTP interfaces are:
+
+- `GET /api/projects/:id/dashboard`, `POST /api/projects/:id/initialize`
+- `GET/POST/PATCH/DELETE /api/projects/:id/papers`
+- `GET /api/projects/:id/tasks`, `POST /api/projects/:id/tasks/:taskId/retry`, `POST /api/projects/:id/tasks/:taskId/cancel`
+- `GET/POST /api/projects/:id/writing-quality`
+
+The product loop keeps the existing invariants: AI output remains a suggestion or proposed Patch, Evidence with missing or uncertain provenance stays explicitly reviewable, and experiment execution is not enabled by dashboard navigation.
+
 ## Why SciencePrism
 
 - **Human control**: AI cannot approve a paper, select an innovation, authorize an experiment, or fabricate a result.

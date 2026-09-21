@@ -59,6 +59,18 @@ The query projection that classifies each Paper Claim as supported, unsupported,
 **Harness Run**:
 An auditable execution of AI assistance for a Project and Research Stage, including its model, Skill set, context, tool events, validated output, and proposed Patch.
 
+**Project Product Loop**:
+The project-level view that connects current Research Workflow state, pending Approval, Harness Run activity, Evidence risks, Paper Library signals, and the next human action. It is a query projection, not a second workflow state source.
+
+**Paper Library**:
+A project-owned collection of Paper Candidates and source-backed paper records. It preserves deduplication identity, reading status, tags, notes, annotations, BibTeX, source checks, and the Evidence reference used by later Research Stages and Paper Claims.
+
+**Task Center**:
+A project query and command surface for long-running or reviewable work, including Harness Runs, paper imports, compilation, Research Stage tasks, and Experiment Plans. An Experiment Plan remains distinct from an Experiment Run.
+
+**Writing Quality Check**:
+A query projection that combines the Claim-Evidence Matrix with manuscript citation checks, terminology checks, compile failures, and available Writing Harness results. It reports review state and does not approve Paper Claims.
+
 ## Canonical Names And Relationships
 
 - A **Project** owns one **Research Workflow** and may contain many **Evidence** records and **Artifacts**.

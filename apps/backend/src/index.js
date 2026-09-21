@@ -17,6 +17,7 @@ import { registerTransferRoutes } from './routes/transfer.js';
 import { registerResearchWorkflowRoutes } from './routes/researchWorkflow.js';
 import { registerHarnessRunRoutes } from './routes/harnessRuns.js';
 import { registerEvidenceLedgerRoutes } from './routes/evidenceLedger.js';
+import { registerProjectHubRoutes } from './routes/projectHub.js';
 import { tryStartTunnel } from './services/tunnel.js';
 import { requireAuthIfRemote } from './utils/authUtils.js';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +60,7 @@ registerTransferRoutes(fastify);
 registerResearchWorkflowRoutes(fastify);
 registerHarnessRunRoutes(fastify);
 registerEvidenceLedgerRoutes(fastify);
+registerProjectHubRoutes(fastify);
 
 // Serve frontend static files in tunnel/production mode
 const __filename = fileURLToPath(import.meta.url);

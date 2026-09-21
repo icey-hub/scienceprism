@@ -202,7 +202,7 @@ export default function ProjectPage() {
       setCreateOpen(false);
       setCreateName('');
       await loadProjects();
-      navigate(`/editor/${created.id}/research/direction`);
+      navigate(`/project/${created.id}`);
     } catch (err) {
       setStatus(t('创建失败: {{error}}', { error: String(err) }));
     }
@@ -303,7 +303,7 @@ export default function ProjectPage() {
       setTemplateGalleryOpen(false);
       setCreateName('');
       await loadProjects();
-      navigate(`/editor/${created.id}/research/direction`);
+      navigate(`/project/${created.id}`);
     } catch (err) {
       setStatus(t('创建失败: {{error}}', { error: String(err) }));
     }
@@ -347,7 +347,7 @@ export default function ProjectPage() {
       }
       setImportOpen(false);
       await loadProjects();
-      navigate(`/editor/${res.project.id}/research/direction`);
+      navigate(`/project/${res.project.id}`);
     } catch (err) {
       setStatus(t('Zip 导入失败: {{error}}', { error: String(err) }));
     } finally {
@@ -373,7 +373,7 @@ export default function ProjectPage() {
       setArxivInput('');
       setImportOpen(false);
       await loadProjects();
-      navigate(`/editor/${res.project.id}/research/direction`);
+      navigate(`/project/${res.project.id}`);
     } catch (err) {
       setStatus(t('arXiv 导入失败: {{error}}', { error: String(err) }));
     } finally {
@@ -583,7 +583,7 @@ export default function ProjectPage() {
                         onBlur={() => setRenameState(null)}
                       />
                     ) : (
-                      <span className="project-name-link" onClick={() => navigate(`/editor/${project.id}/research/direction`)}>
+                      <span className="project-name-link" onClick={() => navigate(`/project/${project.id}`)}>
                         {project.name}
                       </span>
                     )}
@@ -636,7 +636,7 @@ export default function ProjectPage() {
                         <button className="btn ghost" onClick={() => handleTrash(project.id, false)}>{t('恢复')}</button>
                         <button className="btn ghost" onClick={() => handlePermanentDelete(project.id, project.name)}>{t('永久删除')}</button>
                       </>) : (<>
-                        <button className="btn ghost" onClick={() => navigate(`/editor/${project.id}/research/direction`)}>{t('打开')}</button>
+                        <button className="btn ghost" onClick={() => navigate(`/project/${project.id}`)}>{t('打开')}</button>
                         <button className="btn ghost" onClick={() => navigate(`/editor/${project.id}`)}>{t('论文编辑')}</button>
                         <button className="btn ghost" onClick={() => setRenameState({ id: project.id, value: project.name })}>{t('重命名')}</button>
                         <button className="btn ghost" onClick={() => handleCopy(project.id, project.name)}>{t('复制')}</button>

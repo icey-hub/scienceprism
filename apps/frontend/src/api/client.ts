@@ -7,6 +7,11 @@ export interface ProjectMeta {
   archived: boolean;
   trashed: boolean;
   trashedAt: string | null;
+  researchQuestion?: string;
+  researchScope?: string;
+  researchKeywords?: string[];
+  model?: string;
+  setupCompletedAt?: string;
 }
 
 export interface FileItem {
@@ -329,6 +334,128 @@ export function compileProject(payload: {
       body: JSON.stringify(payload)
     }
   );
+}
+
+export interface PaperLibraryRecord {
+  id: string;
+  canonicalKey?: string;
+  title: string;
+  authors: string[];
+  abstract?: string;
+  url?: string;
+  doi?: string;
+  arxivId?: string;
+  venue?: string;
+  year?: number | null;
+  source?: { provider?: string | null; url?: string | null; path?: string | null };
+  sourceRecords?: { provider?: string; id?: string; retrievedAt?: string }[];
+  evidenceId?: string | null;
+  tags: string[];
+  favorite: boolean;
+  readingStatus: 'unread' | 'reading' | 'read' | 'archived';
+  notes: string;
+  annotations: { id: string; text: string; quote?: string; page?: number | null; createdAt: string; updatedAt: string }[];
+  bibtex: string;
+  sourceCheck?: { status: string; checkedAt?: string; provider?: string; issues?: string[] };
+  importedAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectTask {
+  id: string;
+  kind: string;
+  title: string;
+  status: 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | string;
+  progress: number;
+  stage?: string | null;
+  log: string[];
+  error?: { message?: string } | null;
+  retryable?: boolean;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+}
+
+export interface ProjectDashboard {
+  project: ProjectMeta;
+  initialized: boolean;
+  constraints: { capabilities: string[]; allowedPaths: string[]; networkAllowlist: string[]; maxTokens?: number; timeoutMs?: number; contextTokenBudget?: number; fallback?: boolean };
+  workflow: any | null;
+  progress: { completed: number; total: number; percent: number; currentStage: string | null; currentStatus: string | null };
+  approvals: { stageId: string; label: string; status: string; readiness?: { missing?: string[] } }[];
+  risks: { id: string; severity: string; title: string; detail: string; href?: string | null }[];
+  nextAction: { label: string; href: string; reason: string };
+  recentRuns: any[];
+  tasks: { total: number; active: number; failed: number; completed: number; recent: ProjectTask[] };
+  library: { count: number; unread: number; reading: number; read: number; favorites: number; needsSourceReview: number; tags: string[]; recent: PaperLibraryRecord[] };
+  quality: ClaimEvidenceMatrix;
+  model: string | null;
+  currentStage: { id: string; label: string; status: string; updatedAt: string } | null;
+  generatedAt: string;
+}
+
+export function getProjectDashboard(projectId: string) {
+  return request<{ ok: boolean; dashboard: ProjectDashboard }>(`/api/projects/${projectId}/dashboard`);
+}
+
+export function initializeProject(projectId: string, payload: {
+  researchQuestion: string;
+  scope?: string;
+  keywords?: string[];
+  notes?: string;
+  model?: string;
+  constraints?: Record<string, unknown>;
+}) {
+  return request<{ ok: boolean; result: { project: ProjectMeta; workflow: ResearchWorkflowState; constraints: ProjectDashboard['constraints'] } }>(`/api/projects/${projectId}/initialize`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function listProjectPapers(projectId: string, query: Record<string, string> = {}) {
+  const qs = new URLSearchParams(query).toString();
+  return request<{ ok: boolean; papers: PaperLibraryRecord[] }>(`/api/projects/${projectId}/papers${qs ? `?${qs}` : ''}`);
+}
+
+export function importProjectPaper(projectId: string, paper: Partial<PaperLibraryRecord> & { title: string }) {
+  return request<{ ok: boolean; result: { paper: PaperLibraryRecord; duplicate: boolean } }>(`/api/projects/${projectId}/papers`, {
+    method: 'POST',
+    body: JSON.stringify(paper)
+  });
+}
+
+export function updateProjectPaper(projectId: string, paperId: string, patch: Partial<PaperLibraryRecord> & { runSourceCheck?: boolean }) {
+  return request<{ ok: boolean; result: { paper: PaperLibraryRecord } }>(`/api/projects/${projectId}/papers/${paperId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch)
+  });
+}
+
+export function checkProjectPaperSource(projectId: string, paperId: string) {
+  return request<{ ok: boolean; result: { paper: PaperLibraryRecord } }>(`/api/projects/${projectId}/papers/${paperId}/source-check`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function deleteProjectPaper(projectId: string, paperId: string) {
+  return request<{ ok: boolean }>(`/api/projects/${projectId}/papers/${paperId}`, { method: 'DELETE' });
+}
+
+export function listProjectTasks(projectId: string, query: Record<string, string> = {}) {
+  const qs = new URLSearchParams(query).toString();
+  return request<{ ok: boolean; tasks: ProjectTask[] }>(`/api/projects/${projectId}/tasks${qs ? `?${qs}` : ''}`);
+}
+
+export function retryProjectTask(projectId: string, taskId: string) {
+  return request<{ ok: boolean; result: { task: ProjectTask } }>(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}/retry`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function cancelProjectTask(projectId: string, taskId: string) {
+  return request<{ ok: boolean; result: { task: ProjectTask } }>(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function getWritingQuality(projectId: string) {
+  return request<{ ok: boolean; quality: any }>(`/api/projects/${projectId}/writing-quality`);
 }
 
 export function listTemplates() {

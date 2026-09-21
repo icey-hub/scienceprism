@@ -3,6 +3,7 @@ import EditorPage from './EditorPage';
 import LandingPage from './LandingPage';
 import ProjectPage from './ProjectPage';
 import CollabJoinPage from './CollabJoinPage';
+import ProjectDashboardPage from './ProjectDashboardPage';
 
 function LegacyResearchRedirect() {
   const { projectId = '' } = useParams<{ projectId: string }>();
@@ -14,6 +15,8 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/projects" element={<ProjectPage />} />
+      <Route path="/project/:projectId" element={<ProjectDashboardPage />} />
+      <Route path="/project/:projectId/:view" element={<ProjectDashboardPage />} />
       <Route path="/editor/:projectId" element={<EditorPage />} />
       <Route path="/editor/:projectId/research" element={<Navigate to="direction" replace />} />
       <Route path="/editor/:projectId/research/:stage" element={<EditorPage />} />

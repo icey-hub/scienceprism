@@ -113,6 +113,25 @@ Research Harness 的输出会在阶段 Schema 校验后，再与已确认 Eviden
 
 阶段契约和实现记录见 [docs/research-stage-contracts.md](docs/research-stage-contracts.md) 与 [docs/architecture-roadmap.md](docs/architecture-roadmap.md)。
 
+### 项目产品闭环（第七阶段）
+
+每个项目现在都有一个 `/project/:projectId` 项目驾驶舱。它从后端状态投影研究问题、阶段进度、待人工审批事项、最近 Harness 运行、失败任务、Evidence 风险、资料库信号和下一步行动。新项目会先进入首次使用引导，保存研究问题、模型、Harness 约束和第一阶段，再进入研究流程。
+
+项目内提供四个连续视图：
+
+- **论文资料库**：导入检索候选，按 arXiv/DOI/URL/标题去重，管理标签和收藏，记录阅读状态、笔记和批注，生成 BibTeX，执行来源元数据检查，并保留项目 Evidence 引用。
+- **任务中心**：统一查看 Harness、论文导入、编译、研究阶段和实验计划任务，支持进度、日志、失败详情、重试、取消和 Harness 重放。实验计划在阶段八之前保持计划态，不会执行 Shell。
+- **写作质量**：集中查看主张-证据矩阵、LaTeX 引用完整性、关键词术语变体、编译失败和已有 Writing Harness 检查结果。
+
+项目数据保存在 `.scienceprism/paper-library.json` 和 `.scienceprism/tasks.json`。对应 HTTP 接口包括：
+
+- `GET /api/projects/:id/dashboard`、`POST /api/projects/:id/initialize`
+- `GET/POST/PATCH/DELETE /api/projects/:id/papers`
+- `GET /api/projects/:id/tasks`、`POST /api/projects/:id/tasks/:taskId/retry`、`POST /api/projects/:id/tasks/:taskId/cancel`
+- `GET/POST /api/projects/:id/writing-quality`
+
+产品闭环继续遵守现有不变量：AI 输出仍然只是建议或待确认 Patch，来源缺失或不确定的 Evidence 始终显式待核验，驾驶舱导航不会开启实验执行。
+
 ## 为什么是 SciencePrism
 
 - **人保持主导权**：AI 不能批准论文、选择创新点、授权实验或编造结果。
