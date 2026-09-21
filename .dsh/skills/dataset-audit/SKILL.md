@@ -3,7 +3,7 @@ name: dataset-audit
 description: Dataset and code readiness audit for reproducible experiments, including provenance, versions, access routes, licenses, and missing metadata.
 whenToUse: Use when turning an approved method into a dataset-backed experiment plan or writing data/code availability notes.
 metadata:
-  owner: openprism
+  owner: scienceprism
   stages:
     - experiment
     - writing

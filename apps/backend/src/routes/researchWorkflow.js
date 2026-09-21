@@ -17,6 +17,7 @@ import {
   resolveResearchSkillBindings,
   validateResearchSkillBindings
 } from '../services/researchResearch/index.js';
+import { getEnv } from '../config/constants.js';
 
 const BASE_PATH = '/api/projects/:id/research-workflow';
 
@@ -148,7 +149,7 @@ function uiStageId(value) {
 
 async function searchArxiv(query, maxResults = 12) {
   const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${Math.min(20, Math.max(1, Number(maxResults) || 12))}`;
-  const response = await fetch(url, { headers: { 'User-Agent': 'openprism/1.0' }, signal: AbortSignal.timeout(30_000) });
+  const response = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' }, signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`arXiv search failed: ${response.status}`);
   const xml = await response.text();
   const data = new XMLParser({ ignoreAttributes: false }).parse(xml);
@@ -174,7 +175,7 @@ function requestPolicy(input = {}) {
   const source = input && typeof input === 'object' ? input : {};
   let configuredCatalog = {};
   try {
-    const rawCatalog = process.env.OPENPRISM_CCF_VENUE_CATALOG_JSON;
+    const rawCatalog = getEnv('CCF_VENUE_CATALOG_JSON');
     configuredCatalog = rawCatalog ? JSON.parse(rawCatalog) : {};
   } catch {
     configuredCatalog = {};
@@ -192,7 +193,7 @@ function requestPolicy(input = {}) {
 }
 
 function actorFromRequest(req, body = {}) {
-  return body.actor || req.headers?.['x-openprism-actor'] || req.collabAuth?.sub || 'human';
+  return body.actor || req.headers?.['x-scienceprism-actor'] || req.headers?.['x-openprism-actor'] || req.collabAuth?.sub || 'human';
 }
 
 function bodyOf(req) {

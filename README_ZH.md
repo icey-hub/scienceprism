@@ -18,7 +18,7 @@ SciencePrism 是一个本地优先的科研工作台，用于把研究者自己�
 
 ## 科研流程
 
-科研流程和原有项目、编辑器共用同一套工作区。每个阶段都有独立界面和 URL，状态及审计事件保存在项目内的 `.openprism/research-workflow.json` 中（运行时保留 `OPENPRISM_*` 前缀以兼容现有配置）。
+科研流程和原有项目、编辑器共用同一套工作区。每个阶段都有独立界面和 URL，状态及审计事件保存在项目内的 `.scienceprism/research-workflow.json` 中。运行时配置使用 `SCIENCEPRISM_*` 前缀，同时继续兼容旧的 `OPENPRISM_*` 配置。
 
 1. **研究方向** —— 输入研究问题、范围、约束和验收标准。
 2. **论文检索** —— 在人工方向基础上扩展可追溯的论文查询和结果。
@@ -96,10 +96,10 @@ Harness 运行时优先读取工作区设置，其次读取本机的 `DEEPSEEK_A
 在 Workspace Settings 中将 **Agent Runtime** 设置为 **DeepSeek Harness**。SciencePrism 会自动探测标准本地 SDK 路径，也可以手动指定：
 
 ```text
-OPENPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
+SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
 ```
 
-可选运行参数包括 `OPENPRISM_HARNESS_PROFILE`、`OPENPRISM_HARNESS_PROVIDER`、`OPENPRISM_HARNESS_MAX_TOKENS` 和 `OPENPRISM_HARNESS_TIMEOUT_MS`。Harness 无法启动时，默认回退到原有 LangChain 运行时；设置 `OPENPRISM_HARNESS_FALLBACK=false` 可关闭回退。
+可选运行参数包括 `SCIENCEPRISM_HARNESS_PROFILE`、`SCIENCEPRISM_HARNESS_PROVIDER`、`SCIENCEPRISM_HARNESS_MAX_TOKENS` 和 `SCIENCEPRISM_HARNESS_TIMEOUT_MS`。Harness 无法启动时，默认回退到原有 LangChain 运行时；设置 `SCIENCEPRISM_HARNESS_FALLBACK=false` 可关闭回退。
 
 每次 Harness 请求都运行在项目临时副本中，文本修改以待确认 Diff 返回，只有用户应用 Diff 后才会改变原项目。
 
@@ -123,7 +123,7 @@ OPENPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
 可以通过 JSON 对象提供正式的 venue 目录，将期刊/会议映射到 CCF 等级：
 
 ```bash
-export OPENPRISM_CCF_VENUE_CATALOG_JSON='{"NeurIPS":"CCF-A","SIGIR":"CCF-A"}'
+export SCIENCEPRISM_CCF_VENUE_CATALOG_JSON='{"NeurIPS":"CCF-A","SIGIR":"CCF-A"}'
 ```
 
 目录只是元数据适配器，不能覆盖年份、同行评审、代码要求或人工确认失败的结果。完整规则见 [docs/research-workflow.md](docs/research-workflow.md)。

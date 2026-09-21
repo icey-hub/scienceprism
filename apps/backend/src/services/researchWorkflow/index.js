@@ -4,7 +4,8 @@ import crypto from 'node:crypto';
 import { getProjectRoot } from '../projectService.js';
 
 export const RESEARCH_WORKFLOW_SCHEMA_VERSION = 2;
-export const RESEARCH_WORKFLOW_FILE = path.join('.openprism', 'research-workflow.json');
+export const RESEARCH_WORKFLOW_FILE = path.join('.scienceprism', 'research-workflow.json');
+const LEGACY_RESEARCH_WORKFLOW_FILE = path.join('.openprism', 'research-workflow.json');
 
 export const RESEARCH_WORKFLOW_STAGES = Object.freeze([
   { id: 'direction', label: '研究方向', requirement: 'topic' },
@@ -214,6 +215,19 @@ function workflowPath(projectRoot) {
   return path.join(projectRoot, RESEARCH_WORKFLOW_FILE);
 }
 
+async function existingWorkflowPath(projectRoot) {
+  for (const relativePath of [RESEARCH_WORKFLOW_FILE, LEGACY_RESEARCH_WORKFLOW_FILE]) {
+    const candidate = path.join(projectRoot, relativePath);
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  return workflowPath(projectRoot);
+}
+
 async function resolveProjectRoot(projectId) {
   assertProjectId(projectId);
   try {
@@ -225,11 +239,12 @@ async function resolveProjectRoot(projectId) {
 
 async function readWorkflowFile(projectRoot, projectId) {
   try {
-    const raw = await fs.readFile(workflowPath(projectRoot), 'utf8');
+    const storedPath = await existingWorkflowPath(projectRoot);
+    const raw = await fs.readFile(storedPath, 'utf8');
     const parsedWorkflow = JSON.parse(raw);
     const { workflow, migrated } = migrateStoredWorkflow(parsedWorkflow, projectId);
     validateStoredWorkflow(workflow, projectId);
-    if (migrated) await writeWorkflowFile(projectRoot, workflow);
+    if (migrated || storedPath !== workflowPath(projectRoot)) await writeWorkflowFile(projectRoot, workflow);
     return workflow;
   } catch (error) {
     if (error instanceof ResearchWorkflowError) throw error;
@@ -405,7 +420,8 @@ export async function initializeResearchWorkflow(projectId, { data = {}, actor }
   const projectRoot = await resolveProjectRoot(projectId);
   const initialData = assertData(data);
   try {
-    await fs.access(workflowPath(projectRoot));
+    const storedPath = await existingWorkflowPath(projectRoot);
+    await fs.access(storedPath);
     throw new ResearchWorkflowError(409, 'WORKFLOW_EXISTS', 'Research workflow already exists.');
   } catch (error) {
     if (error instanceof ResearchWorkflowError) throw error;

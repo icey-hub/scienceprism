@@ -75,7 +75,7 @@ const EMPTY_WORKFLOW: UiWorkflow = {
 function getErrorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
 
 async function workflowRequest<T>(projectId: string, path = '', options?: RequestInit): Promise<T> {
-  const token = typeof window === 'undefined' ? '' : window.sessionStorage.getItem('openprism-collab-token') || '';
+  const token = typeof window === 'undefined' ? '' : window.sessionStorage.getItem('scienceprism-collab-token') || window.sessionStorage.getItem('openprism-collab-token') || '';
   const headers: Record<string, string> = { 'x-lang': 'zh-CN' };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options?.body) headers['Content-Type'] = 'application/json';

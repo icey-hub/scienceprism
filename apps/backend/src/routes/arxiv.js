@@ -9,7 +9,7 @@ export function registerArxivRoutes(fastify) {
     }
     const max = Math.min(10, Math.max(1, Number(maxResults) || 5));
     const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(String(query))}&start=0&max_results=${max}`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'openprism/1.0' } });
+    const res = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' } });
     if (!res.ok) {
       return { ok: false, error: `arXiv search failed: ${res.status}` };
     }

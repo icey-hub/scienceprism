@@ -1,3 +1,5 @@
+import { getEnv } from '../config/constants.js';
+
 export function normalizeChatEndpoint(endpoint) {
   if (!endpoint) return 'https://api.openai.com/v1/chat/completions';
   let url = endpoint.trim();
@@ -17,19 +19,19 @@ export function normalizeBaseURL(endpoint) {
 
 export function resolveLLMConfig(llmConfig) {
   return {
-    endpoint: (llmConfig?.endpoint || process.env.OPENPRISM_LLM_ENDPOINT || 'https://api.openai.com/v1/chat/completions').trim(),
-    apiKey: (llmConfig?.apiKey || process.env.OPENPRISM_LLM_API_KEY || '').trim(),
-    model: (llmConfig?.model || process.env.OPENPRISM_LLM_MODEL || 'gpt-4o-mini').trim()
+    endpoint: (llmConfig?.endpoint || getEnv('LLM_ENDPOINT') || 'https://api.openai.com/v1/chat/completions').trim(),
+    apiKey: (llmConfig?.apiKey || getEnv('LLM_API_KEY') || '').trim(),
+    model: (llmConfig?.model || getEnv('LLM_MODEL') || 'gpt-4o-mini').trim()
   };
 }
 
 export async function callOpenAICompatible({ messages, model, endpoint, apiKey }) {
-  const finalEndpoint = normalizeChatEndpoint(endpoint || process.env.OPENPRISM_LLM_ENDPOINT);
-  const finalApiKey = (apiKey || process.env.OPENPRISM_LLM_API_KEY || '').trim();
-  const finalModel = (model || process.env.OPENPRISM_LLM_MODEL || 'gpt-4o-mini').trim();
+  const finalEndpoint = normalizeChatEndpoint(endpoint || getEnv('LLM_ENDPOINT'));
+  const finalApiKey = (apiKey || getEnv('LLM_API_KEY') || '').trim();
+  const finalModel = (model || getEnv('LLM_MODEL') || 'gpt-4o-mini').trim();
 
   if (!finalApiKey) {
-    return { ok: false, error: 'OPENPRISM_LLM_API_KEY not set' };
+    return { ok: false, error: 'SCIENCEPRISM_LLM_API_KEY not set' };
   }
 
   const res = await fetch(finalEndpoint, {

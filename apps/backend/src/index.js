@@ -84,7 +84,7 @@ await ensureDir(DATA_DIR);
 await fastify.listen({ port: PORT, host: '0.0.0.0' });
 
 console.log('');
-console.log(`  OpenPrism started at http://localhost:${PORT}`);
+console.log(`  SciencePrism started at http://localhost:${PORT}`);
 console.log('');
 
 const tunnelMode = TUNNEL_MODE.toLowerCase().trim();
@@ -102,8 +102,8 @@ if (tunnelMode !== 'false' && tunnelMode !== '0' && tunnelMode !== 'no') {
   }
 } else {
   console.log('  Want remote collaboration? Start with tunnel:');
-  console.log('    OPENPRISM_TUNNEL=localtunnel npm start');
-  console.log('    OPENPRISM_TUNNEL=cloudflared npm start');
-  console.log('    OPENPRISM_TUNNEL=ngrok npm start');
+    console.log('    SCIENCEPRISM_TUNNEL=localtunnel npm start');
+    console.log('    SCIENCEPRISM_TUNNEL=cloudflared npm start');
+    console.log('    SCIENCEPRISM_TUNNEL=ngrok npm start');
   console.log('');
 }

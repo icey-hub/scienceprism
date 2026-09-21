@@ -3,7 +3,7 @@ name: paper-card
 description: Structured deep reading of selected papers, linking methods, experiments, claims, limitations, and research opportunities to stable evidence.
 whenToUse: Use after papers are selected, especially before reproduction, innovation, or method design.
 metadata:
-  owner: openprism
+  owner: scienceprism
   stages:
     - replication
     - ideation

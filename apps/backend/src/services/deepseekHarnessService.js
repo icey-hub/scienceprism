@@ -12,6 +12,7 @@ import {
   isBundledSkillPath,
   restrictWorkspaceResearchSkills
 } from './researchResearch/researchSkills.js';
+import { getEnv } from '../config/constants.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
@@ -94,7 +95,7 @@ async function pathExists(filePath) {
 
 async function loadHarnessSdk() {
   const candidates = [];
-  if (process.env.OPENPRISM_HARNESS_SDK) candidates.push(process.env.OPENPRISM_HARNESS_SDK);
+  if (getEnv('HARNESS_SDK')) candidates.push(getEnv('HARNESS_SDK'));
   candidates.push(path.join(homedir(), 'Desktop/DeepSeek Harness/deepseek-harness/packages/sdk/client/lib/index.js'));
 
   for (const candidate of candidates) {
@@ -105,7 +106,7 @@ async function loadHarnessSdk() {
     return await import('@deepseek-ai/dsh-sdk-client');
   } catch {
     throw new Error(
-      'DeepSeek Harness SDK not found. Set OPENPRISM_HARNESS_SDK to packages/sdk/client/lib/index.js.'
+      'DeepSeek Harness SDK not found. Set SCIENCEPRISM_HARNESS_SDK to packages/sdk/client/lib/index.js.'
     );
   }
 }
@@ -145,8 +146,8 @@ export async function runDeepSeekHarness({
 
   const projectRoot = await getProjectRoot(projectId);
   const resolved = resolveLLMConfig(llmConfig);
-  const timeoutMs = Number(process.env.OPENPRISM_HARNESS_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
-  const runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'openprism-harness-'));
+  const timeoutMs = Number(getEnv('HARNESS_TIMEOUT_MS') || DEFAULT_TIMEOUT_MS);
+  const runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
   const workspace = path.join(runRoot, 'workspace');
   const dshHome = path.join(runRoot, 'dsh-home');
   let harness;
@@ -163,7 +164,7 @@ export async function runDeepSeekHarness({
     const { DeepSeekHarness } = await loadHarnessSdk();
     const configuredEndpoint = typeof llmConfig?.endpoint === 'string' && llmConfig.endpoint.trim()
       ? llmConfig.endpoint.trim()
-      : (process.env.OPENPRISM_LLM_ENDPOINT || '').trim();
+      : (getEnv('LLM_ENDPOINT') || '').trim();
     const defaultEndpoint = normalizeChatEndpoint(undefined);
     const configuredBaseUrl = normalizeBaseURL(normalizeChatEndpoint(resolved.endpoint));
     const inheritedBaseUrl = (process.env.DEEPSEEK_BASE_URL || '').trim();
@@ -180,14 +181,14 @@ export async function runDeepSeekHarness({
     }
 
     harness = new DeepSeekHarness({
-      profile: process.env.OPENPRISM_HARNESS_PROFILE || 'sdk',
-      ...(process.env.OPENPRISM_HARNESS_DSH_BIN ? { dshBin: process.env.OPENPRISM_HARNESS_DSH_BIN } : {}),
+      profile: getEnv('HARNESS_PROFILE') || 'sdk',
+      ...(getEnv('HARNESS_DSH_BIN') ? { dshBin: getEnv('HARNESS_DSH_BIN') } : {}),
       cwd: workspace,
       processCwd: workspace,
       dshHome,
-      provider: process.env.OPENPRISM_HARNESS_PROVIDER || 'deepseek-official',
+      provider: getEnv('HARNESS_PROVIDER') || 'deepseek-official',
       model: resolved.model || process.env.DEEPSEEK_MODEL || 'deepseek-flash',
-      maxTokens: Number(process.env.OPENPRISM_HARNESS_MAX_TOKENS || 49152),
+      maxTokens: Number(getEnv('HARNESS_MAX_TOKENS') || 49152),
       env,
       requestTimeoutMs: timeoutMs,
       initializeTimeoutMs: Math.min(timeoutMs, 30_000)
@@ -201,7 +202,7 @@ export async function runDeepSeekHarness({
       compileLog ? `Compile log:\n${compileLog}` : '',
       'Work inside the provided workspace. Make only the changes needed for the request.'
     ].filter(Boolean).join('\n\n');
-    const sessionId = `openprism-${projectId}-${randomUUID()}`;
+    const sessionId = `scienceprism-${projectId}-${randomUUID()}`;
     const result = await harness.run(input, { sessionId });
     const patches = await collectPatches(projectRoot, workspace, [...bundledSkillPaths, ...removedSkillPaths]);
     const failure = eventFailure(result.events);

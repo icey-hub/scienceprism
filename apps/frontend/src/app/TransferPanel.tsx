@@ -44,10 +44,11 @@ export default function TransferPanel({ projectId, onJobUpdate }: TransferPanelP
   const [layoutCheck, setLayoutCheck] = useState(false);
 
   // LLM config — read from shared localStorage (set via ProjectPage / EditorPage settings)
-  const SETTINGS_KEY = 'openprism-settings-v1';
+  const SETTINGS_KEY = 'scienceprism-settings-v1';
+  const LEGACY_SETTINGS_KEY = 'openprism-settings-v1';
   const readLLMFromStorage = (): { llmEndpoint: string; llmApiKey: string; llmModel: string } => {
     try {
-      const raw = window.localStorage.getItem(SETTINGS_KEY);
+      const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
       if (!raw) return { llmEndpoint: '', llmApiKey: '', llmModel: '' };
       const p = JSON.parse(raw);
       return { llmEndpoint: p.llmEndpoint || '', llmApiKey: p.llmApiKey || '', llmModel: p.llmModel || '' };
@@ -56,7 +57,7 @@ export default function TransferPanel({ projectId, onJobUpdate }: TransferPanelP
 
   const readMineruConfigFromStorage = (): { mineruApiBase: string; mineruToken: string } => {
     try {
-      const raw = window.localStorage.getItem(SETTINGS_KEY);
+      const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
       if (!raw) return { mineruApiBase: '', mineruToken: '' };
       const p = JSON.parse(raw);
       return {
@@ -68,7 +69,7 @@ export default function TransferPanel({ projectId, onJobUpdate }: TransferPanelP
 
   const saveMineruConfigToStorage = (apiBase: string, token: string) => {
     try {
-      const raw = window.localStorage.getItem(SETTINGS_KEY);
+      const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
       const p = raw ? JSON.parse(raw) : {};
       p.mineruApiBase = apiBase;
       p.mineruToken = token;

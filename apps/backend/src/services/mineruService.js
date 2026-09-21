@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { MINERU_API_BASE, MINERU_POLL_INTERVAL_MS, MINERU_MAX_POLL_ATTEMPTS } from '../config/constants.js';
+import { getEnv, MINERU_API_BASE, MINERU_POLL_INTERVAL_MS, MINERU_MAX_POLL_ATTEMPTS } from '../config/constants.js';
 import { ensureDir } from '../utils/fsUtils.js';
 import { safeJoin } from '../utils/pathUtils.js';
 
@@ -11,7 +11,7 @@ const MINERU_MAX_FILE_BYTES = 200 * 1024 * 1024;
  * apiBase can be overridden by the frontend; falls back to MINERU_API_BASE constant.
  */
 export function resolveMineruConfig(mineruConfig) {
-  const rawBase = (mineruConfig?.apiBase || process.env.OPENPRISM_MINERU_API_BASE || MINERU_API_BASE).trim();
+  const rawBase = (mineruConfig?.apiBase || getEnv('MINERU_API_BASE') || MINERU_API_BASE).trim();
   const rawExtraFormats = Array.isArray(mineruConfig?.extraFormats) ? mineruConfig.extraFormats : [];
   const extraFormats = rawExtraFormats
     .map(v => String(v || '').trim().toLowerCase())
@@ -19,7 +19,7 @@ export function resolveMineruConfig(mineruConfig) {
 
   return {
     apiBase: rawBase.replace(/\/+$/, ''),
-    token: (mineruConfig?.token || process.env.OPENPRISM_MINERU_TOKEN || '').trim(),
+    token: (mineruConfig?.token || getEnv('MINERU_TOKEN') || '').trim(),
     modelVersion: mineruConfig?.modelVersion || 'vlm',
     isOcr: typeof mineruConfig?.isOcr === 'boolean' ? mineruConfig.isOcr : undefined,
     enableFormula: typeof mineruConfig?.enableFormula === 'boolean' ? mineruConfig.enableFormula : true,
@@ -332,7 +332,7 @@ export async function parsePdfWithMineru(pdfPath, mineruConfig, outputDir, onPro
     extraFormats,
   } = config;
   if (!token) {
-    throw new Error('MinerU token not configured. Set OPENPRISM_MINERU_TOKEN or provide in settings.');
+    throw new Error('MinerU token not configured. Set SCIENCEPRISM_MINERU_TOKEN or provide in settings.');
   }
   if (callback && !seed) {
     throw new Error('MinerU seed is required when callback is provided.');

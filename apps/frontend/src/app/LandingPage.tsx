@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-const TITLE_TEXT = 'OpenPrism is Here';
+const TITLE_TEXT = 'SciencePrism is Here';
 const FEATURE_KEYS = ['completion', 'vision', 'plot', 'search', 'agent', 'review'] as const;
 const AUTO_INTERVAL = 4000;
 
@@ -63,28 +63,13 @@ export default function LandingPage() {
 
       {/* Hero section */}
       <section className="landing-hero">
-        {/* Announcement banner */}
-        <div className="landing-announce">
-          <span className="landing-announce-text">
-            {t('landing.announce')}
-          </span>
-          <a
-            className="landing-announce-link"
-            href="https://github.com/OpenDCAI"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub &rarr;
-          </a>
-        </div>
-
         {/* Main title with typewriter effect */}
         <h1 className="landing-title">
           {TITLE_TEXT.split('').map((ch, i) => (
             <span
               key={i}
               className={
-                i < 9
+                i < 12
                   ? 'landing-title-accent'
                   : 'landing-title-dark'
               }

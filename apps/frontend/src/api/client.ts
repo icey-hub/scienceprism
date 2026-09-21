@@ -52,13 +52,16 @@ export interface ArxivPaper {
 }
 
 const API_BASE = '';
-const LANG_KEY = 'openprism-lang';
-const COLLAB_TOKEN_KEY = 'openprism-collab-token';
-const COLLAB_SERVER_KEY = 'openprism-collab-server';
+const LANG_KEY = 'scienceprism-lang';
+const LEGACY_LANG_KEY = 'openprism-lang';
+const COLLAB_TOKEN_KEY = 'scienceprism-collab-token';
+const LEGACY_COLLAB_TOKEN_KEY = 'openprism-collab-token';
+const COLLAB_SERVER_KEY = 'scienceprism-collab-server';
+const LEGACY_COLLAB_SERVER_KEY = 'openprism-collab-server';
 
 function getLangHeader() {
   if (typeof window === 'undefined') return 'zh-CN';
-  const stored = window.localStorage.getItem(LANG_KEY);
+  const stored = window.localStorage.getItem(LANG_KEY) || window.localStorage.getItem(LEGACY_LANG_KEY);
   return stored === 'en-US' ? 'en-US' : 'zh-CN';
 }
 
@@ -66,27 +69,30 @@ export function setCollabToken(token: string) {
   if (typeof window === 'undefined') return;
   if (!token) return;
   window.sessionStorage.setItem(COLLAB_TOKEN_KEY, token);
+  window.sessionStorage.removeItem(LEGACY_COLLAB_TOKEN_KEY);
 }
 
 export function clearCollabToken() {
   if (typeof window === 'undefined') return;
   window.sessionStorage.removeItem(COLLAB_TOKEN_KEY);
+  window.sessionStorage.removeItem(LEGACY_COLLAB_TOKEN_KEY);
 }
 
 export function getCollabToken() {
   if (typeof window === 'undefined') return '';
-  return window.sessionStorage.getItem(COLLAB_TOKEN_KEY) || '';
+  return window.sessionStorage.getItem(COLLAB_TOKEN_KEY) || window.sessionStorage.getItem(LEGACY_COLLAB_TOKEN_KEY) || '';
 }
 
 export function setCollabServer(server: string) {
   if (typeof window === 'undefined') return;
   if (!server) return;
   window.localStorage.setItem(COLLAB_SERVER_KEY, server);
+  window.localStorage.removeItem(LEGACY_COLLAB_SERVER_KEY);
 }
 
 export function getCollabServer() {
   if (typeof window === 'undefined') return '';
-  return window.localStorage.getItem(COLLAB_SERVER_KEY) || '';
+  return window.localStorage.getItem(COLLAB_SERVER_KEY) || window.localStorage.getItem(LEGACY_COLLAB_SERVER_KEY) || '';
 }
 
 function getAuthHeader(): Record<string, string> {

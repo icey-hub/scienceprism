@@ -1,5 +1,5 @@
 {
-  "name": "@openprism/frontend",
+  "name": "@scienceprism/frontend",
   "private": true,
   "type": "module",
   "scripts": {

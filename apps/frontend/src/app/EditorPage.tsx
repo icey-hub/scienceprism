@@ -112,7 +112,8 @@ const RIGHT_VIEW_OPTIONS = (t: (key: string) => string) => [
   { value: 'review', label: t('评审报告') }
 ];
 
-const SETTINGS_KEY = 'openprism-settings-v1';
+const SETTINGS_KEY = 'scienceprism-settings-v1';
+const LEGACY_SETTINGS_KEY = 'openprism-settings-v1';
 const DEFAULT_SETTINGS: AppSettings = {
   llmEndpoint: 'https://api.openai.com/v1/chat/completions',
   llmApiKey: '',
@@ -127,13 +128,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   compileEngine: 'pdflatex'
 };
 
-const COLLAB_NAME_KEY = 'openprism-collab-name';
+const COLLAB_NAME_KEY = 'scienceprism-collab-name';
+const LEGACY_COLLAB_NAME_KEY = 'openprism-collab-name';
 const COLLAB_COLORS = ['#b44a2f', '#2f6fb4', '#2f9b74', '#b48a2f', '#6b2fb4', '#b42f6d', '#2f8fb4'];
 
 function loadSettings(): AppSettings {
   if (typeof window === 'undefined') return DEFAULT_SETTINGS;
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
     const engine = parsed.compileEngine;
@@ -165,7 +167,7 @@ function persistSettings(settings: AppSettings) {
 function loadCollabName() {
   if (typeof window === 'undefined') return '';
   try {
-    return window.localStorage.getItem(COLLAB_NAME_KEY) || '';
+    return window.localStorage.getItem(COLLAB_NAME_KEY) || window.localStorage.getItem(LEGACY_COLLAB_NAME_KEY) || '';
   } catch {
     return '';
   }
@@ -207,7 +209,7 @@ function isTextPath(filePath: string) {
 }
 
 function isInternalProjectPath(filePath: string) {
-  return filePath === '.openprism' || filePath.startsWith('.openprism/');
+  return filePath === '.scienceprism' || filePath.startsWith('.scienceprism/') || filePath === '.openprism' || filePath.startsWith('.openprism/');
 }
 
 const SECTION_LEVELS: Record<string, number> = {
@@ -3400,7 +3402,7 @@ export default function EditorPage() {
 
   const downloadPdf = useCallback(() => {
     if (!pdfUrl) return;
-    const name = projectName ? projectName.replace(/\s+/g, '-') : projectId || 'openprism';
+    const name = projectName ? projectName.replace(/\s+/g, '-') : projectId || 'scienceprism';
     const link = document.createElement('a');
     link.href = pdfUrl;
     link.download = `${name}.pdf`;
@@ -3712,7 +3714,7 @@ export default function EditorPage() {
     <div className="app-shell">
       <header className="top-bar">
         <div className="brand">
-          <div className="brand-title">OpenPrism</div>
+          <div className="brand-title">SciencePrism</div>
           <div className="brand-sub">{projectName || t('Editor Workspace')}</div>
         </div>
         <div className="toolbar">

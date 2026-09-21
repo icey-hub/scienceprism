@@ -20,7 +20,7 @@ export function registerPlotRoutes(fastify) {
 
     const resolved = resolveLLMConfig(llmConfig);
     if (!resolved.apiKey) {
-      return { ok: false, error: 'OPENPRISM_LLM_API_KEY not set' };
+      return { ok: false, error: 'SCIENCEPRISM_LLM_API_KEY not set' };
     }
     const baseSystem = [
       'You generate python plotting code using matplotlib (and seaborn if available).',

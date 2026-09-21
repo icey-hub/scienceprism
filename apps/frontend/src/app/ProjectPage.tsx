@@ -22,7 +22,8 @@ import TransferPanel from './TransferPanel';
 type ViewFilter = 'all' | 'mine' | 'archived' | 'trash';
 type SortBy = 'updatedAt' | 'name' | 'createdAt';
 
-const SETTINGS_KEY = 'openprism-settings-v1';
+const SETTINGS_KEY = 'scienceprism-settings-v1';
+const LEGACY_SETTINGS_KEY = 'openprism-settings-v1';
 
 interface LLMSettings {
   llmEndpoint: string;
@@ -38,7 +39,7 @@ const DEFAULT_LLM: LLMSettings = {
 
 function loadLLMSettings(): LLMSettings {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
     if (!raw) return DEFAULT_LLM;
     const parsed = JSON.parse(raw);
     return {
@@ -53,7 +54,7 @@ function loadLLMSettings(): LLMSettings {
 
 function saveLLMSettings(s: LLMSettings) {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
     const prev = raw ? JSON.parse(raw) : {};
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...prev, ...s }));
   } catch {}
@@ -400,7 +401,7 @@ export default function ProjectPage() {
       {/* ── Sidebar ── */}
       <aside className="project-sidebar">
         <div className="sidebar-brand">
-          <div className="brand-title">OpenPrism</div>
+          <div className="brand-title">SciencePrism</div>
           <div className="brand-sub">{t('Projects Workspace')}</div>
         </div>
 

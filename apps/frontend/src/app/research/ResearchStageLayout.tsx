@@ -80,7 +80,7 @@ export function ResearchStageLayout({
         <div className="research-stage-project">
           <button className="research-icon-button" onClick={onBackToEditor} type="button" aria-label="返回论文编辑器" title="返回论文编辑器">&larr;</button>
           <div>
-            <span className="research-overline">OPENPRISM / RESEARCH</span>
+            <span className="research-overline">SCIENCEPRISM / RESEARCH</span>
             <h1>{projectName}</h1>
           </div>
         </div>

@@ -3,7 +3,7 @@ name: literature-search
 description: Human-led literature discovery that expands a researcher-owned question into traceable search queries and source plans.
 whenToUse: Use during direction and search stages before collecting or comparing candidate papers.
 metadata:
-  owner: openprism
+  owner: scienceprism
   stages:
     - direction
     - search

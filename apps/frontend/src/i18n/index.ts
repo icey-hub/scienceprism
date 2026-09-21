@@ -3,12 +3,13 @@ import { initReactI18next } from 'react-i18next';
 import zhCN from './locales/zh-CN.json';
 import enUS from './locales/en-US.json';
 
-const STORAGE_KEY = 'openprism-lang';
+const STORAGE_KEY = 'scienceprism-lang';
+const LEGACY_STORAGE_KEY = 'openprism-lang';
 const defaultLang = 'zh-CN';
 
 function getInitialLang() {
   if (typeof window === 'undefined') return defaultLang;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = window.localStorage.getItem(STORAGE_KEY) || window.localStorage.getItem(LEGACY_STORAGE_KEY);
   if (stored === 'zh-CN' || stored === 'en-US') return stored;
   return defaultLang;
 }

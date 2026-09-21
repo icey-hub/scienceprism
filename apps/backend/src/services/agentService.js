@@ -109,7 +109,7 @@ export async function runToolAgent({
     func: async ({ query, maxResults }) => {
       const max = Math.min(10, Math.max(1, maxResults || 5));
       const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${max}`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'openprism/1.0' } });
+      const res = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' } });
       if (!res.ok) {
         throw new Error(`arXiv search failed: ${res.status}`);
       }
@@ -149,7 +149,7 @@ export async function runToolAgent({
 
   const resolved = resolveLLMConfig(llmConfig);
   if (!resolved.apiKey) {
-    return { ok: false, reply: 'OPENPRISM_LLM_API_KEY not set', patches: [] };
+    return { ok: false, reply: 'SCIENCEPRISM_LLM_API_KEY not set', patches: [] };
   }
 
   const llm = new ChatOpenAI({
@@ -161,7 +161,7 @@ export async function runToolAgent({
   });
 
   const system = [
-    'You are a LaTeX paper assistant for OpenPrism.',
+    'You are a LaTeX paper assistant for SciencePrism.',
     'You can read files and propose patches via tools, and you may call tools multiple times.',
     'If a request affects multiple files (e.g., sections + bib), inspect and update all relevant files.',
     'You can use arxiv_search to find papers and arxiv_bibtex to generate BibTeX.',

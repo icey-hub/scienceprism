@@ -2803,37 +2803,6 @@ textarea.input {
   width: 100%;
 }
 
-.landing-announce {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 20px;
-  background: rgba(255, 255, 255, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 13px;
-  color: var(--muted);
-  margin-bottom: 36px;
-  box-shadow: 0 2px 12px rgba(68, 50, 38, 0.06);
-}
-
-.landing-announce-text {
-  color: var(--muted);
-}
-
-.landing-announce-link {
-  color: var(--text);
-  font-weight: 600;
-  cursor: pointer;
-  transition: color 0.2s ease;
-  text-decoration: none;
-}
-
-.landing-announce-link:hover {
-  color: var(--accent);
-}
-
 .landing-title {
   font-family: "Source Serif 4", "Times New Roman", serif;
   font-size: clamp(48px, 8vw, 80px);

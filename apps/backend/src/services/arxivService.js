@@ -19,7 +19,7 @@ export function extractArxivId(input) {
 export async function fetchArxivEntry(arxivId) {
   const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`;
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'openprism/1.0' },
+    headers: { 'User-Agent': 'scienceprism/1.0' },
     signal: AbortSignal.timeout(30_000)
   });
   if (!res.ok) {
@@ -55,7 +55,7 @@ export function buildArxivBibtex(entry) {
 export async function downloadArxivSource(arxivId, outputPath, onProgress) {
   const url = `https://arxiv.org/e-print/${arxivId}`;
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'openprism/1.0' },
+    headers: { 'User-Agent': 'scienceprism/1.0' },
     signal: AbortSignal.timeout(300_000)
   });
   if (!res.ok) {

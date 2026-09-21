@@ -8,7 +8,7 @@
       "description": "ACL 会议论文模板，适用于自然语言处理领域",
       "descriptionEn": "ACL conference paper template for NLP research",
       "tags": ["ACL", "NLP"],
-      "author": "OpenPrism",
+      "author": "SciencePrism",
       "featured": true
     },
     {
@@ -19,7 +19,7 @@
       "description": "CVPR 会议论文骨架模板，适用于计算机视觉领域",
       "descriptionEn": "CVPR conference paper skeleton template for computer vision",
       "tags": ["CVPR", "Computer Vision"],
-      "author": "OpenPrism",
+      "author": "SciencePrism",
       "featured": true
     },
     {
@@ -30,7 +30,7 @@
       "description": "NeurIPS 会议论文骨架模板，适用于机器学习领域",
       "descriptionEn": "NeurIPS conference paper skeleton template for machine learning",
       "tags": ["NeurIPS", "Machine Learning"],
-      "author": "OpenPrism",
+      "author": "SciencePrism",
       "featured": true
     },
     {
@@ -41,7 +41,7 @@
       "description": "ICML 会议论文骨架模板，适用于机器学习领域",
       "descriptionEn": "ICML conference paper skeleton template for machine learning",
       "tags": ["ICML", "Machine Learning"],
-      "author": "OpenPrism",
+      "author": "SciencePrism",
       "featured": true
     }
   ],

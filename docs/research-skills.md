@@ -1,6 +1,6 @@
 # Research Skills
 
-OpenPrism bundles six DeepSeek Harness skills under `.dsh/skills`. They are
+SciencePrism bundles six DeepSeek Harness skills under `.dsh/skills`. They are
 automatically copied into the isolated Harness workspace for research-stage
 runs, so a normal run can discover them through the Harness `skill` tool.
 
@@ -24,12 +24,12 @@ DeepSeek Harness discovers a project skill at:
 The file must start with YAML frontmatter containing `name` and `description`.
 The name must be kebab-case. A project-local skill with the same name takes
 precedence over the bundled copy in the temporary workspace, so it can be
-customized without changing OpenPrism.
+customized without changing SciencePrism.
 
 You can add a project Skill from the first workflow page at
 `/editor/:projectId/research/direction`. Select the Skill directory in the
 **添加 Skill** control, refresh the catalog if needed, and enable it for one or
-more compatible stages. OpenPrism only uploads the selected files under
+more compatible stages. SciencePrism only uploads the selected files under
 `.dsh/skills`; it does not execute Skill files during upload.
 
 Skills are instructions, not authority. The research workflow still enforces

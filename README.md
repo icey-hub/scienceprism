@@ -18,7 +18,7 @@ SciencePrism is a local-first research workspace for turning a researcher’s ow
 
 ## Research workflow
 
-The workflow lives inside the same project and editor shell. Every stage has its own URL and records state and audit events in `.openprism/research-workflow.json` (the `OPENPRISM_*` prefix is retained for runtime compatibility).
+The workflow lives inside the same project and editor shell. Every stage has its own URL and records state and audit events in `.scienceprism/research-workflow.json`. Runtime settings use the `SCIENCEPRISM_*` prefix; `OPENPRISM_*` remains supported as a legacy fallback.
 
 1. **Direction** — enter the research question, scope, constraints, and acceptance criteria.
 2. **Search** — expand the human-defined direction into traceable paper queries and results.
@@ -96,10 +96,10 @@ The key is read from the workspace setting first, then from `DEEPSEEK_API_KEY` f
 Select **DeepSeek Harness** as the Agent Runtime in Workspace Settings. SciencePrism auto-detects the standard local SDK path, or you can point to another checkout:
 
 ```text
-OPENPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
+SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
 ```
 
-Optional runtime settings include `OPENPRISM_HARNESS_PROFILE`, `OPENPRISM_HARNESS_PROVIDER`, `OPENPRISM_HARNESS_MAX_TOKENS`, and `OPENPRISM_HARNESS_TIMEOUT_MS`. If Harness cannot start, the existing LangChain runtime is used unless `OPENPRISM_HARNESS_FALLBACK=false` is set.
+Optional runtime settings include `SCIENCEPRISM_HARNESS_PROFILE`, `SCIENCEPRISM_HARNESS_PROVIDER`, `SCIENCEPRISM_HARNESS_MAX_TOKENS`, and `SCIENCEPRISM_HARNESS_TIMEOUT_MS`. If Harness cannot start, the existing LangChain runtime is used unless `SCIENCEPRISM_HARNESS_FALLBACK=false` is set.
 
 Each Harness request runs against a temporary project copy. Text changes return as pending diffs and affect the original project only after the user applies them.
 
@@ -123,7 +123,7 @@ To add a project Skill, open `/editor/:projectId/research/direction`, choose **�
 To provide an official venue catalog, set a JSON object mapping venue names to levels:
 
 ```bash
-export OPENPRISM_CCF_VENUE_CATALOG_JSON='{"NeurIPS":"CCF-A","SIGIR":"CCF-A"}'
+export SCIENCEPRISM_CCF_VENUE_CATALOG_JSON='{"NeurIPS":"CCF-A","SIGIR":"CCF-A"}'
 ```
 
 The catalog is a metadata adapter. It cannot override failed year, peer-review, code, or human-approval checks. See [docs/research-workflow.md](docs/research-workflow.md) for the full policy and API behavior.

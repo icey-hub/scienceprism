@@ -1,9 +1,9 @@
 ---
 name: paper-screening
-description: Evidence-aware paper screening that explains quality checks while leaving hard eligibility decisions to OpenPrism's server-side gate and the researcher.
+description: Evidence-aware paper screening that explains quality checks while leaving hard eligibility decisions to SciencePrism's server-side gate and the researcher.
 whenToUse: Use during paper selection when candidate metadata must be compared against an explicit quality policy.
 metadata:
-  owner: openprism
+  owner: scienceprism
   stages:
     - selection
 ---

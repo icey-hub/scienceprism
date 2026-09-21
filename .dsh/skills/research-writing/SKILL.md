@@ -3,7 +3,7 @@ name: research-writing
 description: Evidence-bounded manuscript planning that turns approved papers, methods, and experiment results into claims, outline, citations, and explicit limitations.
 whenToUse: Use at the writing handoff and whenever experiment evidence is being converted into manuscript structure.
 metadata:
-  owner: openprism
+  owner: scienceprism
   stages:
     - writing
 ---

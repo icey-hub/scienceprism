@@ -73,7 +73,7 @@ function parseInlineList(value) {
 /**
  * The Harness skill metadata is deliberately kept to a small YAML subset.
  * It is sufficient for discovery and avoids treating arbitrary skill content
- * as executable configuration in the OpenPrism server.
+ * as executable configuration in the SciencePrism server.
  */
 function parseSkillFrontmatter(content) {
   const lines = String(content || '').replace(/^\uFEFF/, '').split(/\r?\n/);

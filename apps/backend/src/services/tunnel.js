@@ -25,7 +25,7 @@ export async function tryStartTunnel(port) {
   if (mode === 'cloudflared') return tryCloudflared(port);
   if (mode === 'ngrok') return tryNgrok(port);
 
-  console.warn(`[tunnel] Unknown OPENPRISM_TUNNEL value: "${TUNNEL_MODE}", skipping.`);
+  console.warn(`[tunnel] Unknown SCIENCEPRISM_TUNNEL value: "${TUNNEL_MODE}", skipping.`);
   return null;
 }
 

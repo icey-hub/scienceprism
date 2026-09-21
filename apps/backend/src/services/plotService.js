@@ -3,16 +3,17 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { spawn } from 'child_process';
 import { ensureDir } from '../utils/fsUtils.js';
+import { getEnv } from '../config/constants.js';
 
 function resolvePythonExecutable() {
-  if (process.env.OPENPRISM_PYTHON) return process.env.OPENPRISM_PYTHON;
+  if (getEnv('PYTHON')) return getEnv('PYTHON');
   if (process.env.CONDA_PREFIX) return `${process.env.CONDA_PREFIX}/bin/python`;
   return 'python3';
 }
 
 export async function runPythonPlot(payload) {
   const runId = crypto.randomUUID();
-  const tmpDir = path.join('/tmp', `openprism_plot_${runId}`);
+  const tmpDir = path.join('/tmp', `scienceprism_plot_${runId}`);
   await ensureDir(tmpDir);
   const payloadPath = path.join(tmpDir, 'payload.json');
   await fs.writeFile(payloadPath, JSON.stringify(payload), 'utf8');

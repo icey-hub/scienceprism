@@ -3,7 +3,7 @@ name: statistics-audit
 description: Conservative audit of experimental units, replication, uncertainty, comparisons, metrics, and figure-ready result reporting.
 whenToUse: Use while planning experiments, interpreting completed runs, or preparing evidence for manuscript writing.
 metadata:
-  owner: openprism
+  owner: scienceprism
   stages:
     - experiment
     - writing
