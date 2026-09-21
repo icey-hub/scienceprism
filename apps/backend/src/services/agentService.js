@@ -13,6 +13,7 @@ import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from './llm
 import { getProjectRoot } from './projectService.js';
 import { extractArxivId, fetchArxivEntry, buildArxivBibtex } from './arxivService.js';
 import { t } from '../i18n/index.js';
+import { assertCapability, assertNetworkHost, assertProjectPath, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
 
 export async function runToolAgent({
   projectId,
@@ -21,8 +22,11 @@ export async function runToolAgent({
   prompt,
   selection,
   compileLog,
+  contextPack,
   llmConfig,
-  lang = 'zh-CN'
+  lang = 'zh-CN',
+  capabilities = DEFAULT_PROJECT_CAPABILITIES,
+  capabilityPolicy
 }) {
   if (!projectId) {
     return { ok: false, reply: t(lang, 'missing_project_id_tools'), patches: [] };
@@ -30,13 +34,15 @@ export async function runToolAgent({
 
   const projectRoot = await getProjectRoot(projectId);
   const pendingPatches = [];
+  const effectiveCapabilityPolicy = capabilityPolicy || { granted: capabilities };
 
   const readFileTool = new DynamicStructuredTool({
     name: 'read_file',
     description: 'Read a UTF-8 file from the project. Input: { path } (relative to project root).',
     schema: z.object({ path: z.string() }),
     func: async ({ path: filePath }) => {
-      const abs = safeJoin(projectRoot, filePath);
+      const safePath = assertProjectPath(filePath, effectiveCapabilityPolicy, { operation: 'read' });
+      const abs = safeJoin(projectRoot, safePath);
       const content = await fs.readFile(abs, 'utf8');
       return content.slice(0, 20000);
     }
@@ -47,7 +53,8 @@ export async function runToolAgent({
     description: 'List files under a directory. Input: { dir } (relative path, optional).',
     schema: z.object({ dir: z.string().optional() }),
     func: async ({ dir }) => {
-      const root = dir ? safeJoin(projectRoot, dir) : projectRoot;
+      const safePath = assertProjectPath(dir || '', effectiveCapabilityPolicy, { operation: 'read' });
+      const root = safePath ? safeJoin(projectRoot, safePath) : projectRoot;
       const items = await listFilesRecursive(root, '');
       const files = items.filter((item) => item.type === 'file').map((item) => item.path);
       return JSON.stringify({ files });
@@ -59,16 +66,17 @@ export async function runToolAgent({
     description: 'Propose a full file rewrite. Input: { path, content }. This does NOT write. It returns a patch for user confirmation.',
     schema: z.object({ path: z.string(), content: z.string() }),
     func: async ({ path: filePath, content }) => {
+      const safePath = assertProjectPath(filePath, effectiveCapabilityPolicy, { operation: 'patch' });
       let original = '';
       try {
-        const abs = safeJoin(projectRoot, filePath);
+        const abs = safeJoin(projectRoot, safePath);
         original = await fs.readFile(abs, 'utf8');
       } catch {
         original = '';
       }
-      const diff = createTwoFilesPatch(filePath, filePath, original, content, 'current', 'proposed');
-      pendingPatches.push({ path: filePath, original, content, diff });
-      return `Patch prepared for ${filePath}. Awaiting user confirmation.`;
+      const diff = createTwoFilesPatch(safePath, safePath, original, content, 'current', 'proposed');
+      pendingPatches.push({ path: safePath, original, content, diff });
+      return `Patch prepared for ${safePath}. Awaiting user confirmation.`;
     }
   });
 
@@ -81,15 +89,16 @@ export async function runToolAgent({
       if (!filePath) {
         throw new Error('Patch missing file path');
       }
-      const abs = safeJoin(projectRoot, filePath);
+      const safePath = assertProjectPath(filePath, effectiveCapabilityPolicy, { operation: 'patch' });
+      const abs = safeJoin(projectRoot, safePath);
       const original = await fs.readFile(abs, 'utf8');
       const patched = applyPatch(original, patch);
       if (patched === false) {
         throw new Error('Failed to apply patch');
       }
-      const diff = createTwoFilesPatch(filePath, filePath, original, patched, 'current', 'proposed');
-      pendingPatches.push({ path: filePath, original, content: patched, diff });
-      return `Patch applied in memory for ${filePath}. Awaiting user confirmation.`;
+      const diff = createTwoFilesPatch(safePath, safePath, original, patched, 'current', 'proposed');
+      pendingPatches.push({ path: safePath, original, content: patched, diff });
+      return `Patch applied in memory for ${safePath}. Awaiting user confirmation.`;
     }
   });
 
@@ -107,8 +116,10 @@ export async function runToolAgent({
     description: 'Search arXiv papers. Input: { query, maxResults? }.',
     schema: z.object({ query: z.string(), maxResults: z.number().optional() }),
     func: async ({ query, maxResults }) => {
+      assertCapability(effectiveCapabilityPolicy, 'research.search');
       const max = Math.min(10, Math.max(1, maxResults || 5));
       const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${max}`;
+      assertNetworkHost(effectiveCapabilityPolicy, url);
       const res = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' } });
       if (!res.ok) {
         throw new Error(`arXiv search failed: ${res.status}`);
@@ -139,8 +150,10 @@ export async function runToolAgent({
     description: 'Generate BibTeX for an arXiv paper. Input: { arxivId }.',
     schema: z.object({ arxivId: z.string() }),
     func: async ({ arxivId }) => {
+      assertCapability(effectiveCapabilityPolicy, 'research.search');
       const id = extractArxivId(arxivId);
       if (!id) throw new Error('Invalid arXiv ID');
+      assertNetworkHost(effectiveCapabilityPolicy, `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}`);
       const entry = await fetchArxivEntry(id);
       if (!entry) throw new Error('No arXiv metadata found');
       return buildArxivBibtex(entry);
@@ -175,7 +188,8 @@ export async function runToolAgent({
     activePath ? `Active file: ${activePath}` : '',
     prompt ? `User prompt: ${prompt}` : '',
     selection ? `Selection:\n${selection}` : '',
-    compileLog ? `Compile log:\n${compileLog}` : ''
+    compileLog ? `Compile log:\n${compileLog}` : '',
+    contextPack ? `Structured context pack (authoritative snapshot):\n${JSON.stringify(contextPack)}` : ''
   ].filter(Boolean).join('\n\n');
 
   const promptTemplate = ChatPromptTemplate.fromMessages([

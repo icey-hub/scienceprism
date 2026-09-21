@@ -2,6 +2,7 @@ import type { InnovationIdea } from '../researchStages';
 
 export interface InnovationStageProps {
   ideas: readonly InnovationIdea[];
+  comparison?: readonly { ideaId: string; strengths: string[]; weaknesses: string[]; differentiator: string }[];
   selectedIdeaIds: readonly string[];
   selectedPaperCount: number;
   busy?: boolean;
@@ -10,7 +11,7 @@ export interface InnovationStageProps {
   onSaveSelection: () => void;
 }
 
-export function InnovationStage({ ideas, selectedIdeaIds, selectedPaperCount, busy = false, onGenerate, onToggleIdea, onSaveSelection }: InnovationStageProps) {
+export function InnovationStage({ ideas, comparison = [], selectedIdeaIds, selectedPaperCount, busy = false, onGenerate, onToggleIdea, onSaveSelection }: InnovationStageProps) {
   return (
     <div className="research-page-stack">
       <section className="research-panel research-split-panel">
@@ -36,8 +37,8 @@ export function InnovationStage({ ideas, selectedIdeaIds, selectedPaperCount, bu
                 <div>
                   <span className="research-overline">候选 {String(index + 1).padStart(2, '0')}</span>
                   <h3>{idea.title}</h3>
-                  <p>{idea.summary}</p>
-                  <div className="research-evidence-list">{idea.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
+                  <p>{idea.summary || idea.problem || idea.motivation || '尚未补充候选创新点说明。'}</p>
+                  <div className="research-evidence-list">{(idea.evidence || idea.relatedPaperIds || []).map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
                 </div>
               </article>
             );
@@ -45,6 +46,7 @@ export function InnovationStage({ ideas, selectedIdeaIds, selectedPaperCount, bu
           <div className="research-list-footer"><p><strong>{selectedIdeaIds.length}</strong> 个创新点将进入方法设计</p><button className="research-button research-button-secondary" disabled={busy || selectedIdeaIds.length === 0} onClick={onSaveSelection} type="button">保存创新点</button></div>
         </section>
       )}
+      {comparison.length > 0 && <section className="research-panel"><div className="research-panel-heading"><div><span className="research-overline">CANDIDATE COMPARISON</span><h3>创新点比较</h3></div><span className="research-status-note">辅助分析</span></div><div className="research-comparison-list">{comparison.map((item) => <article className="research-comparison-row" key={item.ideaId}><strong>{ideas.find((idea) => idea.id === item.ideaId)?.title || item.ideaId}</strong><span>优势：{(item.strengths || []).join('；') || '—'}</span><span>风险：{(item.weaknesses || []).join('；') || '—'}</span><small>差异化：{item.differentiator}</small></article>)}</div></section>}
     </div>
   );
 }

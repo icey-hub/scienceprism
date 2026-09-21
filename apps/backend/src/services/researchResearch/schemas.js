@@ -7,10 +7,16 @@ const stage = (name) => z.literal(name);
 
 const evidenceSchema = z.object({
   id,
-  kind: z.enum(['paper', 'dataset', 'experiment', 'artifact', 'human-note']),
+  kind: z.enum(['research-question', 'paper', 'dataset', 'code', 'environment', 'method', 'experiment-plan', 'experiment-run', 'result', 'experiment', 'log', 'figure', 'table', 'artifact', 'human-note', 'paper-claim']),
   referenceId: nonEmpty,
   summary: nonEmpty,
-  location: z.string().trim().min(1).nullable().optional()
+  location: z.string().trim().min(1).nullable().optional(),
+  sourceUrl: z.string().trim().min(1).nullable().optional(),
+  sourcePath: z.string().trim().min(1).nullable().optional(),
+  acquiredAt: z.string().trim().min(1).nullable().optional(),
+  verificationStatus: z.enum(['unverified', 'pending', 'partially-verified', 'verified', 'human-confirmed', 'approved', 'rejected', 'superseded']).optional(),
+  version: z.string().trim().min(1).nullable().optional(),
+  sha256: z.string().trim().min(1).nullable().optional()
 }).strict();
 
 const paperReferenceSchema = z.object({

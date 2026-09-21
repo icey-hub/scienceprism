@@ -1,4 +1,4 @@
-import { runDeepSeekHarness } from '../deepseekHarnessService.js';
+import { recordHarnessRunValidation, runHarnessRequest } from '../harnessRuntime/index.js';
 import {
   getResearchStageSchema,
   normalizeResearchStage,
@@ -7,6 +7,7 @@ import {
   RESEARCH_STAGES
 } from './schemas.js';
 import { getResearchStageSkills, researchSkillPrompt } from './researchSkills.js';
+import { validateStageEvidence } from '../evidenceLedger/index.js';
 
 function asText(value) {
   return value === null || value === undefined ? '' : String(value).trim();
@@ -32,6 +33,7 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
     'The human owns the research direction, paper selection, innovation choice, method approval, and final claims.',
     'Provide analysis and structured suggestions only. Never claim that an unverified metadata field or experiment result is verified.',
     'Return JSON only. Do not use Markdown fences, comments, or prose outside the JSON object.',
+    'Every Paper Claim must cite existing confirmed Evidence by evidenceIds. If support is missing, add the item to unsupportedClaims and keep the claim explicitly unverified; never present speculation as a verified result.',
     `Research stage: ${normalizedStage}`,
     `Required output contract:\n${safeJson(contract)}`,
     `Stage-specific project skills:\n${researchSkillPrompt(normalizedStage, skills)}`,
@@ -43,9 +45,8 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
 }
 
 /**
- * Thin adapter over the existing DeepSeek Harness service.
- * It adds stage-level JSON validation but does not create another SDK client,
- * alter Harness configuration, or silently apply AI decisions.
+ * Stage adapter over the Harness Runtime. The stage owns its output contract;
+ * the Runtime owns provider selection, lifecycle, isolation, and audit data.
  */
 export async function runResearchHarnessStage({
   stage,
@@ -57,7 +58,10 @@ export async function runResearchHarnessStage({
   selection,
   compileLog,
   llmConfig,
-  runHarness = runDeepSeekHarness
+  adapter,
+  fakeResponse,
+  fakeError,
+  runHarness = runHarnessRequest
 } = {}) {
   const normalizedStage = normalizeResearchStage(stage);
   if (!RESEARCH_STAGES.includes(normalizedStage)) {
@@ -85,15 +89,32 @@ export async function runResearchHarnessStage({
   const activeSkills = projectId ? await getResearchStageSkills(projectId, normalizedStage) : [];
   const harnessResult = await runHarness({
     projectId,
+    stage: normalizedStage,
     activePath,
     task: `research:${normalizedStage}`,
     prompt: buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills }),
+    humanInstructions,
+    input,
+    context,
+    stageContract: RESEARCH_STAGE_CONTRACTS[normalizeResearchStage(normalizedStage)],
     selection,
     compileLog,
     llmConfig,
-    researchSkills: activeSkills.map((skill) => skill.name)
+    adapter,
+    fakeResponse,
+    fakeError,
+    researchSkills: activeSkills.map((skill) => skill.name),
+    researchSkillMetadata: activeSkills.map(({ name, description, stages }) => ({ name, description, stages })),
+    capabilities: ['project.read']
   });
-  const validation = parseResearchStageOutput(normalizedStage, harnessResult?.reply || '');
+  const parsedValidation = parseResearchStageOutput(normalizedStage, harnessResult?.reply || '');
+  const evidenceValidation = projectId && parsedValidation.ok
+    ? await validateStageEvidence(projectId, normalizedStage, parsedValidation.data)
+    : { ok: true, errors: [], warnings: [] };
+  const validation = evidenceValidation.ok
+    ? { ...parsedValidation, evidence: evidenceValidation }
+    : { ...parsedValidation, ok: false, data: null, errors: [...parsedValidation.errors, ...evidenceValidation.errors], evidence: evidenceValidation };
+  if (harnessResult?.runId) await recordHarnessRunValidation(projectId, harnessResult.runId, validation);
   return {
     ...harnessResult,
     ok: Boolean(harnessResult?.ok && validation.ok),
@@ -106,6 +127,6 @@ export async function runResearchHarnessStage({
 export const runResearchStage = runResearchHarnessStage;
 
 /** Dependency-injection helper for routes/services that keep a configured runner. */
-export function createResearchHarnessRunner({ runHarness = runDeepSeekHarness } = {}) {
+export function createResearchHarnessRunner({ runHarness = runHarnessRequest } = {}) {
   return (params) => runResearchHarnessStage({ ...params, runHarness });
 }

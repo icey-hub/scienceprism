@@ -97,6 +97,11 @@ export interface PaperCandidate {
   eligibility?: PaperEligibility;
   reason?: string;
   selected?: boolean;
+  evidenceId?: string;
+  source?: string;
+  sourceCount?: number;
+  sourceRecords?: { provider?: string; id?: string; retrievedAt?: string }[];
+  metadata?: { complete?: boolean; missing?: string[] };
 }
 
 export interface ReplicationPlan {
@@ -112,6 +117,13 @@ export interface InnovationIdea {
   title: string;
   summary: string;
   evidence: string[];
+  problem?: string;
+  motivation?: string;
+  hypothesis?: string;
+  novelty?: string;
+  relatedPaperIds?: string[];
+  validationPlan?: string[];
+  risks?: string[];
 }
 
 export interface MethodDraft {
@@ -141,6 +153,22 @@ export interface WritingEvidenceSummary {
   metricCount: number;
   ready: boolean;
   outline: string;
+  claimMatrix?: {
+    ok: boolean;
+    totalClaims: number;
+    supportedClaims: number;
+    unsupportedClaims: number;
+    needsVerificationClaims: number;
+    rows: Array<{
+      id: string;
+      text: string;
+      status: string;
+      evidenceIds: string[];
+      missingEvidenceIds: string[];
+      unverifiedEvidenceIds: string[];
+      staleEvidenceIds: string[];
+    }>;
+  };
 }
 
 export type ProjectSkillSource = 'built-in' | 'project';

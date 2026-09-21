@@ -185,7 +185,10 @@ export function normalizePaperCandidate(input = {}) {
     codeUrl,
     source: asText(firstValue(source.source, source.provider, source.database)) || null,
     links,
-    metadataUpdatedAt: asText(firstValue(source.metadataUpdatedAt, source.updatedAt)) || null
+    metadataUpdatedAt: asText(firstValue(source.metadataUpdatedAt, source.updatedAt)) || null,
+    retrievedAt: asText(firstValue(source.retrievedAt, source.acquiredAt)) || null,
+    sourceRecords: Array.isArray(source.sourceRecords) ? source.sourceRecords : [],
+    sourceCount: Number(source.sourceCount) || (source.source ? 1 : 0)
   };
 }
 
@@ -480,6 +483,15 @@ export function evaluatePaperCandidate(input, policyInput = {}) {
     checks,
     reasons: checks.map((check) => check.reason),
     unknownFields: unique(checks.map((check) => check.unknownField)),
+    metadata: {
+      complete: Boolean(candidate.title && candidate.authors.length && candidate.year && candidate.abstract && candidate.url),
+      missing: ['title', 'authors', 'year', 'abstract', 'url'].filter((field) => {
+        const value = candidate[field];
+        return Array.isArray(value) ? value.length === 0 : value === null || value === undefined || value === '';
+      })
+    },
+    source: candidate.source,
+    sourceCount: candidate.sourceCount,
     policy
   };
 }

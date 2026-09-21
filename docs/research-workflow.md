@@ -4,7 +4,13 @@ SciencePrism now includes a human-led research workflow inside the same project 
 the writing editor. The workflow is available at
 `/editor/:projectId/research/:stage`; the old `/research/:projectId` path
 redirects to the direction stage.
-It persists state and audit events in `.scienceprism/research-workflow.json` inside each project. Existing `.openprism` workflow files are migrated on first access.
+It persists schema version 3 state, command receipts, and audit events in `.scienceprism/research-workflow.json` inside each project. Existing `.openprism` workflow files and schema versions 1/2 are migrated on first access.
+
+The Phase 1 domain and architecture contracts are documented in
+[CONTEXT.md](../CONTEXT.md), [project constraints](./project-constraints.md),
+[stage contracts](./research-stage-contracts.md), and the
+[workflow migration contract](./research-workflow-contract.md). Architectural
+decisions are recorded in [docs/adr](./adr/).
 
 ## Stages
 
@@ -23,6 +29,8 @@ and writing entry point stay mounted while the research view replaces the
 editor/preview area. The writing stage returns to `/editor/:projectId` after the
 evidence handoff. Navigation does not grant approval: the server still checks
 the current stage and records every approval in the project audit log.
+
+The backend also exposes stage details, pending approvals, and the audit timeline as query projections. Mutations accept `expectedVersion` for optimistic concurrency and `idempotencyKey` for safe retries.
 
 ### Stage 1 Skills
 
@@ -54,6 +62,6 @@ PORT=8799 SCIENCEPRISM_TUNNEL=false npm --workspace apps/backend run dev
 SCIENCEPRISM_BACKEND_URL=http://127.0.0.1:8799 npm --workspace apps/frontend run dev -- --host 127.0.0.1 --port 5174
 ```
 
-The DeepSeek Harness adapter reuses the existing `runDeepSeekHarness` integration. Set `SCIENCEPRISM_HARNESS_SDK` or install the SDK where the existing runtime can discover it before running AI-assisted stages.
+Research stages call the Harness Runtime and do not depend on a provider SDK. The default Adapter is DeepSeek; set `llmConfig.runtime` to `legacy` for the LangChain Adapter, or use `fake` in deterministic tests. Set `SCIENCEPRISM_HARNESS_SDK` or install the SDK where the DeepSeek Adapter can discover it before running DeepSeek-assisted stages. Each Run is queryable under `/api/projects/:id/harness-runs`.
 
 Stage-specific Harness skills are documented in [research-skills.md](./research-skills.md). The bundled skills are copied into the isolated run workspace and cannot bypass the server-side quality gate or human approvals.

@@ -532,6 +532,49 @@ export interface ResearchSkillSummary {
   enabled?: boolean;
 }
 
+export interface EvidenceRecord {
+  id: string;
+  kind: string;
+  title?: string;
+  summary?: string;
+  source?: { url?: string | null; path?: string | null; provider?: string | null; locator?: string | null };
+  verificationStatus: string;
+  version?: string | null;
+  sha256?: string | null;
+}
+
+export interface ClaimEvidenceRow {
+  id: string;
+  text: string;
+  status: 'supported' | 'unsupported' | 'needs-verification' | string;
+  evidenceIds: string[];
+  evidence: EvidenceRecord[];
+  missingEvidenceIds: string[];
+  unverifiedEvidenceIds: string[];
+  staleEvidenceIds: string[];
+}
+
+export interface ClaimEvidenceMatrix {
+  ok: boolean;
+  totalClaims: number;
+  supportedClaims: number;
+  unsupportedClaims: number;
+  needsVerificationClaims: number;
+  missingEvidenceIds: string[];
+  unverifiedEvidenceIds: string[];
+  staleEvidenceIds: string[];
+  rows: ClaimEvidenceRow[];
+  checkedAt: string;
+}
+
+export function getEvidenceClaimMatrix(projectId: string) {
+  return request<{ ok: boolean; matrix: ClaimEvidenceMatrix }>(`/api/projects/${projectId}/evidence/claims/matrix`);
+}
+
+export function getEvidenceGraph(projectId: string) {
+  return request<{ ok: boolean; graph: { nodes: unknown[]; edges: unknown[]; version: number } }>(`/api/projects/${projectId}/evidence/graph`);
+}
+
 export function getResearchWorkflow(projectId: string) {
   return request<{ ok: boolean; workflow: ResearchWorkflowState }>(`/api/projects/${projectId}/research-workflow`);
 }
@@ -581,7 +624,8 @@ export function getResearchWorkflowSkills(projectId: string) {
 export function updateResearchWorkflowSkillBindings(
   projectId: string,
   bindings: Partial<Record<ResearchStageId, string[]>>,
-  note?: string
+  note?: string,
+  concurrency?: { expectedVersion?: number; idempotencyKey?: string }
 ) {
   return request<{
     ok: boolean;
@@ -589,7 +633,7 @@ export function updateResearchWorkflowSkillBindings(
     bindings: Partial<Record<ResearchStageId, string[]>>;
   }>(`/api/projects/${projectId}/research-workflow/skills/bindings`, {
     method: 'PUT',
-    body: JSON.stringify({ bindings, ...(note ? { note } : {}) })
+    body: JSON.stringify({ bindings, ...(note ? { note } : {}), ...(concurrency || {}) })
   });
 }
 

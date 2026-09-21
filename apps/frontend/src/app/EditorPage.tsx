@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, Dispatch, MouseEvent, SetStateAction, RefObject, DragEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1227,6 +1227,7 @@ export default function EditorPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { projectId: routeProjectId, stage: researchStage } = useParams<{ projectId: string; stage?: string }>();
+  const [searchParams] = useSearchParams();
   const projectId = routeProjectId || '';
   const researchMode = Boolean(researchStage);
   const activeResearchStage: ResearchStageId = isResearchStageId(researchStage) ? researchStage : 'direction';
@@ -1611,9 +1612,11 @@ export default function EditorPage() {
     setTree(visibleItems);
     setFileOrder(res.fileOrder || {});
     if (!keepActive || !activePath || !visibleItems.find((item) => item.path === activePath)) {
+      const requested = searchParams.get('open');
+      const requestedPath = requested && visibleItems.some((item) => item.type === 'file' && item.path === requested) ? requested : '';
       const main = visibleItems.find((item) => item.path.endsWith('main.tex'))?.path;
       const firstTex = visibleItems.find((item) => item.type === 'file' && item.path.toLowerCase().endsWith('.tex'))?.path;
-      const next = main || firstTex || visibleItems.find((item) => item.type === 'file')?.path || '';
+      const next = requestedPath || main || firstTex || visibleItems.find((item) => item.type === 'file')?.path || '';
       if (next) {
         await openFile(next);
       }

@@ -31,6 +31,88 @@ SciencePrism 是一个本地优先的科研工作台，用于把研究者自己�
 
 页面跳转不等于获得授权。后端会强制执行阶段顺序、论文质量门禁、人工确认和审计记录。当前实验阶段只记录经过确认的方案，不会执行任意 Shell 命令。
 
+### 工作流核心（第二阶段）
+
+后端是科研工作流状态的唯一来源。工作流核心拆分为状态机、阶段契约、审批命令、审计事件、数据迁移、文件持久化和前端投影 Module；前端只消费这些投影，不再自行推断阶段状态。
+
+当前命令支持初始化、更新阶段、审批、驳回、跳过可选复现、恢复和重置。查询投影包括当前工作流、阶段详情、待审批事项和审计时间线：
+
+- `GET /api/projects/:id/research-workflow`
+- `GET /api/projects/:id/research-workflow/stages/:stageId`
+- `GET /api/projects/:id/research-workflow/pending-approvals`
+- `GET /api/projects/:id/research-workflow/audit`
+
+写入请求可以携带 `expectedVersion` 执行乐观并发检查，并使用 `idempotencyKey` 安全重试。已有的 `.openprism` 工作流文件及 schema 1/2 数据会迁移到 schema 3 的项目本地格式，迁移不会删除旧来源。
+
+### 统一 Harness Runtime（第三阶段）
+
+后端现在为科研阶段 AI 辅助提供统一的 Harness Runtime。一次 Run 可以使用 DeepSeek SDK Adapter、旧版 LangChain Adapter 或用于测试的确定性 Fake Adapter。Runtime 统一负责临时工作区、环境注入、事件、待确认 Patch、输出校验、资源限制、取消、暂停/恢复、重试、重放和人工决定。
+
+Run 记录持久化在 `.scienceprism/harness-runs.json`。HTTP 接口支持列出和创建 Run、查询单个 Run，以及控制运行生命周期：
+
+- `GET /api/projects/:id/harness-runs`
+- `GET /api/projects/:id/harness-runs/:runId`
+- `POST /api/projects/:id/harness-runs`
+- `POST /api/projects/:id/harness-runs/:runId/start`
+- `POST /api/projects/:id/harness-runs/:runId/pause`
+- `POST /api/projects/:id/harness-runs/:runId/resume`
+- `POST /api/projects/:id/harness-runs/:runId/cancel`
+- `POST /api/projects/:id/harness-runs/:runId/replay`
+- `POST /api/projects/:id/harness-runs/:runId/decision`
+
+默认能力只有 `project.read` 和 `patch.propose`。额外能力、允许访问的路径、网络访问、Token 预算、超时、并发数和重试次数，必须通过项目内的 `.scienceprism/project-constraints.json` 授权。Run 始终在项目临时副本中执行，待确认 Patch 不会自动应用到原项目。详见 [docs/harness-runtime.md](docs/harness-runtime.md) 和 [docs/project-constraints.md](docs/project-constraints.md)。
+
+### 受约束的上下文打包（第四阶段）
+
+每次 Run 启动前，后端都会为当前任务生成确定性的 Context Pack。内容包括当前文件、用户选区、相关项目文件、项目约束投影、已确认 Evidence 摘要、最近人工决策、适用 Skill、阶段输出契约和人工指令。敏感文件、`.dsh/skills` 文件以及 `allowedPaths` 之外的路径不会进入上下文。
+
+打包器会按任务相关性排列文件，保持当前文件最高优先级，并通过 `contextTokenBudget` 控制上下文大小：先裁剪内容，再移除低优先级文件。每个 Run 都会保存实际使用的 `contextPack`、`contextHash`，以及包含文件哈希、实际大小、Evidence ID、决策 ID、Skill、警告和阶段契约的精简 `contextManifest`。即使临时工作区已经清理，也可以检查模型实际看到的上下文。
+
+可以在项目约束文件中设置预算和文件范围：
+
+```json
+{
+  "capabilities": ["project.read", "patch.propose"],
+  "allowedPaths": ["main.tex", "sections"],
+  "contextTokenBudget": 12000
+}
+```
+
+文件或工作流版本过期、Evidence 版本冲突和 Evidence 缺失都会记录为明确警告。警告不会批准输出，也不会替代人工审查。详见 [docs/harness-runtime.md](docs/harness-runtime.md) 和 [docs/adr/0007-context-packaging.md](docs/adr/0007-context-packaging.md)。
+
+### Evidence Ledger 和溯源链（第五阶段）
+
+证据以项目级账本形式保存在 `.scienceprism/evidence-ledger.json`。Evidence Ledger 为论文、数据集、代码、环境、方法、实验计划与运行、结果、日志、图表、表格、人工笔记、产物和论文主张提供统一 Interface。读取旧的 `.scienceprism/evidence.json` 或 `.openprism/evidence*.json` 时，会自动迁移到新的账本格式。
+
+每条记录都会保留来源 URL 或路径、获取时间、摘要、验证状态、版本以及可选的 SHA-256 哈希。记录之间可以建立 `supports`、`uses`、`produces`、`derived-from`、`contradicts` 等类型化关系。关系图还会指出 Evidence 版本变化影响了哪些研究阶段和论文主张。
+
+Evidence Ledger HTTP 接口包括：
+
+- `GET /api/projects/:id/evidence`
+- `GET /api/projects/:id/evidence/graph`
+- `GET /api/projects/:id/evidence/impact/:evidenceId`
+- `GET /api/projects/:id/evidence/claims/matrix`
+- `POST /api/projects/:id/evidence`
+- `POST /api/projects/:id/evidence/relations`
+
+Research Harness 的输出会在阶段 Schema 校验后，再与已确认 Evidence 进行比对。缺失、未验证或版本过期的引用会返回明确的校验错误，不能被写成已验证事实，也不能替代工作流审批。写作阶段会展示主张-证据矩阵，区分已支持、无支持和需要核验的论文主张。
+
+详细记录契约和架构决策见 [docs/evidence-ledger.md](docs/evidence-ledger.md) 与 [docs/adr/0008-evidence-ledger-and-provenance.md](docs/adr/0008-evidence-ledger-and-provenance.md)。
+
+### 研究阶段纵向切片（第六阶段）
+
+第六阶段打通第一条端到端科研路径：
+
+`研究方向 -> 论文检索 -> 论文筛选 -> 证据确认 -> 写作 Brief -> LaTeX 编辑器`
+
+论文检索现在通过 `researchSources` Source Adapter Seam 执行。目前已实现 arXiv Adapter，后续可以在同一 Interface 后接入 OpenAlex、Semantic Scholar 和 Crossref。检索候选会统一格式化、去重、合并为论文实体，执行元数据质量检查并按来源优先级排序；服务端质量门禁和人工选择仍然是必需步骤。
+
+每个科研阶段都使用统一的 Stage Task 生命周期：输入上下文、Harness 任务、结构化输出、自动校验、人工决定和审计记录。失败或未通过校验的任务不能审批阶段；重试任务不会改变已经确认的前置结果。筛选解释、创新点比较、方法候选、实验计划和写作交接都保存在同一套任务记录中。
+
+人工确认的论文会写入 Evidence Ledger。写作 Brief 中的 Paper Claims 保留 `evidenceIds` 关联，生成的 `research/writing-brief.md` 会自动在编辑器中打开，作为可编辑的交接文档，不会覆盖主 `.tex` 文稿。实验执行属于后续受控阶段；当前流程只记录实验计划，不执行任意 Shell 命令。
+
+阶段契约和实现记录见 [docs/research-stage-contracts.md](docs/research-stage-contracts.md) 与 [docs/architecture-roadmap.md](docs/architecture-roadmap.md)。
+
 ## 为什么是 SciencePrism
 
 - **人保持主导权**：AI 不能批准论文、选择创新点、授权实验或编造结果。
@@ -93,7 +175,7 @@ Harness 运行时优先读取工作区设置，其次读取本机的 `DEEPSEEK_A
 
 ## DeepSeek Harness
 
-在 Workspace Settings 中将 **Agent Runtime** 设置为 **DeepSeek Harness**。SciencePrism 会自动探测标准本地 SDK 路径，也可以手动指定：
+在 Workspace Settings 中将 **Agent Runtime** 设置为 **DeepSeek Harness**。统一 Harness Runtime 会自动探测标准本地 SDK 路径，也可以手动指定：
 
 ```text
 SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
@@ -101,7 +183,7 @@ SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
 
 可选运行参数包括 `SCIENCEPRISM_HARNESS_PROFILE`、`SCIENCEPRISM_HARNESS_PROVIDER`、`SCIENCEPRISM_HARNESS_MAX_TOKENS` 和 `SCIENCEPRISM_HARNESS_TIMEOUT_MS`。Harness 无法启动时，默认回退到原有 LangChain 运行时；设置 `SCIENCEPRISM_HARNESS_FALLBACK=false` 可关闭回退。
 
-每次 Harness 请求都运行在项目临时副本中，文本修改以待确认 Diff 返回，只有用户应用 Diff 后才会改变原项目。
+每次 Harness Run 都运行在项目临时副本中，文本修改以待确认 Diff 返回，只有用户应用 Diff 后才会改变原项目。Run 状态、事件、校验结果、错误、人工决定和模型实际看到的上下文都可以通过 Harness Run API 查询。
 
 ## 项目级 Skill
 
@@ -130,8 +212,16 @@ export SCIENCEPRISM_CCF_VENUE_CATALOG_JSON='{"NeurIPS":"CCF-A","SIGIR":"CCF-A"}'
 
 ## 项目文档
 
+- [领域上下文](CONTEXT.md)
+- [项目约束清单](docs/project-constraints.md)
+- [研究阶段契约](docs/research-stage-contracts.md)
+- [研究流程契约与迁移策略](docs/research-workflow-contract.md)
+- [架构决策](docs/adr/)
 - [科研流程说明](docs/research-workflow.md)
 - [科研 Skill 说明](docs/research-skills.md)
+- [Harness Runtime](docs/harness-runtime.md)
+- [Evidence Ledger](docs/evidence-ledger.md)
+- [架构执行路线图](docs/architecture-roadmap.md)
 - [DeepSeek Harness 集成](docs/deepseek-harness.md)
 
 ## 隐私和安全

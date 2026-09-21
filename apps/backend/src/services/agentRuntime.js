@@ -1,5 +1,4 @@
-import { runToolAgent } from './agentService.js';
-import { runDeepSeekHarness } from './deepseekHarnessService.js';
+import { listHarnessAdapters, runHarnessRequest } from './harnessRuntime/index.js';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,31 +17,17 @@ export function getAgentRuntimeStatus(llmConfig) {
   return {
     runtime,
     harnessConfigured: Boolean((configuredSdk && existsSync(configuredSdk)) || existsSync(localSdk)),
-    fallback: getEnv('HARNESS_FALLBACK') !== 'false'
+    fallback: getEnv('HARNESS_FALLBACK') !== 'false',
+    adapters: listHarnessAdapters()
   };
 }
 
 export async function runAgentRuntime(params) {
-  if (resolveAgentRuntime(params.llmConfig) === 'deepseek-harness') {
-    const harnessResult = await runDeepSeekHarness(params);
-    const fallbackEnabled = getEnv('HARNESS_FALLBACK') !== 'false';
-    if (harnessResult.ok || !fallbackEnabled) return harnessResult;
-
-    try {
-      const legacyResult = await runToolAgent(params);
-      return {
-        ...legacyResult,
-        runtime: 'legacy',
-        fallback: true,
-        harnessError: harnessResult.reply
-      };
-    } catch (error) {
-      return {
-        ...harnessResult,
-        fallback: true,
-        fallbackError: error instanceof Error ? error.message : String(error)
-      };
-    }
-  }
-  return runToolAgent(params);
+  const runtime = resolveAgentRuntime(params.llmConfig);
+  return runHarnessRequest({
+    ...params,
+    adapter: runtime === 'deepseek-harness' ? 'deepseek' : 'legacy',
+    capabilities: params.capabilities || ['project.read', 'patch.propose'],
+    fallback: runtime === 'deepseek-harness' ? getEnv('HARNESS_FALLBACK') !== 'false' : false
+  });
 }

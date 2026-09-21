@@ -244,6 +244,11 @@
 .research-empty-state { padding: 36px 20px; text-align: center; }
 .research-empty-state h3 { margin: 0; }
 .research-empty-state p { margin: 7px 0 14px; color: var(--research-muted); font-size: 13px; }
+.research-claim-list { display: grid; gap: 8px; margin-top: 14px; }
+.research-claim-row { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid var(--research-border); border-radius: 6px; background: var(--research-surface); }
+.research-claim-row > div { display: grid; gap: 3px; min-width: 0; }
+.research-claim-row strong { color: var(--research-ink); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.research-claim-row small { color: var(--research-muted); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
 .research-link-button { padding: 0; border: 0; color: var(--research-accent); background: transparent; font-size: 13px; font-weight: 650; cursor: pointer; }
 .research-paper-list { display: grid; }
 .research-paper-row { display: grid; grid-template-columns: 25px minmax(0, 1fr) 66px; gap: 10px; align-items: start; padding: 13px 14px; border-bottom: 1px solid var(--research-border); }
@@ -278,6 +283,10 @@
 .research-list-footer { justify-content: space-between; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--research-border); background: #fafbf8; }
 .research-list-footer p { margin: 0; color: var(--research-muted); font-size: 12px; }
 .research-list-footer strong { color: var(--research-text); }
+.research-comparison-list { display: grid; gap: 8px; }
+.research-comparison-row { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid var(--research-border); border-radius: 6px; background: var(--research-surface); color: var(--research-muted); font-size: 12px; line-height: 1.45; }
+.research-comparison-row strong { color: var(--research-ink); font-size: 13px; }
+.research-comparison-row small { color: var(--research-muted); overflow-wrap: anywhere; }
 
 .research-metric-table { display: grid; }
 .research-metric-table > div { display: grid; grid-template-columns: minmax(0, 1fr) 100px 100px; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--research-border); color: var(--research-muted); font-size: 12px; }

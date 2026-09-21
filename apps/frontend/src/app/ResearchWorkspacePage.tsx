@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  getEvidenceClaimMatrix,
   getResearchWorkflowSkills,
   listProjects,
   uploadFiles,
-  updateResearchWorkflowSkillBindings
+  updateResearchWorkflowSkillBindings,
+  type ClaimEvidenceMatrix
 } from '../api/client';
 import { ResearchStageLayout } from './research/ResearchStageLayout';
 import {
@@ -39,11 +41,12 @@ type StageState = 'locked' | 'ready' | 'active' | 'complete' | 'error';
 
 interface StageRecord {
   id: ResearchStageId;
-  state?: StageState;
+  state: StageState;
 }
 
 interface UiWorkflow {
   projectName?: string;
+  version?: number;
   status?: string;
   activeStage?: ResearchStageId;
   currentStage?: ResearchStageId;
@@ -53,9 +56,21 @@ interface UiWorkflow {
   replication?: Partial<ReplicationPlan> & { skipped?: boolean };
   papers?: PaperCandidate[];
   ideas?: (InnovationIdea & { selected?: boolean })[];
+  ideaComparison?: { ideaId: string; strengths: string[]; weaknesses: string[]; differentiator: string }[];
   method?: Partial<MethodDraft>;
+  methodCandidates?: { id: string; name: string; description: string; baselines: string[]; metrics: string[]; implementationRisks: string[] }[];
   experiment?: Partial<ExperimentPlan> & { command?: string };
-  writing?: Partial<WritingEvidenceSummary> & { handoffAt?: string; evidence?: { outline?: string } };
+  writing?: Partial<WritingEvidenceSummary> & { handoffAt?: string; evidence?: { outline?: string; claims?: unknown[] } };
+  task?: {
+    id?: string;
+    stage?: string;
+    status?: string;
+    validation?: { ok?: boolean; errors?: { message?: string }[]; warnings?: string[] };
+    harness?: { runId?: string | null; adapter?: string | null; status?: string } | null;
+    humanDecision?: { decision?: string; actor?: string } | null;
+    error?: { message?: string } | null;
+  };
+  sourceFailures?: { source?: string; message?: string }[];
 }
 
 interface WorkflowEnvelope {
@@ -100,19 +115,12 @@ function mergeWorkflow(input?: UiWorkflow | WorkflowEnvelope): UiWorkflow {
   };
 }
 
-function stageState(stage: ResearchStageId, workflow: UiWorkflow): StageState {
-  const explicit = workflow.stages?.find((item) => item.id === stage)?.state;
-  if (explicit) return explicit;
-  if (workflow.activeStage === stage) return 'active';
-  const activeIndex = RESEARCH_STAGES.findIndex((item) => item.id === workflow.activeStage);
-  const index = RESEARCH_STAGES.findIndex((item) => item.id === stage);
-  if (activeIndex < 0 || index < 0) return 'locked';
-  if (index < activeIndex) return 'complete';
-  return index === activeIndex + 1 ? 'ready' : 'locked';
+function stageStatuses(workflow: UiWorkflow): Partial<Record<ResearchStageId, ResearchStageStatus>> {
+  return Object.fromEntries((workflow.stages || []).map((item) => [item.id, item.state])) as Partial<Record<ResearchStageId, ResearchStageStatus>>;
 }
 
-function stageStatuses(workflow: UiWorkflow): Partial<Record<ResearchStageId, ResearchStageStatus>> {
-  return Object.fromEntries(RESEARCH_STAGES.map((item) => [item.id, stageState(item.id, workflow)])) as Partial<Record<ResearchStageId, ResearchStageStatus>>;
+function newIdempotencyKey() {
+  return typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function mapSkills(skills: Awaited<ReturnType<typeof getResearchWorkflowSkills>>['skills']): ProjectSkill[] {
@@ -167,12 +175,19 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const [harnessState, setHarnessState] = useState<'ready' | 'checking' | 'unavailable'>('checking');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [claimMatrix, setClaimMatrix] = useState<ClaimEvidenceMatrix | null>(null);
   const skillInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshSkills = useCallback(async () => {
     const payload = await getResearchWorkflowSkills(projectId);
     setSkills(mapSkills(payload.skills || []));
     setSkillBindings(mapBindings(payload.bindings || {}));
+  }, [projectId]);
+
+  const refreshClaimMatrix = useCallback(async () => {
+    if (!projectId) return;
+    const payload = await getEvidenceClaimMatrix(projectId);
+    setClaimMatrix(payload.matrix || null);
   }, [projectId]);
 
   const loadWorkflow = useCallback(async () => {
@@ -200,6 +215,9 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   useEffect(() => {
     fetch('/api/agent/runtime').then((response) => response.ok ? response.json() : null).then((value) => setHarnessState(value?.harnessConfigured === true ? 'ready' : 'unavailable')).catch(() => setHarnessState('unavailable'));
   }, []);
+  useEffect(() => {
+    void refreshClaimMatrix().catch(() => setClaimMatrix(null));
+  }, [refreshClaimMatrix, workflow.version]);
 
   const commitWorkflow = useCallback((payload: UiWorkflow | WorkflowEnvelope) => {
     const next = mergeWorkflow(payload); setWorkflow(next); setPolicy((current) => ({ ...current, ...(next.search?.policy || {}) })); return next;
@@ -208,35 +226,35 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const runAction = useCallback(async (action: string, body: Record<string, unknown>, successMessage: string) => {
     setBusy(true); setError(''); setNotice('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body }) });
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
       const next = commitWorkflow(payload); setNotice(successMessage); return next;
     } catch (requestError) { setError(`操作失败：${getErrorMessage(requestError)}`); return null; }
     finally { setBusy(false); }
-  }, [commitWorkflow, projectId]);
+  }, [commitWorkflow, projectId, workflow.version]);
 
   const patchStage = useCallback(async (stageId: ResearchStageId, data: Record<string, unknown>, successMessage: string) => {
     setBusy(true); setError('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ stage: toHarnessResearchStage(stageId), data }) });
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ stage: toHarnessResearchStage(stageId), data, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
       commitWorkflow(payload); setNotice(successMessage);
     } catch (requestError) { setError(`保存失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, projectId]);
+  }, [commitWorkflow, projectId, workflow.version]);
 
   const saveDirection = useCallback(async () => {
     const direction = { question: workflow.direction?.question?.trim() || '', keywords: workflow.direction?.keywords || [], scope: workflow.direction?.scope?.trim() || '', notes: workflow.direction?.notes?.trim() || '' };
     setBusy(true); setError('');
-    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ direction }) }); commitWorkflow(payload); setNotice('研究方向已保存，等待人工确认。'); }
+    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ direction, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); commitWorkflow(payload); setNotice('研究方向已保存，等待人工确认。'); }
     catch (requestError) { setError(`方向保存失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, projectId, workflow.direction]);
+  }, [commitWorkflow, projectId, workflow.direction, workflow.version]);
 
   const handleSkillBinding = useCallback(async (skillName: string, bindingStage: ResearchStageId, enabled: boolean) => {
     const next: SkillBindings = { ...skillBindings }; const names = new Set(next[bindingStage] || []); if (enabled) names.add(skillName); else names.delete(skillName); next[bindingStage] = [...names]; setSkillBindings(next); setBusy(true);
-    try { const payload = await updateResearchWorkflowSkillBindings(projectId, toHarnessBindings(next), '由研究方向页面更新 Skill 绑定'); setSkillBindings(mapBindings(payload.bindings || {})); setNotice('Skill 绑定已保存。'); }
+    try { const payload = await updateResearchWorkflowSkillBindings(projectId, toHarnessBindings(next), '由研究方向页面更新 Skill 绑定', { expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }); setSkillBindings(mapBindings(payload.bindings || {})); setNotice('Skill 绑定已保存。'); }
     catch (requestError) { setError(`Skill 绑定保存失败：${getErrorMessage(requestError)}`); await refreshSkills().catch(() => {}); }
     finally { setBusy(false); }
-  }, [projectId, refreshSkills, skillBindings]);
+  }, [projectId, refreshSkills, skillBindings, workflow.version]);
 
   const handleSkillFiles = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []); event.target.value = ''; if (!files.length) return; setBusy(true); setError('');
@@ -263,18 +281,18 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const approveStage = useCallback(async () => {
     setBusy(true); setError('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ stage, ...(stage === 'replication' ? { decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' } : {}) }) });
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ stage, ...(stage === 'replication' ? { decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' } : {}), expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
       const next = commitWorkflow(payload); setNotice(stage === 'replication' ? '已记录跳过论文复现。' : '当前阶段已确认。'); if (next.activeStage && next.activeStage !== stage) navigate(`/editor/${projectId}/research/${next.activeStage}`);
     } catch (requestError) { setError(`审批失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, navigate, projectId, stage, workflow.replication?.note]);
+  }, [commitWorkflow, navigate, projectId, stage, workflow.replication?.note, workflow.version]);
 
   const resetWorkflow = useCallback(async () => {
     if (!window.confirm('确定要重置本项目的研究流程吗？已保存的阶段数据可能会被清空。')) return; setBusy(true);
-    try { await workflowRequest(projectId, '/reset', { method: 'POST', body: JSON.stringify({}) }); await loadWorkflow(); navigate(`/editor/${projectId}/research/direction`); setNotice('研究流程已重置。'); }
+    try { await workflowRequest(projectId, '/reset', { method: 'POST', body: JSON.stringify({ expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); await loadWorkflow(); navigate(`/editor/${projectId}/research/direction`); setNotice('研究流程已重置。'); }
     catch (requestError) { setError(`重置失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [loadWorkflow, navigate, projectId]);
+  }, [loadWorkflow, navigate, projectId, workflow.version]);
 
   const updateWorkflow = useCallback((patch: Partial<UiWorkflow>) => setWorkflow((current) => mergeWorkflow({ ...current, ...patch })), []);
   const runSearch = useCallback(() => runAction('search', { query: workflow.search?.query || '', direction: workflow.direction || {}, policy }, '检索任务已提交，论文结果会回填到候选列表。'), [policy, runAction, workflow.direction, workflow.search?.query]);
@@ -288,18 +306,22 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const saveReplication = useCallback(() => patchStage('replication', { replication: workflow.replication || {} }, '复现计划已保存。'), [patchStage, workflow.replication]);
   const skipReplication = useCallback(async () => {
     setBusy(true);
-    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ stage: 'replication', decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' }) }); const next = commitWorkflow(payload); setNotice('已记录跳过论文复现。'); if (next.activeStage) navigate(`/editor/${projectId}/research/${next.activeStage}`); }
+    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ stage: 'replication', decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); const next = commitWorkflow(payload); setNotice('已记录跳过论文复现。'); if (next.activeStage) navigate(`/editor/${projectId}/research/${next.activeStage}`); }
     catch (requestError) { setError(`跳过复现失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, navigate, projectId, workflow.replication?.note]);
-  const prepareWriting = useCallback(() => runAction('handoff-writing', { paperIds: selectedIds, ideas: (workflow.ideas || []).filter((idea) => idea.selected), method: workflow.method || {}, experiment: workflow.experiment || {} }, '研究材料已整理，可以打开论文写作工作台。'), [runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method]);
+  }, [commitWorkflow, navigate, projectId, workflow.replication?.note, workflow.version]);
+  const prepareWriting = useCallback(async () => {
+    const next = await runAction('handoff-writing', { paperIds: selectedIds, ideas: (workflow.ideas || []).filter((idea) => idea.selected), method: workflow.method || {}, experiment: workflow.experiment || {} }, '研究材料已整理，可以打开论文写作工作台。');
+    const briefPath = next?.writing?.briefPath;
+    if (next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
+  }, [navigate, projectId, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method]);
 
   const direction: ResearchDirection = { question: workflow.direction?.question || '', keywords: workflow.direction?.keywords || [], scope: workflow.direction?.scope || '', notes: workflow.direction?.notes || '' };
   const search: SearchRunSummary = { query: workflow.search?.query || '', candidateCount: workflow.search?.count || workflow.papers?.length || 0, selectedCount: selectedIds.length, lastRunAt: workflow.search?.lastRunAt, sources: workflow.search?.sources };
   const replication: ReplicationPlan = { repository: workflow.replication?.repository || '', environment: workflow.replication?.environment || '', dataset: workflow.replication?.dataset || '', note: workflow.replication?.note || '', status: workflow.replication?.status };
   const method: MethodDraft = { title: workflow.method?.title || '', hypothesis: workflow.method?.hypothesis || '', baselines: workflow.method?.baselines || [], ablations: workflow.method?.ablations || [] };
   const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
-  const writing: WritingEvidenceSummary = { paperCount: selectedIds.length, innovationCount: selectedIdeas.length, metricCount: experiment.metrics.length, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '' };
+  const writing: WritingEvidenceSummary = { paperCount: selectedIds.length, innovationCount: selectedIdeas.length, metricCount: experiment.metrics.length, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '', claimMatrix: claimMatrix || undefined };
 
   useEffect(() => {
     onStateChange?.({
@@ -323,13 +345,13 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
     if (stage === 'search') return <SearchStage direction={direction} value={search} busy={busy} onQueryChange={(query) => updateWorkflow({ search: { ...workflow.search, query } })} onRunSearch={runSearch} />;
     if (stage === 'selection') return <SelectionStage policy={policy} papers={visiblePapers} selectedPaperIds={selectedIds} filterValue={paperFilter} totalCandidateCount={workflow.papers?.length || 0} busy={busy} onPolicyChange={setPolicy} onSavePolicy={() => patchStage('selection', { policy }, '筛选规则已保存。')} onFilterValueChange={setPaperFilter} onTogglePaper={(paperId, selected) => updateWorkflow({ papers: (workflow.papers || []).map((paper) => paper.id === paperId ? { ...paper, selected } : paper) })} onSaveSelection={savePaperSelection} onOpenSearchStage={() => navigate(`/editor/${projectId}/research/search`)} />;
     if (stage === 'replication') return <ReplicationStage selectedPapers={(workflow.papers || []).filter((paper) => selectedIds.includes(paper.id))} value={replication} busy={busy} onChange={(next) => updateWorkflow({ replication: next })} onSavePlan={saveReplication} onSkip={skipReplication} />;
-    if (stage === 'innovation') return <InnovationStage ideas={workflow.ideas || []} selectedIdeaIds={selectedIdeas} selectedPaperCount={selectedIds.length} busy={busy} onGenerate={generateIdeas} onToggleIdea={(ideaId, selected) => updateWorkflow({ ideas: (workflow.ideas || []).map((idea) => idea.id === ideaId ? { ...idea, selected } : idea) })} onSaveSelection={saveIdeaSelection} />;
-    if (stage === 'method') return <MethodStage value={method} selectedIdeaCount={selectedIdeas.length} busy={busy} onChange={(next) => updateWorkflow({ method: next })} onGenerate={generateMethod} onSave={saveMethod} />;
+    if (stage === 'innovation') return <InnovationStage ideas={workflow.ideas || []} comparison={workflow.ideaComparison || []} selectedIdeaIds={selectedIdeas} selectedPaperCount={selectedIds.length} busy={busy} onGenerate={generateIdeas} onToggleIdea={(ideaId, selected) => updateWorkflow({ ideas: (workflow.ideas || []).map((idea) => idea.id === ideaId ? { ...idea, selected } : idea) })} onSaveSelection={saveIdeaSelection} />;
+    if (stage === 'method') return <MethodStage value={method} candidates={workflow.methodCandidates || []} selectedIdeaCount={selectedIdeas.length} busy={busy} onChange={(next) => updateWorkflow({ method: next })} onGenerate={generateMethod} onSave={saveMethod} />;
     if (stage === 'experiment') return <ExperimentStage value={experiment} busy={busy} onChange={(next) => updateWorkflow({ experiment: { ...next, command: next.protocol } })} onSavePlan={saveExperiment} onSubmitForRun={runExperiment} />;
-    return <WritingStage value={writing} busy={busy} onOutlineChange={(outline) => updateWorkflow({ writing: { ...workflow.writing, outline } })} onPrepareWriting={prepareWriting} onOpenEditor={() => navigate(`/editor/${projectId}`)} />;
+    return <WritingStage value={writing} busy={busy} onOutlineChange={(outline) => updateWorkflow({ writing: { ...workflow.writing, outline } })} onPrepareWriting={prepareWriting} onOpenEditor={() => navigate(`/editor/${projectId}${workflow.writing?.briefPath ? `?open=${encodeURIComponent(workflow.writing.briefPath)}` : ''}`)} />;
   };
 
-  const context = <div className="research-context-content"><span className="research-overline">RUN CONTEXT</span><h3>当前上下文</h3><dl><dt>研究问题</dt><dd>{direction.question || '尚未填写'}</dd><dt>硬约束</dt><dd>{policy.venueLevel} · {policy.publicationType === 'Any' ? '期刊/会议' : policy.publicationType === 'journal' ? '期刊' : '会议'} · {policy.yearFrom}-{policy.yearTo}</dd><dt>当前 Skill</dt><dd>{(skills.filter((skill) => (skillBindings[stage] || []).includes(skill.name)).map((skill) => skill.name).join('、')) || '使用阶段默认配置'}</dd><dt>人工控制</dt><dd>AI 辅助，人工确认后才能进入下一阶段</dd></dl></div>;
+  const context = <div className="research-context-content"><span className="research-overline">RUN CONTEXT</span><h3>当前上下文</h3><dl><dt>研究问题</dt><dd>{direction.question || '尚未填写'}</dd><dt>硬约束</dt><dd>{policy.venueLevel} · {policy.publicationType === 'Any' ? '期刊/会议' : policy.publicationType === 'journal' ? '期刊' : '会议'} · {policy.yearFrom}-{policy.yearTo}</dd><dt>当前 Skill</dt><dd>{(skills.filter((skill) => (skillBindings[stage] || []).includes(skill.name)).map((skill) => skill.name).join('、')) || '使用阶段默认配置'}</dd><dt>阶段任务</dt><dd>{workflow.task?.status === 'awaiting_approval' ? '等待人工确认' : workflow.task?.status === 'failed' ? '执行失败，可重试' : workflow.task?.status || '尚未运行'}</dd><dt>Harness</dt><dd>{workflow.task?.harness?.runId || workflow.task?.harness?.adapter || '未创建运行'}</dd><dt>验证</dt><dd>{workflow.task?.validation?.ok === false ? '需要处理' : workflow.task?.validation?.warnings?.length ? '通过但有提示' : '通过'}</dd><dt>人工控制</dt><dd>AI 辅助，人工确认后才能进入下一阶段</dd></dl>{workflow.task?.validation?.warnings?.length ? <div className="research-callout research-callout-warning"><strong>验证提示</strong><ul>{workflow.task.validation.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div> : null}{workflow.task?.error?.message ? <div className="research-callout research-callout-warning"><strong>任务失败</strong><p>{workflow.task.error.message}</p></div> : null}{workflow.sourceFailures?.length ? <div className="research-callout research-callout-warning"><strong>来源提示</strong><ul>{workflow.sourceFailures.map((failure, index) => <li key={`${failure.source}-${index}`}>{failure.source}: {failure.message || '检索失败'}</li>)}</ul></div> : null}</div>;
 
   if (loading) return <div className={`research-stage-loading${embedded ? ' is-embedded' : ''}`}>正在加载研究流程…</div>;
   const stageIndex = RESEARCH_STAGES.findIndex((item) => item.id === stage);

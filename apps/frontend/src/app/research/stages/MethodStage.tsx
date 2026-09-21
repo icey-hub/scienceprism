@@ -2,6 +2,7 @@ import type { MethodDraft } from '../researchStages';
 
 export interface MethodStageProps {
   value: MethodDraft;
+  candidates?: readonly { id: string; name: string; description: string; baselines: string[]; metrics: string[]; implementationRisks: string[] }[];
   selectedIdeaCount: number;
   busy?: boolean;
   onChange: (next: MethodDraft) => void;
@@ -13,7 +14,7 @@ function toLines(value: string) {
   return value.split('\n').map((item) => item.trim()).filter(Boolean);
 }
 
-export function MethodStage({ value, selectedIdeaCount, busy = false, onChange, onGenerate, onSave }: MethodStageProps) {
+export function MethodStage({ value, candidates = [], selectedIdeaCount, busy = false, onChange, onGenerate, onSave }: MethodStageProps) {
   return (
     <div className="research-page-stack">
       <section className="research-panel">
@@ -35,6 +36,7 @@ export function MethodStage({ value, selectedIdeaCount, busy = false, onChange, 
         </div>
       </section>
       <section className="research-callout research-callout-warning"><strong>进入实验前的人工检查</strong><p>核心假设、基线、指标和消融设置必须足够明确，才能进入实验验证。</p></section>
+      {candidates.length > 0 && <section className="research-panel"><div className="research-panel-heading"><div><span className="research-overline">METHOD CANDIDATES</span><h3>方法候选</h3></div><span className="research-status-note">等待人工选择</span></div><div className="research-comparison-list">{candidates.map((candidate) => <article className="research-comparison-row" key={candidate.id}><strong>{candidate.name}</strong><span>{candidate.description}</span><span>基线：{(candidate.baselines || []).join('；') || '—'}</span><span>指标：{(candidate.metrics || []).join('；') || '—'}</span>{(candidate.implementationRisks || []).length > 0 && <small>风险：{candidate.implementationRisks.join('；')}</small>}</article>)}</div></section>}
     </div>
   );
 }
