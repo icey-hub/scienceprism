@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, Dispatch, MouseEvent, SetStateAction, RefObject, DragEvent } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import type { CSSProperties, Dispatch, MouseEvent as ReactMouseEvent, SetStateAction, DragEvent } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -12,35 +12,11 @@ import { search, searchKeymap } from '@codemirror/search';
 import { autocompletion, CompletionContext } from '@codemirror/autocomplete';
 import { toggleComment } from '@codemirror/commands';
 import { foldKeymap, foldService, indentOnInput } from '@codemirror/language';
-import { GlobalWorkerOptions, getDocument, renderTextLayer } from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min?url';
-import 'pdfjs-dist/web/pdf_viewer.css';
-import {
-  arxivBibtex,
-  arxivSearch,
-  createFolder as createFolderApi,
-  createCollabInvite,
-  compileProject,
-  getAllFiles,
-  getCollabServer,
-  getFile,
-  getProjectTree,
-  getCollabToken,
-  listProjects,
-  renamePath,
-  deleteFile,
-  updateFileOrder,
-  runAgent,
-  plotFromTable,
-  callLLM,
-  uploadFiles,
-  visionToLatex,
-  writeFile,
-  flushCollabFile,
-  setCollabServer
-} from '../api/client';
-import type { ArxivPaper } from '../api/client';
-import { createTwoFilesPatch, diffLines } from 'diff';
+import { createFolder as createFolderApi, deleteFile, getAllFiles, getFile, getProjectTree, listProjects, renamePath, updateFileOrder, uploadFiles, writeFile } from '../api/projectAdapter';
+import { createCollabInvite, flushCollabFile, getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
+import { arxivBibtex, arxivSearch, callLLM, compileProject, plotFromTable, runAgent, visionToLatex } from '../api/editorAdapter';
+import type { ArxivPaper } from '../api/editorAdapter';
+import { createTwoFilesPatch } from 'diff';
 import type { CompileOutcome } from '../latex/engine';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
@@ -49,8 +25,30 @@ import { CollabProvider } from '../collab/provider';
 import ResearchWorkspacePage, { type ResearchWorkspaceState } from './ResearchWorkspacePage';
 import { ResearchStageNavigation } from './research/ResearchStageNavigation';
 import { getResearchStage, isResearchStageId, type ResearchStageId } from './research/researchStages';
-
-GlobalWorkerOptions.workerSrc = pdfWorker;
+import { buildSplitDiff, SplitDiffView } from './editor/EditorDiff';
+import { PdfPreview } from './editor/PdfPreview';
+import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings, pickCollabColor } from './editor/editorSettings';
+import type { AppSettings, CompileEngine } from './editor/editorSettings';
+import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
+import {
+  BarChart3,
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  FlaskConical,
+  FolderTree,
+  Globe2,
+  Image as ImageIcon,
+  Languages,
+  PanelLeft,
+  PanelRight,
+  Play,
+  Save,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  Users,
+  X
+} from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -78,22 +76,6 @@ type InlineEdit =
   | { kind: 'new-file' | 'new-folder'; parent: string; value: string }
   | { kind: 'rename'; path: string; value: string };
 
-type CompileEngine = 'pdflatex' | 'xelatex' | 'lualatex' | 'latexmk' | 'tectonic';
-
-type AppSettings = {
-  llmEndpoint: string;
-  llmApiKey: string;
-  llmModel: string;
-  agentRuntime: 'legacy' | 'deepseek-harness';
-  searchEndpoint: string;
-  searchApiKey: string;
-  searchModel: string;
-  visionEndpoint: string;
-  visionApiKey: string;
-  visionModel: string;
-  compileEngine: CompileEngine;
-};
-
 const DEFAULT_TASKS = (t: (key: string) => string) => [
   { value: 'polish', label: t('润色') },
   { value: 'rewrite', label: t('改写') },
@@ -111,94 +93,6 @@ const RIGHT_VIEW_OPTIONS = (t: (key: string) => string) => [
   { value: 'log', label: 'LOG' },
   { value: 'review', label: t('评审报告') }
 ];
-
-const SETTINGS_KEY = 'scienceprism-settings-v1';
-const LEGACY_SETTINGS_KEY = 'openprism-settings-v1';
-const DEFAULT_SETTINGS: AppSettings = {
-  llmEndpoint: 'https://api.openai.com/v1/chat/completions',
-  llmApiKey: '',
-  llmModel: 'gpt-4o-mini',
-  agentRuntime: 'legacy',
-  searchEndpoint: '',
-  searchApiKey: '',
-  searchModel: '',
-  visionEndpoint: '',
-  visionApiKey: '',
-  visionModel: '',
-  compileEngine: 'pdflatex'
-};
-
-const COLLAB_NAME_KEY = 'scienceprism-collab-name';
-const LEGACY_COLLAB_NAME_KEY = 'openprism-collab-name';
-const COLLAB_COLORS = ['#b44a2f', '#2f6fb4', '#2f9b74', '#b48a2f', '#6b2fb4', '#b42f6d', '#2f8fb4'];
-
-function loadSettings(): AppSettings {
-  if (typeof window === 'undefined') return DEFAULT_SETTINGS;
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY) || window.localStorage.getItem(LEGACY_SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    const engine = parsed.compileEngine;
-    const VALID_ENGINES: CompileEngine[] = ['pdflatex', 'xelatex', 'lualatex', 'latexmk', 'tectonic'];
-    const compileEngine: CompileEngine =
-      VALID_ENGINES.includes(engine as CompileEngine)
-        ? (engine as CompileEngine)
-        : DEFAULT_SETTINGS.compileEngine;
-    return {
-      ...DEFAULT_SETTINGS,
-      ...parsed,
-      agentRuntime: parsed.agentRuntime === 'deepseek-harness' ? 'deepseek-harness' : 'legacy',
-      compileEngine
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-function persistSettings(settings: AppSettings) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // ignore
-  }
-}
-
-function loadCollabName() {
-  if (typeof window === 'undefined') return '';
-  try {
-    return window.localStorage.getItem(COLLAB_NAME_KEY) || window.localStorage.getItem(LEGACY_COLLAB_NAME_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function persistCollabName(name: string) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(COLLAB_NAME_KEY, name);
-  } catch {
-    // ignore
-  }
-}
-
-function pickCollabColor(seed?: string) {
-  if (!seed) {
-    return COLLAB_COLORS[Math.floor(Math.random() * COLLAB_COLORS.length)];
-  }
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) % 997;
-  }
-  return COLLAB_COLORS[hash % COLLAB_COLORS.length];
-}
-
-function normalizeServerUrl(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `http://${trimmed}`;
-}
 
 const FIGURE_EXTS = ['.png', '.jpg', '.jpeg', '.pdf', '.svg', '.eps'];
 const TEXT_EXTS = ['.sty', '.cls', '.bst', '.txt', '.md', '.json', '.yaml', '.yml', '.csv', '.tsv'];
@@ -753,7 +647,7 @@ const ghostField = StateField.define<DecorationSet>({
         return Decoration.set([widget.range(pos)]);
       }
     }
-    if (tr.docChanged || tr.selectionSet) {
+    if (tr.docChanged || tr.selection) {
       return Decoration.none;
     }
     return next;
@@ -861,43 +755,6 @@ const editorTheme = EditorView.theme(
   { dark: false }
 );
 
-function buildSplitDiff(original: string, proposed: string) {
-  const parts = diffLines(original, proposed);
-  let leftLine = 1;
-  let rightLine = 1;
-  const rows: {
-    left?: string;
-    right?: string;
-    leftNo?: number;
-    rightNo?: number;
-    type: 'context' | 'added' | 'removed';
-  }[] = [];
-
-  parts.forEach((part) => {
-    const lines = part.value.split('\n');
-    if (lines[lines.length - 1] === '') {
-      lines.pop();
-    }
-    lines.forEach((line) => {
-      if (part.added) {
-        rows.push({ right: line, rightNo: rightLine++, type: 'added' });
-      } else if (part.removed) {
-        rows.push({ left: line, leftNo: leftLine++, type: 'removed' });
-      } else {
-        rows.push({
-          left: line,
-          right: line,
-          leftNo: leftLine++,
-          rightNo: rightLine++,
-          type: 'context'
-        });
-      }
-    });
-  });
-
-  return rows;
-}
-
 type CompileError = {
   message: string;
   line?: number;
@@ -961,266 +818,6 @@ function findLineOffset(text: string, line: number) {
 
 function replaceSelection(source: string, start: number, end: number, replacement: string) {
   return source.slice(0, start) + replacement + source.slice(end);
-}
-
-function SplitDiffView({ rows }: { rows: ReturnType<typeof buildSplitDiff> }) {
-  const { t } = useTranslation();
-  const leftRef = useRef<HTMLDivElement | null>(null);
-  const rightRef = useRef<HTMLDivElement | null>(null);
-  const lockRef = useRef(false);
-
-  const syncScroll = (source: HTMLDivElement | null, target: HTMLDivElement | null) => {
-    if (!source || !target || lockRef.current) return;
-    lockRef.current = true;
-    target.scrollTop = source.scrollTop;
-    target.scrollLeft = source.scrollLeft;
-    requestAnimationFrame(() => {
-      lockRef.current = false;
-    });
-  };
-
-  return (
-    <div className="split-diff">
-      <div
-        className="split-column"
-        ref={leftRef}
-        onScroll={() => syncScroll(leftRef.current, rightRef.current)}
-      >
-        <div className="split-header">{t('Before')}</div>
-        {rows.map((row, idx) => (
-          <div key={`l-${idx}`} className={`split-row ${row.type}`}>
-            <div className="line-no">{row.leftNo ?? ''}</div>
-            <div className="line-text">{row.left ?? ''}</div>
-          </div>
-        ))}
-      </div>
-      <div
-        className="split-column"
-        ref={rightRef}
-        onScroll={() => syncScroll(rightRef.current, leftRef.current)}
-      >
-        <div className="split-header">{t('After')}</div>
-        {rows.map((row, idx) => (
-          <div key={`r-${idx}`} className={`split-row ${row.type}`}>
-            <div className="line-no">{row.rightNo ?? ''}</div>
-            <div className="line-text">{row.right ?? ''}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PdfPreview({
-  pdfUrl,
-  scale,
-  fitWidth,
-  spread,
-  onFitScale,
-  onTextClick,
-  onOutline,
-  annotations,
-  annotateMode,
-  onAddAnnotation,
-  containerRef: externalRef
-}: {
-  pdfUrl: string;
-  scale: number;
-  fitWidth: boolean;
-  spread: boolean;
-  onFitScale?: (value: number | null) => void;
-  onTextClick: (text: string) => void;
-  onOutline?: (items: { title: string; page?: number; level: number }[]) => void;
-  annotations: { id: string; page: number; x: number; y: number; text: string }[];
-  annotateMode: boolean;
-  onAddAnnotation?: (page: number, x: number, y: number) => void;
-  containerRef?: RefObject<HTMLDivElement>;
-}) {
-  const { t } = useTranslation();
-  const localRef = useRef<HTMLDivElement | null>(null);
-  const containerRef = externalRef || localRef;
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || !pdfUrl) return;
-    let cancelled = false;
-    container.innerHTML = '';
-
-    const render = async () => {
-      try {
-        const loadingTask = getDocument(pdfUrl);
-        const pdf = await loadingTask.promise;
-
-        // 获取容器宽度用于计算缩放比例
-        const containerWidth = container.clientWidth - 24; // 减去 padding
-        const pageTargetWidth = spread ? Math.max(200, (containerWidth - 16) / 2) : containerWidth;
-
-        let baseScale = scale;
-        let firstPage: Awaited<ReturnType<typeof pdf.getPage>> | null = null;
-        if (fitWidth && containerWidth > 0) {
-          firstPage = await pdf.getPage(1);
-          const originalViewport = firstPage.getViewport({ scale: 1.0 });
-          baseScale = pageTargetWidth / originalViewport.width;
-          if (onFitScale) {
-            onFitScale(baseScale);
-          }
-        } else if (onFitScale) {
-          onFitScale(null);
-        }
-
-        const renderPage = async (page: Awaited<ReturnType<typeof pdf.getPage>>) => {
-          // 先获取原始尺寸
-          const cssViewport = page.getViewport({ scale: baseScale });
-          const qualityBoost = Math.min(2.4, (window.devicePixelRatio || 1) * 1.25);
-          const renderViewport = page.getViewport({ scale: baseScale * qualityBoost });
-
-          const pageWrapper = document.createElement('div');
-          pageWrapper.className = 'pdf-page';
-          pageWrapper.style.width = `${cssViewport.width}px`;
-          pageWrapper.style.height = `${cssViewport.height}px`;
-          pageWrapper.dataset.pageNumber = String(page.pageNumber);
-
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = renderViewport.width;
-          canvas.height = renderViewport.height;
-          canvas.style.width = `${cssViewport.width}px`;
-          canvas.style.height = `${cssViewport.height}px`;
-          pageWrapper.appendChild(canvas);
-
-          const textLayer = document.createElement('div');
-          textLayer.className = 'textLayer';
-          textLayer.style.width = `${cssViewport.width}px`;
-          textLayer.style.height = `${cssViewport.height}px`;
-          pageWrapper.appendChild(textLayer);
-
-          if (ctx) {
-            await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-          }
-          const textContent = await page.getTextContent();
-          renderTextLayer({
-            textContentSource: textContent,
-            container: textLayer,
-            viewport: cssViewport
-          });
-          return pageWrapper;
-        };
-
-        const wrappers: HTMLElement[] = [];
-        if (firstPage) {
-          if (cancelled) return;
-          const firstWrapper = await renderPage(firstPage);
-          wrappers.push(firstWrapper);
-        }
-
-        for (let pageNum = firstPage ? 2 : 1; pageNum <= pdf.numPages; pageNum += 1) {
-          if (cancelled) return;
-          const page = await pdf.getPage(pageNum);
-          const wrapper = await renderPage(page);
-          wrappers.push(wrapper);
-        }
-
-        if (spread) {
-          for (let idx = 0; idx < wrappers.length; idx += 2) {
-            const row = document.createElement('div');
-            row.className = 'pdf-spread';
-            row.appendChild(wrappers[idx]);
-            if (wrappers[idx + 1]) {
-              row.appendChild(wrappers[idx + 1]);
-            }
-            container.appendChild(row);
-          }
-        } else {
-          wrappers.forEach((wrapper) => container.appendChild(wrapper));
-        }
-
-        if (onOutline) {
-          try {
-            const outline = await pdf.getOutline();
-            const items: { title: string; page?: number; level: number }[] = [];
-            const walk = async (entries: any[], level: number) => {
-              if (!entries) return;
-              for (const entry of entries) {
-                let pageNumber: number | undefined;
-                try {
-                  const dest = typeof entry.dest === 'string' ? await pdf.getDestination(entry.dest) : entry.dest;
-                  if (Array.isArray(dest) && dest.length > 0) {
-                    const pageIndex = await pdf.getPageIndex(dest[0]);
-                    pageNumber = pageIndex + 1;
-                  }
-                } catch {
-                  pageNumber = undefined;
-                }
-                items.push({ title: entry.title || t('(untitled)'), page: pageNumber, level });
-                if (entry.items?.length) {
-                  await walk(entry.items, level + 1);
-                }
-              }
-            };
-            await walk(outline || [], 1);
-            onOutline(items);
-          } catch {
-            onOutline([]);
-          }
-        }
-      } catch (err) {
-        console.error('PDF render error:', err);
-        container.innerHTML = `<div class="muted">${t('PDF 渲染失败')}</div>`;
-      }
-    };
-
-    render().catch(() => {
-      container.innerHTML = `<div class="muted">${t('PDF 渲染失败')}</div>`;
-    });
-
-    return () => {
-      cancelled = true;
-      container.innerHTML = '';
-    };
-  }, [pdfUrl, fitWidth, onFitScale, scale, spread, onOutline, t]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    container.querySelectorAll('.pdf-annotation').forEach((node) => node.remove());
-    annotations.forEach((note) => {
-      const pageEl = container.querySelector(`.pdf-page[data-page-number="${note.page}"]`) as HTMLElement | null;
-      if (!pageEl) return;
-      const marker = document.createElement('div');
-      marker.className = 'pdf-annotation';
-      marker.style.left = `${note.x * 100}%`;
-      marker.style.top = `${note.y * 100}%`;
-      marker.title = note.text;
-      marker.dataset.annotationId = note.id;
-      pageEl.appendChild(marker);
-    });
-  }, [annotations, pdfUrl, spread]);
-
-  return (
-    <div
-      className={`pdf-preview ${annotateMode ? 'annotate' : ''}`}
-      ref={containerRef}
-      onClick={(event) => {
-        const target = event.target as HTMLElement | null;
-        if (!target) return;
-        if (annotateMode && onAddAnnotation) {
-          const pageEl = target.closest('.pdf-page') as HTMLElement | null;
-          if (pageEl) {
-            const rect = pageEl.getBoundingClientRect();
-            const x = (event.clientX - rect.left) / rect.width;
-            const y = (event.clientY - rect.top) / rect.height;
-            const page = Number(pageEl.dataset.pageNumber || 1);
-            onAddAnnotation(page, x, y);
-            return;
-          }
-        }
-        if (target.tagName !== 'SPAN') return;
-        const text = (target.textContent || '').trim();
-        if (text.length < 3) return;
-        onTextClick(text);
-      }}
-    />
-  );
 }
 
 export default function EditorPage() {
@@ -1287,7 +884,8 @@ export default function EditorPage() {
   const [selectedFigure, setSelectedFigure] = useState<string>('');
   const [diffFocus, setDiffFocus] = useState<PendingChange | null>(null);
   const [activeSidebar, setActiveSidebar] = useState<'files' | 'agent' | 'vision' | 'search' | 'websearch' | 'plot' | 'review' | 'collab' | 'research'>('files');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 760);
+  const [researchContextOpen, setResearchContextOpen] = useState(true);
   const [researchWorkspaceState, setResearchWorkspaceState] = useState<ResearchWorkspaceState | null>(null);
   const [columnSizes, setColumnSizes] = useState({ sidebar: 260, editor: 640, right: 420 });
   const [editorSplit, setEditorSplit] = useState(0.7);
@@ -3309,7 +2907,9 @@ export default function EditorPage() {
       setEngineName(compileEngine);
       setCompileLog(`${meta}\n\n${result.log || t('No log')}`.trim());
 
-      const blob = new Blob([result.pdf], { type: 'application/pdf' });
+      const pdfBytes = new Uint8Array(result.pdf.byteLength);
+      pdfBytes.set(result.pdf);
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       const nextUrl = URL.createObjectURL(blob);
       if (pdfUrl) {
         URL.revokeObjectURL(pdfUrl);
@@ -3532,7 +3132,7 @@ export default function EditorPage() {
         compileLog,
         llmConfig: effectiveLlmConfig,
         interaction: isChat ? 'chat' : 'agent',
-        history: nextHistory.slice(-8)
+        history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
       });
       const replyText = res.reply || t('已生成建议。');
       setHistory((prev) => [...prev, { role: 'assistant', content: '' }]);
@@ -3583,7 +3183,7 @@ export default function EditorPage() {
         compileLog,
         llmConfig,
         interaction: 'agent',
-        history: nextHistory.slice(-8)
+        history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
       });
       const assistant: Message = {
         role: 'assistant',
@@ -3657,7 +3257,7 @@ export default function EditorPage() {
   };
 
   const startColumnDrag = useCallback(
-    (side: 'left' | 'right', event: MouseEvent) => {
+    (side: 'left' | 'right', event: ReactMouseEvent) => {
       event.preventDefault();
       const startX = event.clientX;
       const { sidebar, editor, right } = columnSizes;
@@ -3665,7 +3265,7 @@ export default function EditorPage() {
       const minEditor = 360;
       const minRight = 320;
 
-      const onMove = (moveEvent: MouseEvent) => {
+      const onMove = (moveEvent: globalThis.MouseEvent) => {
         const dx = moveEvent.clientX - startX;
         if (side === 'left') {
           const nextSidebar = Math.max(minSidebar, sidebar + dx);
@@ -3690,12 +3290,12 @@ export default function EditorPage() {
   );
 
   const startEditorSplitDrag = useCallback(
-    (event: MouseEvent) => {
+    (event: ReactMouseEvent) => {
       event.preventDefault();
       const container = editorSplitRef.current;
       if (!container) return;
 
-      const onMove = (moveEvent: MouseEvent) => {
+      const onMove = (moveEvent: globalThis.MouseEvent) => {
         const rect = container.getBoundingClientRect();
         const offsetY = moveEvent.clientY - rect.top;
         const ratio = Math.min(0.85, Math.max(0.35, offsetY / rect.height));
@@ -3715,19 +3315,14 @@ export default function EditorPage() {
 
   return (
     <div className="app-shell">
+      <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active={researchMode ? 'research' : 'writing'} />
       <header className="top-bar">
-        <div className="brand">
-          <div className="brand-title">SciencePrism</div>
-          <div className="brand-sub">{projectName || t('Editor Workspace')}</div>
+        <div className="editor-titlebar">
+          <button className="icon-btn" onClick={() => setSidebarOpen((prev) => !prev)} title={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')} aria-label={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')}>
+            <PanelLeft size={17} />
+          </button>
         </div>
         <div className="toolbar">
-          <Link to="/projects" className="btn ghost">{t('Projects')}</Link>
-          <Link to={researchMode ? `/editor/${projectId}` : `/editor/${projectId}/research/direction`} className="btn ghost">
-            {researchMode ? '论文编辑' : '研究流程'}
-          </Link>
-          <button className="btn ghost" onClick={() => setSidebarOpen((prev) => !prev)}>
-            {sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')}
-          </button>
           <div className="ios-select-wrapper">
             <button className="ios-select-trigger" onClick={(e) => {
               const opening = !mainFileDropdownOpen;
@@ -3735,7 +3330,7 @@ export default function EditorPage() {
               if (opening) { const r = e.currentTarget.getBoundingClientRect(); setTopBarDropdownRect({ top: r.bottom + 6, left: r.left, width: r.width }); }
             }}>
               <span>{mainFile}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={mainFileDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <ChevronDown size={14} className={mainFileDropdownOpen ? 'rotate' : ''} />
             </button>
           </div>
           <div className="ios-select-wrapper">
@@ -3745,22 +3340,24 @@ export default function EditorPage() {
               if (opening) { const r = e.currentTarget.getBoundingClientRect(); setTopBarDropdownRect({ top: r.bottom + 6, left: r.left, width: r.width }); }
             }}>
               <span>{({'pdflatex':'pdfLaTeX','xelatex':'XeLaTeX','lualatex':'LuaLaTeX','latexmk':'Latexmk','tectonic':'Tectonic'} as Record<string,string>)[compileEngine] || compileEngine}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={engineDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <ChevronDown size={14} className={engineDropdownOpen ? 'rotate' : ''} />
             </button>
           </div>
-          <button onClick={saveActiveFile} className="btn ghost">{t('保存')}</button>
-          <button onClick={compile} className="btn" disabled={isCompiling}>
-            {isCompiling ? t('编译中...') : t('编译 PDF')}
+          <button onClick={() => void saveActiveFile()} className="icon-btn" title={t('保存')} aria-label={t('保存')}><Save size={17} /></button>
+          <button onClick={compile} className="editor-compile-button" disabled={isCompiling}>
+            <Play size={15} />{isCompiling ? t('编译中...') : t('编译')}
           </button>
-          <button className="btn ghost" onClick={() => setSettingsOpen(true)}>{t('设置')}</button>
+          {researchMode && <button className={`icon-btn${researchContextOpen ? ' active' : ''}`} onClick={() => setResearchContextOpen((open) => !open)} title={t('研究上下文')} aria-label={t('研究上下文')}><PanelRight size={17} /></button>}
+          <button className="icon-btn" onClick={() => setSettingsOpen(true)} title={t('设置')} aria-label={t('设置')}><SettingsIcon size={17} /></button>
           <div className="ios-select-wrapper">
             <button className="ios-select-trigger" onClick={(e) => {
               const opening = !langDropdownOpen;
               setLangDropdownOpen(opening); setMainFileDropdownOpen(false); setEngineDropdownOpen(false);
               if (opening) { const r = e.currentTarget.getBoundingClientRect(); setTopBarDropdownRect({ top: r.bottom + 6, left: r.left, width: r.width }); }
             }}>
+              <Languages size={15} />
               <span>{i18n.language === 'zh-CN' ? t('中文') : t('English')}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={langDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <ChevronDown size={14} className={langDropdownOpen ? 'rotate' : ''} />
             </button>
           </div>
         </div>
@@ -3780,13 +3377,13 @@ export default function EditorPage() {
       </div>
 
       <main
-        className={`workspace${researchMode ? ' research-mode' : ''}`}
+        className={`workspace${researchMode ? ' research-mode' : ''}${researchMode && !researchContextOpen ? ' context-closed' : ''}`}
         ref={gridRef}
         style={{
           '--col-sidebar': sidebarOpen ? `${columnSizes.sidebar}px` : '0px',
           '--col-sidebar-gap': sidebarOpen ? '10px' : '0px',
           '--col-editor': `${columnSizes.editor}px`,
-          '--col-right': `${columnSizes.right}px`
+          '--col-right': researchMode && !researchContextOpen ? '0px' : `${columnSizes.right}px`
         } as CSSProperties}
       >
         {sidebarOpen && (
@@ -3803,7 +3400,7 @@ export default function EditorPage() {
                   }}
                   title="研究流程"
                 >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6"/><path d="M10 9h4"/><path d="M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3"/></svg></span>
+                  <span className="tab-icon"><FlaskConical size={15} /></span>
                   <span className="tab-text">研究流程</span>
                 </button>
                 <button
@@ -3811,67 +3408,44 @@ export default function EditorPage() {
                   onClick={() => setActiveSidebar('files')}
                   title={t('Files')}
                 >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+                  <span className="tab-icon"><FolderTree size={15} /></span>
                   <span className="tab-text">{t('Files')}</span>
                 </button>
+                <button
+                  className={`tab-btn ${activeSidebar === 'agent' ? 'active' : ''}`}
+                  onClick={() => setActiveSidebar('agent')}
+                  title={t('助手')}
+                >
+                  <span className="tab-icon"><Bot size={15} /></span>
+                  <span className="tab-text">{t('助手')}</span>
+                </button>
+                <div className="assistant-tool-menu">
+                  <button
+                    className={`tab-btn ${['vision', 'search', 'websearch', 'plot', 'review'].includes(activeSidebar) ? 'active' : ''}`}
+                    type="button"
+                    title={t('更多助手工具')}
+                  >
+                    <span className="tab-icon"><ChevronDown size={14} /></span>
+                    <span className="tab-text">{t('更多')}</span>
+                  </button>
+                  <div className="assistant-tool-popover">
+                    <button onClick={() => setActiveSidebar('vision')}><ImageIcon size={15} />{t('图像识别')}</button>
+                    <button onClick={() => setActiveSidebar('search')}><SearchIcon size={15} />{t('论文检索')}</button>
+                    <button onClick={() => setActiveSidebar('websearch')}><Globe2 size={15} />{t('网页检索')}</button>
+                    <button onClick={() => setActiveSidebar('plot')}><BarChart3 size={15} />{t('绘图')}</button>
+                    <button onClick={() => setActiveSidebar('review')}><CheckCircle2 size={15} />{t('评审')}</button>
+                  </div>
+                </div>
                 <button
                   className={`tab-btn ${activeSidebar === 'collab' ? 'active' : ''}`}
                   onClick={() => setActiveSidebar('collab')}
                   title={t('协作')}
                 >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-3-3.87"/><path d="M7 21v-2a4 4 0 0 1 3-3.87"/><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/></svg></span>
+                  <span className="tab-icon"><Users size={15} /></span>
                   <span className="tab-text">{t('协作')}</span>
                 </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'agent' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('agent')}
-                  title={t('Agent')}
-                >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg></span>
-                  <span className="tab-text">{t('Agent')}</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'vision' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('vision')}
-                  title={t('图像识别')}
-                >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
-                  <span className="tab-text">{t('图像识别')}</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'search' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('search')}
-                  title={t('论文检索')}
-                >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-                  <span className="tab-text">{t('论文检索')}</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'websearch' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('websearch')}
-                  title={t('Websearch')}
-                >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
-                  <span className="tab-text">{t('Websearch')}</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'plot' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('plot')}
-                  title={t('绘图')}
-                >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
-                  <span className="tab-text">{t('绘图')}</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'review' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('review')}
-                  title={t('Review')}
-                >
-                  <span className="tab-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
-                  <span className="tab-text">{t('Review')}</span>
-                </button>
               </div>
-              <button className="icon-btn" onClick={() => setSidebarOpen(false)}>✕</button>
+              <button className="icon-btn" onClick={() => setSidebarOpen(false)} title={t('关闭侧栏')} aria-label={t('关闭侧栏')}><X size={15} /></button>
             </div>
             {activeSidebar === 'research' ? (
               <>

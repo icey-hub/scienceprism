@@ -8,12 +8,12 @@ import {
   mineruTransferUploadPdf,
   listTemplates,
   getProjectTree,
-} from '../api/client';
+} from '../api/transferAdapter';
 import type {
   LLMConfig,
   TemplateMeta,
   FileItem,
-} from '../api/client';
+} from '../api/transferAdapter';
 
 interface TransferPanelProps {
   projectId: string;

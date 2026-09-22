@@ -13,7 +13,11 @@
     "preview": "npm --workspace apps/frontend run preview",
     "tunnel": "npm run build && cross-env SCIENCEPRISM_TUNNEL=localtunnel node apps/backend/src/index.js",
     "tunnel:cf": "npm run build && cross-env SCIENCEPRISM_TUNNEL=cloudflared node apps/backend/src/index.js",
-    "tunnel:ngrok": "npm run build && cross-env SCIENCEPRISM_TUNNEL=ngrok node apps/backend/src/index.js"
+    "tunnel:ngrok": "npm run build && cross-env SCIENCEPRISM_TUNNEL=ngrok node apps/backend/src/index.js",
+    "test:backend": "node --test apps/backend/test/*.test.js",
+    "test": "npm run test:backend",
+    "typecheck": "npm --workspace apps/frontend run typecheck",
+    "quality": "npm run test && npm run typecheck && npm run build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

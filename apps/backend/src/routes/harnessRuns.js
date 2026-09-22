@@ -18,6 +18,9 @@ function bodyOf(req) {
 }
 
 function sendError(req, reply, error) {
+  if (error?.code === 'FEATURE_FLAG_DISABLED') {
+    return reply.code(403).send({ ok: false, error: { code: error.code, message: error.message, details: error.details } });
+  }
   if (error instanceof HarnessRuntimeError) {
     return reply.code(error.statusCode).send({
       ok: false,

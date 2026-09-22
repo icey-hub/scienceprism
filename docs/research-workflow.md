@@ -20,7 +20,7 @@ decisions are recorded in [docs/adr](./adr/).
 4. Replication: optional reproduction decision; skipping requires an audit note.
 5. Ideation: structured innovation suggestions through DeepSeek Harness when configured.
 6. Method: structured method proposals and human approval.
-7. Experiment: human-approved dataset and command plan. The first release records the plan and does not execute arbitrary shell commands.
+7. Experiment: human-approved dataset and structured execution plan. The workflow route records the plan; a separate controlled Experiment Run requires its own human approval and the project `experiment.execute` capability. Arbitrary shell commands are never executed.
 8. Writing: evidence handoff to the existing editor.
 
 Each stage is a separate URL and interface inside the existing editor shell.

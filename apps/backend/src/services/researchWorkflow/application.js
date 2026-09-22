@@ -174,7 +174,7 @@ export async function runUiAction(projectId, body, actor) {
   if (action === 'run-experiment') {
     const experiment = body.experiment || {};
     if (!experiment.dataset || !experiment.command) throw new ResearchWorkflowError(400, 'EXPERIMENT_INCOMPLETE', 'Dataset and command are required before an experiment can run.');
-    return updateStage(projectId, 'experiment', { ...experiment, status: 'planned', humanApprovalRequired: true, runRequestedAt: new Date().toISOString(), task: createStageTask({ stage: 'experiment', input: { experiment }, output: { ...experiment, status: 'planned' }, validation: { ok: true, errors: [], warnings: ['Experiment execution remains disabled until the controlled Experiment Runner stage.'] }, adapters: ['human-decision'] }) }, body, actor);
+    return updateStage(projectId, 'experiment', { ...experiment, status: 'planned', humanApprovalRequired: true, runRequestedAt: new Date().toISOString(), task: createStageTask({ stage: 'experiment', input: { experiment }, output: { ...experiment, status: 'planned' }, validation: { ok: true, errors: [], warnings: ['This Experiment Plan must be converted to a structured Experiment Run, explicitly approved, and executed with the project experiment.execute capability.'] }, adapters: ['human-decision'] }) }, body, actor);
   }
   if (action === 'handoff-writing') {
     const workflow = await getResearchWorkflow(projectId);

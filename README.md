@@ -26,10 +26,10 @@ The workflow lives inside the same project and editor shell. Every stage has its
 4. **Replication** — optionally record and assess a reproduction plan for selected papers.
 5. **Ideation** — ask DeepSeek Harness for several evidence-linked innovation candidates; the researcher decides which direction to keep.
 6. **Method** — compare AI-assisted method proposals, then approve the final human-owned method.
-7. **Experiment** — audit datasets, define commands and evaluation criteria, and record the approved experiment plan.
+7. **Experiment** — audit datasets, define a structured execution entrypoint and evaluation criteria, approve a plan, then run it only through the controlled Experiment Runner.
 8. **Writing** — hand verified evidence, decisions, and results into the existing LaTeX writing workspace.
 
-Navigation does not grant approval. The backend enforces stage order, quality gates, human confirmation, and audit logging. The first experiment release records an approved plan and does not execute arbitrary shell commands.
+Navigation does not grant approval. The backend enforces stage order, quality gates, human confirmation, and audit logging. Free-form shell commands are never executed; controlled Runs require a separate approval and explicit project capability.
 
 ### Workflow core (Phase 2)
 
@@ -120,7 +120,7 @@ Each project now has a control room at `/project/:projectId`. It projects the re
 The project loop includes four connected views:
 
 - **Paper Library** — import search candidates, deduplicate by arXiv/DOI/URL/title, tag and favorite papers, track reading status, keep notes and annotations, generate BibTeX, run source metadata checks, and retain an Evidence reference.
-- **Task Center** — inspect Harness, paper-import, compile, research-stage, and Experiment Plan tasks with progress, logs, failure details, retry, cancel, and Harness replay actions. Experiment Plans remain plan-only until the controlled Experiment Runner phase.
+- **Task Center** — inspect Harness, paper-import, compile, research-stage, and controlled Experiment Run tasks with progress, logs, failure details, retry, cancel, and Harness replay actions. Every Experiment Run still requires explicit human approval before execution.
 - **Writing Quality** — review the Claim-Evidence Matrix together with LaTeX citation completeness, keyword terminology variants, compile failures, and available Writing Harness checks.
 
 Project data is stored locally in `.scienceprism/paper-library.json` and `.scienceprism/tasks.json`. The corresponding HTTP interfaces are:
@@ -130,7 +130,54 @@ Project data is stored locally in `.scienceprism/paper-library.json` and `.scien
 - `GET /api/projects/:id/tasks`, `POST /api/projects/:id/tasks/:taskId/retry`, `POST /api/projects/:id/tasks/:taskId/cancel`
 - `GET/POST /api/projects/:id/writing-quality`
 
-The product loop keeps the existing invariants: AI output remains a suggestion or proposed Patch, Evidence with missing or uncertain provenance stays explicitly reviewable, and experiment execution is not enabled by dashboard navigation.
+The product loop keeps the existing invariants: AI output remains a suggestion or proposed Patch, Evidence with missing or uncertain provenance stays explicitly reviewable, and dashboard navigation cannot grant experiment execution permission.
+
+### Controlled Experiment Runner (Phase 8)
+
+The experiment workflow now separates an Experiment Plan from an Experiment Run. After a plan is approved in the Research Workflow, a structured Run Manifest records the code snapshot, dataset version, environment, parameters, seed, resource budget, success criteria, and declared Artifact paths. The Run then needs a second human approval and the project capability `experiment.execute`.
+
+The production Node Adapter runs only a project-relative `.js`, `.mjs`, or `.cjs` entrypoint in a temporary project copy with `shell: false`. A free-form command is retained as a plan note and cannot execute. The Runner archives stdout, stderr, metrics, declared charts/tables/checkpoints/outputs, an environment snapshot, and the Manifest under `.scienceprism/experiment-runs/<run-id>/`. The Fake Adapter is test-only.
+
+Completed and failed Runs are written to the Evidence Ledger as `pending` or `unverified` Evidence. Failed Runs can be cancelled or retried; retry creates a new approval-gated Run. Completed Runs can be compared by their persisted metrics, and interpretations must reference Artifacts from the same Run without changing measured values.
+
+The HTTP interface is under `/api/projects/:id/experiment-runs`: list/create Runs, approve or reject, start, cancel, retry, interpret, and compare completed Runs. See [docs/experiment-runner.md](docs/experiment-runner.md) and [docs/adr/0009-controlled-experiment-runs.md](docs/adr/0009-controlled-experiment-runs.md).
+
+### Frontend Workbench (Phase 9)
+
+The project control room now exposes dedicated views for the human approval inbox, effective Project Constraints, Harness Run control, and the Evidence graph:
+
+- `/project/:projectId/approvals` — pending stage decisions and readiness details.
+- `/project/:projectId/runs` — Harness lifecycle controls, event logs, Context Hash, output validation, proposed Patch links, replay, recovery, and human accept/reject decisions.
+- `/project/:projectId/evidence` — Claim-Evidence Matrix summary and Evidence relationship counts.
+- `/project/:projectId/settings` — the backend-projected capabilities, allowed paths, network allowlist, token budget, and timeout.
+
+Paper Library, reading notes, annotations, source checks, Task Center retry/cancel, and Writing Quality remain in the same project navigation. The editor keeps the existing collaboration, compile, PDF, AI, and Diff approval workflows; its Diff, PDF preview, settings persistence, and collaboration persistence now live behind focused editor Modules. Domain HTTP seams are available through project, workflow, Harness, Evidence, experiment, collaboration, editor, and transfer Adapters, while `api/client.ts` remains a compatibility surface.
+
+All long-running views use explicit loading, empty, error, progress, and decision states. `AI suggestion`, `human approval`, `applied`, `rejected`, `failed`, and `cancelled` are displayed separately. See [docs/frontend-visual-regression.md](docs/frontend-visual-regression.md) and [docs/architecture-roadmap.md](docs/architecture-roadmap.md) for the scenarios and execution record.
+
+### Tests, Observability, and Migration (Phase 10)
+
+Phase 10 adds a stable backend quality gate and test entrypoint:
+
+```bash
+npm test       # backend Module, API contract, migration, and vertical-slice tests
+npm run quality # tests followed by the frontend production build
+```
+
+The project observability projection is available at `GET /api/projects/:id/observability`. It reports Harness and Experiment Run duration, token usage, status and failure rates, human decision rejection rates, recent Run IDs, Context Hashes, Context Manifests, errors, and Evidence Claim missing-support rates. `GET /api/projects/:id/feature-flags` exposes the effective rollout state.
+
+Controlled experiment execution and advanced Harness adapters are protected by `experimentExecution` and `advancedHarness` Feature Flags. They default to the existing behavior for compatibility, can be disabled globally with `SCIENCEPRISM_FEATURE_EXPERIMENT_EXECUTION=false` or `SCIENCEPRISM_FEATURE_ADVANCED_HARNESS=false`, and can be further disabled per project under `.scienceprism/project-constraints.json`:
+
+```json
+{
+  "featureFlags": {
+    "experimentExecution": false,
+    "advancedHarness": true
+  }
+}
+```
+
+Legacy `.openprism` workflow/evidence files and schema versions migrate to `.scienceprism` without deleting the source. Legacy browser settings and collaboration names are promoted to the `scienceprism-*` storage keys on first read. Every Harness Run retains its Run ID, audit events, output validation, Context Hash, and Context Manifest for diagnosis.
 
 ## Why SciencePrism
 
@@ -240,7 +287,9 @@ The catalog is a metadata adapter. It cannot override failed year, peer-review, 
 - [Research Skills](docs/research-skills.md)
 - [Harness Runtime](docs/harness-runtime.md)
 - [Evidence Ledger](docs/evidence-ledger.md)
+- [Controlled Experiment Runner](docs/experiment-runner.md)
 - [Architecture roadmap](docs/architecture-roadmap.md)
+- [Frontend visual regression scenarios](docs/frontend-visual-regression.md)
 - [DeepSeek Harness integration](docs/deepseek-harness.md)
 
 ## Privacy and security

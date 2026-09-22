@@ -106,7 +106,11 @@ function getAuthHeader(): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+/**
+ * Compatibility transport used by the domain adapters. New UI modules should
+ * import an adapter instead of adding another endpoint to this file.
+ */
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const lang = getLangHeader();
   const mergedHeaders: Record<string, string> = {
     'x-lang': lang,
@@ -322,6 +326,83 @@ export function getAgentRuntime() {
   );
 }
 
+export interface HarnessRun {
+  id: string;
+  projectId: string;
+  stage: ResearchStageId | string | null;
+  task: string;
+  adapter: 'deepseek' | 'legacy' | 'fake' | string;
+  status: 'created' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | string;
+  model?: string | null;
+  skills?: string[];
+  contextHash?: string;
+  contextManifest?: Record<string, unknown>;
+  capabilities?: { granted?: string[]; denied?: string[]; constraints?: Record<string, unknown> };
+  limits?: { timeoutMs?: number; maxTokens?: number; maxConcurrent?: number; retryLimit?: number };
+  events?: { type?: string; name?: string; capability?: string; text?: string; at?: string }[];
+  patches?: { path: string; diff: string; content: string; deleted?: boolean }[];
+  tokenUsage?: Record<string, unknown> | null;
+  humanDecision?: { status: string; actor?: string; note?: string; at?: string };
+  outputValidation?: { ok?: boolean; warnings?: string[]; errors?: string[] } | null;
+  error?: { code?: string; message?: string; retryable?: boolean } | null;
+  reply?: string;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+}
+
+export function listHarnessRuns(projectId: string, query: Record<string, string> = {}) {
+  const qs = new URLSearchParams(query).toString();
+  return request<{ ok: boolean; runs: HarnessRun[] }>(`/api/projects/${projectId}/harness-runs${qs ? `?${qs}` : ''}`);
+}
+
+export function getHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}`);
+}
+
+export function startHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/start`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function pauseHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/pause`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function resumeHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/resume`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function cancelHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
+export function replayHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/replay`, {
+    method: 'POST',
+    body: JSON.stringify({ start: true })
+  });
+}
+
+export function decideHarnessRun(projectId: string, runId: string, decision: 'accept' | 'reject', note = '') {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, note })
+  });
+}
+
 export function compileProject(payload: {
   projectId: string;
   mainFile: string;
@@ -365,7 +446,7 @@ export interface ProjectTask {
   id: string;
   kind: string;
   title: string;
-  status: 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | string;
+  status: 'queued' | 'running' | 'paused' | 'awaiting_approval' | 'approved' | 'completed' | 'failed' | 'cancelled' | 'rejected' | string;
   progress: number;
   stage?: string | null;
   log: string[];
@@ -375,6 +456,32 @@ export interface ProjectTask {
   createdAt: string;
   startedAt?: string | null;
   finishedAt?: string | null;
+  updatedAt: string;
+}
+
+export interface ExperimentRun {
+  id: string;
+  projectId: string;
+  planId?: string | null;
+  status: 'awaiting_approval' | 'approved' | 'running' | 'completed' | 'failed' | 'cancelled' | 'rejected' | string;
+  phase?: string;
+  manifest: {
+    code: { version: string; snapshotHash: string };
+    dataset: { id: string; version: string };
+    environment: { node: string; platform: string; arch: string; runner: string };
+    command: { adapter: string; entrypoint?: string; args: string[] };
+    parameters: Record<string, unknown>;
+    seed?: string | null;
+    successCriteria: string[];
+  };
+  approval?: { decision: string; actor: string; note?: string; at: string } | null;
+  execution?: { startedAt?: string; finishedAt?: string; exitCode?: number | null; signal?: string | null; error?: { code?: string; message?: string } | null } | null;
+  logs?: { stdout?: string; stderr?: string };
+  metrics: { name: string; value?: unknown; unit?: string | null; uncertainty?: unknown }[];
+  artifacts: { id: string; name: string; kind: string; path: string; sha256: string; bytes: number }[];
+  evidence?: { runId?: string | null; artifactIds?: string[] };
+  error?: { code?: string; message?: string; retryable?: boolean } | null;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -452,6 +559,36 @@ export function retryProjectTask(projectId: string, taskId: string) {
 
 export function cancelProjectTask(projectId: string, taskId: string) {
   return request<{ ok: boolean; result: { task: ProjectTask } }>(`/api/projects/${projectId}/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function listExperimentRuns(projectId: string, query: Record<string, string> = {}) {
+  const qs = new URLSearchParams(query).toString();
+  return request<{ ok: boolean; runs: ExperimentRun[] }>(`/api/projects/${projectId}/experiment-runs${qs ? `?${qs}` : ''}`);
+}
+
+export function createExperimentRun(projectId: string, plan: Record<string, unknown>) {
+  return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs`, {
+    method: 'POST',
+    body: JSON.stringify({ plan })
+  });
+}
+
+export function decideExperimentRun(projectId: string, runId: string, decision: 'approve' | 'reject', note = '') {
+  return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs/${encodeURIComponent(runId)}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, note })
+  });
+}
+
+export function startExperimentRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs/${encodeURIComponent(runId)}/start`, {
+    method: 'POST',
+    body: JSON.stringify({ wait: false })
+  });
+}
+
+export function cancelExperimentRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST', body: JSON.stringify({}) });
 }
 
 export function getWritingQuality(projectId: string) {

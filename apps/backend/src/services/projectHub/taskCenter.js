@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { listHarnessRuns, cancelHarnessRun, replayHarnessRun } from '../harnessRuntime/index.js';
+import { cancelExperimentRun, listExperimentRuns, retryExperimentRun } from '../experimentRunner/index.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
 import { clone, readHubJson, withHubLock, writeHubJson } from './repository.js';
 
 const FILE = 'tasks.json';
 const MAX_TASKS = 500;
-const TASK_STATUSES = new Set(['queued', 'running', 'paused', 'completed', 'failed', 'cancelled']);
+const TASK_STATUSES = new Set(['queued', 'running', 'paused', 'awaiting_approval', 'approved', 'completed', 'failed', 'cancelled', 'rejected']);
 
 function now() { return new Date().toISOString(); }
 function emptyTasks(projectId) { return { schemaVersion: 1, projectId, version: 1, tasks: [], updatedAt: now() }; }
@@ -95,7 +96,7 @@ function stageTask(stage) {
     status: isExperimentPlan ? (task.status === 'failed' ? 'failed' : 'queued') : (task.status === 'succeeded' || task.status === 'awaiting_approval' ? 'completed' : task.status === 'failed' ? 'failed' : 'running'),
     progress: task.status === 'failed' ? 100 : task.status === 'awaiting_approval' ? 100 : 50,
     stage: stage.id,
-    log: [...(task.validation?.errors?.map((error) => error.message || JSON.stringify(error)) || []), ...(isExperimentPlan ? ['This is an Experiment Plan; controlled execution is not enabled in Phase 7.'] : [])],
+    log: [...(task.validation?.errors?.map((error) => error.message || JSON.stringify(error)) || []), ...(isExperimentPlan ? ['This is an Experiment Plan. Create and approve a controlled Experiment Run before execution.'] : [])],
     error: task.error || null,
     retryable: task.status === 'failed',
     metadata: { taskId: task.id, humanDecision: task.humanDecision || null, harnessRunId: task.harness?.runId || null, planOnly: isExperimentPlan },
@@ -103,6 +104,33 @@ function stageTask(stage) {
     startedAt: task.startedAt,
     finishedAt: task.completedAt,
     updatedAt: stage.updatedAt
+  });
+}
+
+function experimentRunTask(run) {
+  const status = run.status === 'approved' ? 'queued' : run.status;
+  const log = [
+    `phase:${run.phase || 'plan'}`,
+    ...(run.approval ? [`approval:${run.approval.decision} by ${run.approval.actor}`] : []),
+    ...(run.execution?.error ? [`${run.execution.error.code}: ${run.execution.error.message}`] : []),
+    ...(run.evidence?.runId ? [`evidence:${run.evidence.runId}`] : []),
+    ...(run.evidenceError ? [`evidence-error:${run.evidenceError.message}`] : [])
+  ];
+  return normalizeTask({
+    id: `experiment-run:${run.id}`,
+    kind: 'experiment-run',
+    title: `Experiment Run ${run.id.slice(-8)}`,
+    status,
+    progress: ['completed', 'failed', 'cancelled', 'rejected'].includes(run.status) ? 100 : run.status === 'running' ? 50 : 0,
+    stage: 'experiment',
+    log,
+    error: run.error || null,
+    retryable: run.status === 'failed',
+    metadata: { runId: run.id, planId: run.planId, approval: run.approval, phase: run.phase, codeVersion: run.manifest?.code?.version || null, dataset: run.manifest?.dataset || null, evidence: run.evidence || null },
+    createdAt: run.createdAt,
+    startedAt: run.startedAt || run.execution?.startedAt || null,
+    finishedAt: ['completed', 'failed', 'cancelled', 'rejected'].includes(run.status) ? run.execution?.finishedAt || run.updatedAt : null,
+    updatedAt: run.updatedAt
   });
 }
 
@@ -119,6 +147,10 @@ export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
       const task = stageTask(stage);
       if (task) taskMap.set(task.id, task);
     }
+  } catch {}
+  try {
+    const runs = await listExperimentRuns(projectId, { limit: 100 });
+    for (const run of runs) taskMap.set(`experiment-run:${run.id}`, experimentRunTask(run));
   } catch {}
   let tasks = [...taskMap.values()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   if (status) tasks = tasks.filter((task) => task.status === status);
@@ -139,7 +171,11 @@ export async function retryTask(projectId, taskId) {
     const run = await replayHarnessRun(projectId, task.metadata.runId, { start: true });
     return { task: harnessTask(run), run };
   }
-  if (task.kind === 'experiment') throw new Error('Experiment Plans require human approval and a controlled runner.');
+  if (task.kind === 'experiment-run' && task.metadata?.runId) {
+    const run = await retryExperimentRun(projectId, task.metadata.runId);
+    return { task: experimentRunTask(run), run };
+  }
+  if (task.kind === 'experiment') throw new Error('Experiment Plans require a controlled Experiment Run.');
   if (!task.retryable) throw new Error('Task is not retryable.');
   const updated = await updateTask(projectId, taskId, { status: 'queued', progress: 0, error: null, log: ['Retry requested by human.'], finishedAt: null });
   return { task: updated };
@@ -151,6 +187,10 @@ export async function cancelTask(projectId, taskId) {
     const run = await cancelHarnessRun(projectId, task.metadata.runId);
     return { task: harnessTask(run), run };
   }
+  if (task.kind === 'experiment-run' && task.metadata?.runId) {
+    const run = await cancelExperimentRun(projectId, task.metadata.runId);
+    return { task: experimentRunTask(run), run };
+  }
   if (!['queued', 'running', 'paused'].includes(task.status)) throw new Error('Task is no longer active.');
   return { task: await updateTask(projectId, taskId, { status: 'cancelled', progress: 100, finishedAt: now(), log: [...task.log, 'Cancelled by human.'] }) };
 }
@@ -159,7 +199,7 @@ export async function getTaskSummary(projectId) {
   const tasks = await listTasks(projectId, { limit: MAX_TASKS });
   return {
     total: tasks.length,
-    active: tasks.filter((task) => ['queued', 'running', 'paused'].includes(task.status)).length,
+    active: tasks.filter((task) => ['queued', 'running', 'paused', 'awaiting_approval'].includes(task.status)).length,
     failed: tasks.filter((task) => task.status === 'failed').length,
     completed: tasks.filter((task) => task.status === 'completed').length,
     recent: tasks.slice(0, 8)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 
 const {
   cancelHarnessRun,
+  copyWorkspace,
   createHarnessRun,
   getHarnessRun,
   listHarnessRuns,
@@ -21,6 +22,7 @@ const {
 } = await import('../src/services/harnessRuntime/index.js');
 const { buildContextPack, estimateTokens } = await import('../src/services/harnessRuntime/contextPackager.js');
 const { assertCapability, resolveCapabilityPolicy } = await import('../src/services/harnessRuntime/capabilities.js');
+const { buildInput, childEnvironment } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
 
 async function createProject(id) {
   const root = path.join(dataDir, id);
@@ -120,6 +122,27 @@ test('a capability requested outside Project Constraints is recorded as a failed
   assert.deepEqual(run.capabilities.granted, ['project.read']);
 });
 
+test('DeepSeek runs fail closed when granted capabilities cannot be enforced before tool use', async () => {
+  const projectId = 'harness-deepseek-unenforceable';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism', 'project-constraints.json'), JSON.stringify({
+    capabilities: ['project.read', 'experiment.execute'],
+    featureFlags: { advancedHarness: true }
+  }));
+  const run = await createHarnessRun(projectId, {
+    adapter: 'deepseek',
+    capabilities: ['project.read', 'experiment.execute'],
+    fallback: false
+  });
+
+  const result = await startHarnessRun(projectId, run.id, { wait: true });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'CAPABILITY_POLICY_UNENFORCEABLE');
+  assert.deepEqual(result.capabilities.granted, ['project.read', 'experiment.execute']);
+});
+
 test('Context Packager applies file priority, budget, sensitive filtering, and explicit uncertainty warnings', async () => {
   const projectId = 'harness-context-pack';
   const root = await createProject(projectId);
@@ -173,4 +196,42 @@ test('Context Packager applies file priority, budget, sensitive filtering, and e
   assert.equal(run.contextHash, run.contextPack.contextHash);
   assert.equal(run.contextManifest.contextHash, run.contextHash);
   assert.ok(run.contextManifest.files.some((file) => file.path === 'sections/method.tex'));
+});
+
+test('Harness workspace physically contains only allowed project paths', async () => {
+  const projectId = 'harness-allowed-paths';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, 'sections'), { recursive: true });
+  await writeFile(path.join(root, 'sections', 'allowed.tex'), 'allowed\n');
+  await writeFile(path.join(root, 'sections', 'denied.tex'), 'denied\n');
+  await writeFile(path.join(root, 'outside.tex'), 'outside\n');
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-workspace-'));
+
+  await copyWorkspace(root, workspace, { allowedPaths: ['sections/allowed.tex'] });
+
+  assert.equal(await readFile(path.join(workspace, 'sections', 'allowed.tex'), 'utf8'), 'allowed\n');
+  await assert.rejects(() => access(path.join(workspace, 'sections', 'denied.tex')), (error) => error.code === 'ENOENT');
+  await assert.rejects(() => access(path.join(workspace, 'outside.tex')), (error) => error.code === 'ENOENT');
+
+  const invalidWorkspace = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-invalid-scope-'));
+  await copyWorkspace(root, invalidWorkspace, { allowedPaths: ['../outside'] });
+  await assert.rejects(() => access(path.join(invalidWorkspace, 'main.tex')), (error) => error.code === 'ENOENT');
+});
+
+test('DeepSeek Adapter prompt and child environment retain policy without leaking parent secrets', () => {
+  process.env.SCIENCEPRISM_TEST_SECRET = 'must-not-leak';
+  const policy = {
+    granted: ['project.read', 'patch.propose'],
+    allowedPaths: ['sections/method.tex'],
+    networkAllowlist: ['export.arxiv.org']
+  };
+  const prompt = buildInput({ task: 'polish', prompt: 'Review this section.' }, policy);
+  const env = childEnvironment({ apiKey: 'provider-key', baseUrl: 'https://api.example.test', dshHome: '/tmp/dsh-home' });
+
+  assert.match(prompt, /Allowed project paths: sections\/method\.tex/);
+  assert.match(prompt, /Allowed network hosts: export\.arxiv\.org/);
+  assert.equal(env.HOME, '/tmp/dsh-home');
+  assert.equal(env.DEEPSEEK_API_KEY, 'provider-key');
+  assert.equal(env.SCIENCEPRISM_TEST_SECRET, undefined);
+  delete process.env.SCIENCEPRISM_TEST_SECRET;
 });

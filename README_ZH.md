@@ -26,10 +26,10 @@ SciencePrism 是一个本地优先的科研工作台，用于把研究者自己�
 4. **论文复现** —— 可选地记录和评估已选论文的复现实验计划。
 5. **创新点** —— 由 DeepSeek Harness 提供多个有证据依据的创新候选，人来决定保留哪个方向。
 6. **方法设计** —— 对比 AI 辅助的方法方案，由人确认最终方法。
-7. **实验验证** —— 审查数据集，定义命令和评价标准，记录已批准的实验方案。
+7. **实验验证** —— 审查数据集，定义结构化入口和评价标准，批准实验计划，再通过受控 Experiment Runner 执行。
 8. **论文写作** —— 将经过确认的证据、决策和结果交给原有 LaTeX 写作工作区。
 
-页面跳转不等于获得授权。后端会强制执行阶段顺序、论文质量门禁、人工确认和审计记录。当前实验阶段只记录经过确认的方案，不会执行任意 Shell 命令。
+页面跳转不等于获得授权。后端会强制执行阶段顺序、论文质量门禁、人工确认和审计记录。系统不会执行自由文本 Shell 命令；受控 Run 还需要单独批准和明确的项目执行能力。
 
 ### 工作流核心（第二阶段）
 
@@ -120,7 +120,7 @@ Research Harness 的输出会在阶段 Schema 校验后，再与已确认 Eviden
 项目内提供四个连续视图：
 
 - **论文资料库**：导入检索候选，按 arXiv/DOI/URL/标题去重，管理标签和收藏，记录阅读状态、笔记和批注，生成 BibTeX，执行来源元数据检查，并保留项目 Evidence 引用。
-- **任务中心**：统一查看 Harness、论文导入、编译、研究阶段和实验计划任务，支持进度、日志、失败详情、重试、取消和 Harness 重放。实验计划在阶段八之前保持计划态，不会执行 Shell。
+- **任务中心**：统一查看 Harness、论文导入、编译、研究阶段和受控 Experiment Run，支持进度、日志、失败详情、重试、取消和 Harness 重放。每次 Experiment Run 仍需人工明确批准后才能执行。
 - **写作质量**：集中查看主张-证据矩阵、LaTeX 引用完整性、关键词术语变体、编译失败和已有 Writing Harness 检查结果。
 
 项目数据保存在 `.scienceprism/paper-library.json` 和 `.scienceprism/tasks.json`。对应 HTTP 接口包括：
@@ -130,7 +130,54 @@ Research Harness 的输出会在阶段 Schema 校验后，再与已确认 Eviden
 - `GET /api/projects/:id/tasks`、`POST /api/projects/:id/tasks/:taskId/retry`、`POST /api/projects/:id/tasks/:taskId/cancel`
 - `GET/POST /api/projects/:id/writing-quality`
 
-产品闭环继续遵守现有不变量：AI 输出仍然只是建议或待确认 Patch，来源缺失或不确定的 Evidence 始终显式待核验，驾驶舱导航不会开启实验执行。
+产品闭环继续遵守现有不变量：AI 输出仍然只是建议或待确认 Patch，来源缺失或不确定的 Evidence 始终显式待核验，驾驶舱导航不能授予实验执行权限。
+
+### 受控实验运行（第八阶段）
+
+实验流程现在明确区分 Experiment Plan 和 Experiment Run。研究流程批准计划后，结构化 Run Manifest 会记录代码快照、数据集版本、运行环境、参数、随机种子、资源预算、成功标准和声明的产物路径。Run 还需要第二次人工批准，并且项目约束必须显式授予 `experiment.execute`。
+
+生产 Node Adapter 只允许项目内的 `.js`、`.mjs` 或 `.cjs` 入口，在项目临时副本中以 `shell: false` 执行。自由文本 command 只作为计划备注保存，不能直接执行。Runner 会把 stdout、stderr、指标、声明的图表/表格/检查点/输出、环境快照和 Manifest 保存到 `.scienceprism/experiment-runs/<run-id>/`。Fake Adapter 仅用于测试。
+
+完成或失败的 Run 会自动写入 Evidence Ledger，分别保持 `pending` 或 `unverified` 状态。失败 Run 支持取消和重试；重试会创建新的待批准 Run。已完成 Run 可以按持久化指标比较，结果解释只能引用同一 Run 产生的 Artifact，不能修改实测指标。
+
+HTTP 接口位于 `/api/projects/:id/experiment-runs`，支持列出/创建 Run、批准/拒绝、启动、取消、重试、解释和比较已完成 Run。详见 [docs/experiment-runner.md](docs/experiment-runner.md) 与 [docs/adr/0009-controlled-experiment-runs.md](docs/adr/0009-controlled-experiment-runs.md)。
+
+### 前端工作台拆分和增强（第九阶段）
+
+项目驾驶舱现在提供独立的待审批、项目约束、Harness 运行和 Evidence 视图：
+
+- `/project/:projectId/approvals`：查看待审批阶段、缺失字段和进入阶段的入口。
+- `/project/:projectId/runs`：查看 Harness 生命周期、事件日志、Context Hash、输出校验、Patch 入口，并支持重放、恢复、人工接受或拒绝结果。
+- `/project/:projectId/evidence`：查看主张-证据矩阵摘要、Evidence 节点和关系数量。
+- `/project/:projectId/settings`：查看后端投影的能力、允许路径、网络白名单、Token 预算和超时。
+
+论文资料库仍支持阅读状态、笔记、批注和来源检查；任务中心保留进度、日志、失败详情、重试和取消；写作质量保留主张-证据矩阵和稿件检查。编辑器的协作、编译、PDF、AI 和 Diff 应用流程保持不变，Diff、PDF 预览、设置持久化和协作身份持久化已移入独立的 editor Module。项目、工作流、Harness、Evidence、实验、协作、编辑器和转换 API 现在都有领域 Adapter，`api/client.ts` 仅作为兼容入口。
+
+长任务页面会明确显示加载、空态、错误、进度和决定状态，并区分“AI 建议 / 人工确认 / 已应用 / 已拒绝 / 失败 / 已取消”。视觉回归场景见 [docs/frontend-visual-regression.md](docs/frontend-visual-regression.md)，完整执行记录见 [docs/architecture-roadmap.md](docs/architecture-roadmap.md)。
+
+### 测试、可观测性和迁移（第十阶段）
+
+第十阶段增加统一的后端质量门禁和测试入口：
+
+```bash
+npm test       # 后端 Module、API 契约、迁移和纵向切片测试
+npm run quality # 测试后再执行前端生产构建
+```
+
+项目可观测性投影位于 `GET /api/projects/:id/observability`，提供 Harness 和 Experiment Run 的耗时、Token 用量、状态和失败率、人工决定驳回率、最近 Run ID、Context Hash、Context Manifest、错误，以及 Evidence 主张缺失支持率。`GET /api/projects/:id/feature-flags` 提供当前生效的分阶段开关。
+
+受控实验执行和高级 Harness Adapter 由 `experimentExecution`、`advancedHarness` 两个 Feature Flag 控制。为兼容已有行为，默认保持开启；可以使用 `SCIENCEPRISM_FEATURE_EXPERIMENT_EXECUTION=false` 或 `SCIENCEPRISM_FEATURE_ADVANCED_HARNESS=false` 全局关闭，也可以在项目的 `.scienceprism/project-constraints.json` 中进一步关闭：
+
+```json
+{
+  "featureFlags": {
+    "experimentExecution": false,
+    "advancedHarness": true
+  }
+}
+```
+
+旧 `.openprism` 工作流/Evidence 文件和旧 Schema 会迁移到 `.scienceprism`，不会删除旧来源。旧浏览器设置和协作名称首次读取时会提升为 `scienceprism-*` 存储键。每次 Harness Run 都保留 Run ID、审计事件、输出校验、Context Hash 和 Context Manifest，便于定位线上问题。
 
 ## 为什么是 SciencePrism
 
@@ -240,7 +287,9 @@ export SCIENCEPRISM_CCF_VENUE_CATALOG_JSON='{"NeurIPS":"CCF-A","SIGIR":"CCF-A"}'
 - [科研 Skill 说明](docs/research-skills.md)
 - [Harness Runtime](docs/harness-runtime.md)
 - [Evidence Ledger](docs/evidence-ledger.md)
+- [受控实验运行](docs/experiment-runner.md)
 - [架构执行路线图](docs/architecture-roadmap.md)
+- [前端视觉回归场景](docs/frontend-visual-regression.md)
 - [DeepSeek Harness 集成](docs/deepseek-harness.md)
 
 ## 隐私和安全

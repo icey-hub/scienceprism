@@ -20,6 +20,7 @@ import { legacyHarnessAdapter } from './adapters/legacyAdapter.js';
 import { fakeHarnessAdapter } from './adapters/fakeAdapter.js';
 import { copyBundledResearchSkills, isBundledSkillPath, restrictWorkspaceResearchSkills } from '../researchResearch/researchSkills.js';
 import { buildContextPack, contextManifest } from './contextPackager.js';
+import { assertProjectFeatureEnabled } from '../featureFlags.js';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_TOKENS = 49152;
@@ -103,13 +104,25 @@ async function collectFiles(root, relative = '') {
   return files;
 }
 
-async function copyWorkspace(sourceRoot, targetRoot) {
+function normalizedAllowedPaths(policy) {
+  return (policy?.allowedPaths || []).map((value) => String(value || '').replace(/\\/g, '/'))
+    .map((value) => path.posix.normalize(value))
+    .filter((value) => value && value !== '.' && value !== '..' && !value.startsWith('../') && !value.startsWith('/') && !isSensitivePath(value));
+}
+
+async function copyWorkspace(sourceRoot, targetRoot, policy = {}) {
+  const allowedPaths = normalizedAllowedPaths(policy);
+  const hasPathScope = Array.isArray(policy?.allowedPaths) && policy.allowedPaths.length > 0;
   await fs.mkdir(targetRoot, { recursive: true });
   await fs.cp(sourceRoot, targetRoot, {
     recursive: true,
     filter(source) {
+      const relative = toPosix(path.relative(sourceRoot, source));
+      if (!relative) return true;
       const name = path.basename(source);
-      return !IGNORED_DIRS.has(name) && !IGNORED_FILES.has(name) && !isSensitivePath(name);
+      if (IGNORED_DIRS.has(name) || IGNORED_FILES.has(name) || isSensitivePath(relative)) return false;
+      if (!hasPathScope) return true;
+      return isPathAllowed(relative, policy) || allowedPaths.some((allowedPath) => allowedPath.startsWith(`${relative}/`));
     }
   });
 }
@@ -267,7 +280,6 @@ async function executeRun(projectId, runId, request, control) {
   if (run.capabilities.denied?.length) {
     throw new HarnessRuntimeError(403, 'CAPABILITY_DENIED', 'Requested Harness capabilities were not granted by the Project Constraints.', { denied: run.capabilities.denied });
   }
-
   const projectRoot = await resolveHarnessProjectRoot(projectId);
   const runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
   const workspace = path.join(runRoot, 'workspace');
@@ -278,6 +290,12 @@ async function executeRun(projectId, runId, request, control) {
     const summary = summarizeEvent(event);
     eventWrite = eventWrite.then(() => persistEvents(projectId, runId, [summary])).catch(() => {});
     const capability = summary.capability;
+    const toolName = summary.name || summary.tool;
+    if (toolName && !capability && !control.violation) {
+      control.violation = new HarnessRuntimeError(403, 'TOOL_CAPABILITY_UNKNOWN', `Harness tool is not mapped to an allowed capability: ${toolName}.`, { tool: toolName });
+      control.controller.abort(control.violation);
+      return;
+    }
     if (capability && !run.capabilities.granted.includes(capability) && !control.violation) {
       control.violation = new HarnessRuntimeError(403, 'CAPABILITY_DENIED', `Harness tool capability denied: ${capability}.`, { capability, tool: summary.name || summary.tool });
       control.controller.abort(control.violation);
@@ -285,7 +303,13 @@ async function executeRun(projectId, runId, request, control) {
   };
 
   try {
-    await copyWorkspace(projectRoot, workspace);
+    if (run.adapter === 'deepseek') {
+      const unenforceable = run.capabilities.granted.filter((capability) => ['research.search', 'experiment.execute'].includes(capability));
+      if (unenforceable.length) {
+        throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The DeepSeek Harness SDK has no pre-tool policy hook for network or command execution. Use the legacy Adapter for these capabilities.', { capabilities: unenforceable });
+      }
+    }
+    await copyWorkspace(projectRoot, workspace, run.capabilities);
     if (Array.isArray(request.researchSkills)) {
       const removedSkillPaths = await restrictWorkspaceResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
       const bundledSkillPaths = await copyBundledResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
@@ -413,6 +437,7 @@ export async function createHarnessRun(projectId, request = {}) {
     constraints
   );
   const adapter = normalizeAdapter(request.adapter || request.runtime || request.llmConfig?.runtime || getEnv('AGENT_RUNTIME'));
+  if (adapter === 'deepseek') await assertProjectFeatureEnabled(projectId, 'advancedHarness', { adapter });
   const contextPack = await buildContextPack({
     projectId,
     projectRoot,
@@ -491,20 +516,28 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
     return denied;
   }
   const existing = activeRuns.get(runId);
-  if (existing) return wait ? existing.promise : getHarnessRun(projectId, runId);
+  if (existing) return wait && existing.promise ? existing.promise : getHarnessRun(projectId, runId);
   if (activeCount(projectId) >= run.limits.maxConcurrent) {
     throw new HarnessRuntimeError(409, 'HARNESS_CONCURRENCY_LIMIT', 'Project Harness concurrency limit reached.', { maxConcurrent: run.limits.maxConcurrent });
   }
-  const started = await updateRun(projectId, runId, (current) => {
-    current.status = 'running';
-    current.attempt += 1;
-    current.startedAt = current.startedAt || now();
-    current.updatedAt = now();
-    current.error = null;
-    return current;
-  });
   const controller = new AbortController();
   const control = { controller, pauseRequested: false, cancelRequested: false, timeoutError: null, violation: null };
+  activeRuns.set(runId, { projectId, controller, control, promise: null });
+  let started;
+  try {
+    started = await updateRun(projectId, runId, (current) => {
+      assertRunnableStatus(current);
+      current.status = 'running';
+      current.attempt += 1;
+      current.startedAt = current.startedAt || now();
+      current.updatedAt = now();
+      current.error = null;
+      return current;
+    });
+  } catch (error) {
+    activeRuns.delete(runId);
+    throw error;
+  }
   const effectiveRequest = mergeRequest(started, request);
   const promise = executeRun(projectId, runId, effectiveRequest, control).finally(() => activeRuns.delete(runId));
   activeRuns.set(runId, { projectId, controller, control, promise });
@@ -513,7 +546,7 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
 
 export async function waitForHarnessRun(projectId, runId) {
   const active = activeRuns.get(runId);
-  return active ? active.promise : getHarnessRun(projectId, runId);
+  return active?.promise || getHarnessRun(projectId, runId);
 }
 
 export async function pauseHarnessRun(projectId, runId) {
@@ -546,7 +579,7 @@ export async function cancelHarnessRun(projectId, runId) {
   }
   active.control.cancelRequested = true;
   active.controller.abort(Object.assign(new Error('Harness Run cancelled.'), { code: 'HARNESS_CANCELLED' }));
-  return active.promise;
+  return active.promise || getHarnessRun(projectId, runId);
 }
 
 export async function replayHarnessRun(projectId, runId, { request = {}, start = true } = {}) {

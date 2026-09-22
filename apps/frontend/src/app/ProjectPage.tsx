@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  Archive,
+  ArchiveRestore,
+  BookOpenText,
+  ChevronDown,
+  Copy,
+  FileArchive,
+  FilePlus2,
+  Folder,
+  Languages,
+  MoreHorizontal,
+  Pencil,
+  RotateCcw,
+  Search,
+  Settings,
+  Sparkles,
+  Trash2,
+  Upload
+} from 'lucide-react';
 import {
   createProject,
   copyProject,
-  deleteProject,
   importArxivSSE,
   importZip,
   listProjects,
@@ -15,8 +33,8 @@ import {
   updateProjectTags,
   permanentDeleteProject,
   uploadTemplate
-} from '../api/client';
-import type { ProjectMeta, TemplateMeta, TemplateCategory } from '../api/client';
+} from '../api/projectAdapter';
+import type { ProjectMeta, TemplateMeta, TemplateCategory } from '../api/projectAdapter';
 import TransferPanel from './TransferPanel';
 
 type ViewFilter = 'all' | 'mine' | 'archived' | 'trash';
@@ -72,6 +90,7 @@ function formatRelativeTime(iso: string, t: (k: string, o?: Record<string, unkno
 
 export default function ProjectPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t, i18n } = useTranslation();
 
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
@@ -111,6 +130,7 @@ export default function ProjectPage() {
   const [newSidebarTag, setNewSidebarTag] = useState('');
   const [addingSidebarTag, setAddingSidebarTag] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const [activeActionMenuId, setActiveActionMenuId] = useState<string | null>(null);
 
   // Transfer modal state
   const [transferOpen, setTransferOpen] = useState(false);
@@ -126,6 +146,14 @@ export default function ProjectPage() {
   // Template upload state
   const templateZipRef = useRef<HTMLInputElement | null>(null);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
+
+  useEffect(() => {
+    const action = searchParams.get('action');
+    if (action === 'create') setCreateOpen(true);
+    if (action === 'import') setImportOpen(true);
+    if (action === 'templates') setTemplateGalleryOpen(true);
+    if (action) setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const loadProjects = useCallback(async () => {
     const res = await listProjects();
@@ -221,16 +249,6 @@ export default function ProjectPage() {
       await loadProjects();
     } catch (err) {
       setStatus(t('重命名失败: {{error}}', { error: String(err) }));
-    }
-  };
-
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(t('删除项目 {{name}}？此操作不可撤销。', { name }))) return;
-    try {
-      await deleteProject(id);
-      await loadProjects();
-    } catch (err) {
-      setStatus(t('删除失败: {{error}}', { error: String(err) }));
     }
   };
 
@@ -384,10 +402,10 @@ export default function ProjectPage() {
 
 
   const navIcons: Record<ViewFilter, React.ReactNode> = {
-    all: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4.5h12M2 4.5v8a1 1 0 001 1h10a1 1 0 001-1v-8M2 4.5l1.5-2h9l1.5 2"/></svg>,
-    mine: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2H4.5a1 1 0 00-1 1v10a1 1 0 001 1h7a1 1 0 001-1V5.5L9 2z"/><path d="M9 2v3.5h3.5M6 8.5h4M6 11h2.5"/></svg>,
-    archived: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2.5" width="12" height="3" rx=".5"/><path d="M3 5.5v7.5a1 1 0 001 1h8a1 1 0 001-1V5.5"/><path d="M6.5 8.5h3"/></svg>,
-    trash: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4.5h10M6 4.5V3a1 1 0 011-1h2a1 1 0 011 1v1.5"/><path d="M4.5 4.5l.5 8.5a1 1 0 001 1h4a1 1 0 001-1l.5-8.5"/></svg>,
+    all: <Folder size={16} />,
+    mine: <BookOpenText size={16} />,
+    archived: <Archive size={16} />,
+    trash: <Trash2 size={16} />,
   };
   const navItems: { key: ViewFilter; label: string }[] = [
     { key: 'all', label: t('所有项目') },
@@ -401,21 +419,21 @@ export default function ProjectPage() {
       {/* ── Sidebar ── */}
       <aside className="project-sidebar">
         <div className="sidebar-brand">
-          <div className="brand-title">SciencePrism</div>
-          <div className="brand-sub">{t('Projects Workspace')}</div>
+          <button className="sidebar-brand-button" onClick={() => navigate('/')} type="button">
+            <span className="start-brand-mark">S</span>
+            <span><strong>SciencePrism</strong><small>{t('项目')}</small></span>
+          </button>
         </div>
 
-        <button className="sidebar-create-btn" onClick={() => setCreateOpen(true)}>
-          + {t('新建项目')}
+        <button className="sidebar-create-btn" onClick={() => setCreateOpen(true)} type="button">
+          <FilePlus2 size={17} aria-hidden="true" />
+          {t('新建项目')}
         </button>
-        <div className="sidebar-actions-row">
-          <button className="btn ghost" style={{ flex: 1 }} onClick={() => setImportOpen(true)}>{t('导入项目')}</button>
-          <button className="btn ghost" style={{ flex: 1 }} onClick={() => setTemplateGalleryOpen(true)}>{t('模板库')}</button>
-        </div>
 
         <nav className="sidebar-nav">
           {navItems.map((item) => (
-            <div
+            <button
+              type="button"
               key={item.key}
               className={`sidebar-nav-item${viewFilter === item.key && !activeTag ? ' active' : ''}`}
               onClick={() => { setViewFilter(item.key); setActiveTag(null); }}
@@ -423,7 +441,7 @@ export default function ProjectPage() {
               <span className="sidebar-nav-icon">{navIcons[item.key]}</span>
               <span className="sidebar-nav-label">{item.label}</span>
               <span className="sidebar-nav-count">{viewCounts[item.key]}</span>
-            </div>
+            </button>
           ))}
         </nav>
 
@@ -475,16 +493,15 @@ export default function ProjectPage() {
           <h1 className="project-main-title">
             {activeTag ? `${t('标签')}: ${activeTag}` : navItems.find((n) => n.key === viewFilter)?.label || t('所有项目')}
           </h1>
-          <div className="project-main-header-actions">
+            <div className="project-main-header-actions">
             {viewFilter === 'trash' && viewCounts.trash > 0 && (
               <button className="btn ghost" onClick={handleEmptyTrash}>{t('清空回收站')}</button>
             )}
-            <div className="ios-select-wrapper">
-              <button className="ios-select-trigger" onClick={() => setLangDropdownOpen(!langDropdownOpen)}>
-                <span>{i18n.language === 'en-US' ? t('English') : t('中文')}</span>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={langDropdownOpen ? 'rotate' : ''}>
-                  <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+              <div className="ios-select-wrapper">
+                <button className="ios-select-trigger" onClick={() => setLangDropdownOpen(!langDropdownOpen)}>
+                  <Languages size={15} aria-hidden="true" />
+                  <span>{i18n.language === 'en-US' ? t('English') : t('中文')}</span>
+                  <ChevronDown size={14} className={langDropdownOpen ? 'rotate' : ''} aria-hidden="true" />
               </button>
               {langDropdownOpen && (
                 <div className="ios-dropdown dropdown-down">
@@ -498,26 +515,22 @@ export default function ProjectPage() {
                   ))}
                 </div>
               )}
+              </div>
+              <button className="icon-btn" title={t('设置')} aria-label={t('设置')} onClick={() => setSettingsOpen(true)}><Settings size={17} /></button>
             </div>
-            <button className="btn ghost" onClick={() => setSettingsOpen(true)}>{t('设置')}</button>
-          </div>
         </header>
 
         {status && <div className="status-bar"><div>{status}</div></div>}
 
         <div className="project-toolbar">
-          <input
-            className="project-search"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder={t('搜索项目...')}
-          />
+          <label className="project-search-wrap">
+            <Search size={16} aria-hidden="true" />
+            <input className="project-search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('搜索项目...')} />
+          </label>
           <div className="ios-select-wrapper">
             <button className="ios-select-trigger" onClick={() => setSortDropdownOpen(!sortDropdownOpen)}>
               <span>{sortBy === 'updatedAt' ? t('最近修改') : sortBy === 'name' ? t('按名称') : t('创建时间')}</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={sortDropdownOpen ? 'rotate' : ''}>
-                <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <ChevronDown size={14} className={sortDropdownOpen ? 'rotate' : ''} aria-hidden="true" />
             </button>
             {sortDropdownOpen && (
               <div className="ios-dropdown dropdown-down">
@@ -633,19 +646,33 @@ export default function ProjectPage() {
                   <td className="col-actions">
                     <div className="col-actions-inner">
                       {viewFilter === 'trash' ? (<>
-                        <button className="btn ghost" onClick={() => handleTrash(project.id, false)}>{t('恢复')}</button>
-                        <button className="btn ghost" onClick={() => handlePermanentDelete(project.id, project.name)}>{t('永久删除')}</button>
+                        <button className="compact-action" onClick={() => handleTrash(project.id, false)}><RotateCcw size={14} />{t('恢复')}</button>
+                        <button className="icon-btn danger" title={t('永久删除')} aria-label={t('永久删除')} onClick={() => handlePermanentDelete(project.id, project.name)}><Trash2 size={15} /></button>
                       </>) : (<>
-                        <button className="btn ghost" onClick={() => navigate(`/project/${project.id}`)}>{t('打开')}</button>
-                        <button className="btn ghost" onClick={() => navigate(`/editor/${project.id}`)}>{t('论文编辑')}</button>
-                        <button className="btn ghost" onClick={() => setRenameState({ id: project.id, value: project.name })}>{t('重命名')}</button>
-                        <button className="btn ghost" onClick={() => handleCopy(project.id, project.name)}>{t('复制')}</button>
-                        <button className="btn ghost" onClick={() => { setTransferSource({ id: project.id, name: project.name }); setTransferOpen(true); }}>{t('转换')}</button>
-                        {project.archived
-                          ? <button className="btn ghost" onClick={() => handleArchive(project.id, false)}>{t('取消归档')}</button>
-                          : <button className="btn ghost" onClick={() => handleArchive(project.id, true)}>{t('归档')}</button>
-                        }
-                        <button className="btn ghost" onClick={() => handleDelete(project.id, project.name)}>{t('删除')}</button>
+                        <button className="compact-action" onClick={() => navigate(`/project/${project.id}`)}>{t('打开')}</button>
+                        <div className="project-action-menu-wrap">
+                          <button
+                            className="icon-btn"
+                            aria-label={t('更多操作')}
+                            title={t('更多操作')}
+                            onClick={() => setActiveActionMenuId(activeActionMenuId === project.id ? null : project.id)}
+                          >
+                            <MoreHorizontal size={17} />
+                          </button>
+                          {activeActionMenuId === project.id && (
+                            <div className="project-action-menu">
+                              <button onClick={() => navigate(`/editor/${project.id}`)}><BookOpenText size={15} />{t('论文编辑')}</button>
+                              <button onClick={() => { setRenameState({ id: project.id, value: project.name }); setActiveActionMenuId(null); }}><Pencil size={15} />{t('重命名')}</button>
+                              <button onClick={() => { void handleCopy(project.id, project.name); setActiveActionMenuId(null); }}><Copy size={15} />{t('复制')}</button>
+                              <button onClick={() => { setTransferSource({ id: project.id, name: project.name }); setTransferOpen(true); setActiveActionMenuId(null); }}><Sparkles size={15} />{t('模板转换')}</button>
+                              <button onClick={() => { void handleArchive(project.id, !project.archived); setActiveActionMenuId(null); }}>
+                                {project.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+                                {project.archived ? t('取消归档') : t('归档')}
+                              </button>
+                              <button className="is-danger" onClick={() => { void handleTrash(project.id, true); setActiveActionMenuId(null); }}><Trash2 size={15} />{t('移到回收站')}</button>
+                            </div>
+                          )}
+                        </div>
                       </>)}
                     </div>
                   </td>
@@ -687,6 +714,11 @@ export default function ProjectPage() {
               <button className="icon-btn" onClick={() => setCreateOpen(false)}>✕</button>
             </div>
             <div className="modal-body">
+              <div className="create-paths" aria-label={t('新建项目方式')}>
+                <button className="is-active" type="button"><FilePlus2 size={17} />{t('新建')}</button>
+                <button type="button" onClick={() => { setCreateOpen(false); setTemplateGalleryOpen(true); }}><Sparkles size={17} />{t('模板')}</button>
+                <button type="button" onClick={() => { setCreateOpen(false); setImportOpen(true); }}><Upload size={17} />{t('导入')}</button>
+              </div>
               <div className="field">
                 <label>{t('项目名称')}</label>
                 <input

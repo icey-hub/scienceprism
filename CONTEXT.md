@@ -92,7 +92,7 @@ The canonical backend stage IDs are `direction`, `search`, `selection`, `replica
 ## Flagged Ambiguities
 
 - `innovation` in frontend routes and labels means the backend `ideation` stage. New code should use `ideation` as the canonical ID.
-- The current `experiment` stage stores a plan and uses `status: planned`; it does not yet provide a real **Experiment Run** Module.
+- The current `experiment` stage stores a plan and uses `status: planned`; the controlled **Experiment Run** Module creates a separate approval-gated run with a Manifest and archived Artifacts.
 - “Paper” is ambiguous between a retrieved **Paper Candidate** and a selected, source-backed record. New contracts should name the lifecycle explicitly.
 - `stage.data` is the current persistence envelope, not a domain object. Stage-specific contracts define the meaning of the fields stored inside it.
 - Existing code uses `aiSearchStrategy`, `harness`, and `innovationPoints` as storage aliases. These remain migration-compatible aliases until the workflow core is split into a deeper Module.

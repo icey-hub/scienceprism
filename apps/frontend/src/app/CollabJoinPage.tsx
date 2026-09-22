@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { resolveCollabToken, setCollabServer, setCollabToken } from '../api/client';
+import { resolveCollabToken, setCollabServer, setCollabToken } from '../api/collaborationAdapter';
 
 export default function CollabJoinPage() {
   const navigate = useNavigate();

@@ -71,10 +71,26 @@ function buildInput(request, policy) {
   ].filter(Boolean).join('\n\n');
 }
 
+function childEnvironment({ apiKey, baseUrl, dshHome }) {
+  const env = {
+    HOME: dshHome,
+    TMPDIR: path.join(dshHome, 'tmp'),
+    XDG_CONFIG_HOME: path.join(dshHome, 'config'),
+    XDG_CACHE_HOME: path.join(dshHome, 'cache'),
+    XDG_DATA_HOME: path.join(dshHome, 'data'),
+    DEEPSEEK_API_KEY: apiKey
+  };
+  for (const key of ['PATH', 'LANG', 'LC_ALL', 'TZ']) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  if (baseUrl) env.DEEPSEEK_BASE_URL = baseUrl;
+  return env;
+}
+
 export const deepseekHarnessAdapter = Object.freeze({
   id: 'deepseek',
   label: 'DeepSeek Harness SDK Adapter',
-  async run({ request, workspace, dshHome, capabilities, signal, emit }) {
+  async run({ request, workspace, dshHome, capabilities, capabilityPolicy, signal, emit }) {
     const resolved = resolveLLMConfig(request.llmConfig);
     const timeoutMs = Number(request.limits?.timeoutMs || getEnv('HARNESS_TIMEOUT_MS') || 10 * 60 * 1000);
     const { DeepSeekHarness } = await loadHarnessSdk();
@@ -87,14 +103,16 @@ export const deepseekHarnessAdapter = Object.freeze({
     const baseUrl = !configuredEndpoint || configuredEndpoint === defaultEndpoint
       ? (inheritedBaseUrl || undefined)
       : configuredBaseUrl;
-    const env = {
-      ...process.env,
-      DEEPSEEK_API_KEY: resolved.apiKey || process.env.DEEPSEEK_API_KEY || '',
-      ...(baseUrl ? { DEEPSEEK_BASE_URL: baseUrl } : {})
-    };
+    const env = childEnvironment({ apiKey: resolved.apiKey || process.env.DEEPSEEK_API_KEY || '', baseUrl, dshHome });
     if (!env.DEEPSEEK_API_KEY) {
       throw new HarnessRuntimeError(503, 'PROVIDER_UNAVAILABLE', 'DeepSeek API key is not configured.', undefined, { retryable: true });
     }
+    await Promise.all([
+      fs.mkdir(env.TMPDIR, { recursive: true }),
+      fs.mkdir(env.XDG_CONFIG_HOME, { recursive: true }),
+      fs.mkdir(env.XDG_CACHE_HOME, { recursive: true }),
+      fs.mkdir(env.XDG_DATA_HOME, { recursive: true })
+    ]);
 
     const harness = new DeepSeekHarness({
       profile: getEnv('HARNESS_PROFILE') || 'sdk',
@@ -114,7 +132,7 @@ export const deepseekHarnessAdapter = Object.freeze({
     const sessionId = `scienceprism-${request.projectId}-${randomUUID()}`;
     try {
       emit({ type: 'adapter/started', data: { adapter: 'deepseek', model: resolved.model || 'deepseek-flash' } });
-      const result = await harness.run(buildInput(request, { granted: capabilities }), {
+      const result = await harness.run(buildInput(request, capabilityPolicy || { granted: capabilities }), {
         sessionId,
         onNotification: (notification) => emit(eventSummary(notification))
       });
@@ -135,3 +153,5 @@ export const deepseekHarnessAdapter = Object.freeze({
     }
   }
 });
+
+export { buildInput, childEnvironment };

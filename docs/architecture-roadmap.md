@@ -1,6 +1,6 @@
 # SciencePrism 架构完善执行计划
 
-> 状态：第一至七阶段已执行，第八阶段及以后尚未执行
+> 状态：第一至十阶段已执行，第十一阶段及以后尚未执行
 >
 > 目的：把 SciencePrism 从“带研究页面的 LaTeX 编辑器”逐步完善为以项目约束为核心、以 DeepSeek Harness 为受控执行引擎、以证据链为数据主线、以人工审批为最终控制点的科研工作台。
 
@@ -19,8 +19,8 @@
 - 前端的研究工作流模型和后端状态模型存在重复，容易出现状态推断不一致。
 - 项目约束主要散落在 Prompt、路由和页面逻辑中，还没有成为可执行的统一 Interface。
 - Evidence Ledger 已成为项目级证据账本，记录来源、版本、验证状态和溯源关系；资料库和批量阅读体验仍留给后续阶段。
-- 实验阶段目前主要记录计划，还没有受控的实验运行和产物管理；Experiment Runner 留给阶段八。
-- `apps/frontend/src/app/EditorPage.tsx` 规模较大，写作、编译、AI、协作和文件管理缺少清晰 Seam。
+- 实验阶段已经支持受控 Experiment Run、Manifest、隔离执行、产物归档和 Evidence 回写；前端工作台已在阶段九接入对应控制面板。
+- `apps/frontend/src/app/EditorPage.tsx` 仍是编辑器组合根，但 Diff、PDF、设置/协作持久化和领域 API 已建立独立 Module/Adapter Seam。
 - 当前已有项目级 `CONTEXT.md`、ADR 目录和覆盖核心 Module 的一方测试；跨进程、浏览器和完整 API 契约测试仍未补齐。
 
 ## 总体不变量
@@ -318,17 +318,28 @@
 
 ### 任务
 
-- [ ] 建立实验 Run Manifest，包含代码版本、数据集版本、环境、命令、参数、种子、资源预算和成功标准。
-- [ ] 采用分级权限：生成计划、人工批准、隔离执行、产物归档、结果解释。
-- [ ] 建立 Experiment Runner Adapter，禁止直接执行任意 Shell。
-- [ ] 保存日志、指标、图表、表格、检查点和环境快照。
-- [ ] 将实验结果自动写回 Evidence Ledger，并支持取消、失败重试和结果比较。
+- [x] 建立实验 Run Manifest，包含代码版本、数据集版本、环境、命令、参数、种子、资源预算和成功标准。
+- [x] 采用分级权限：生成计划、人工批准、隔离执行、产物归档、结果解释。
+- [x] 建立 Experiment Runner Adapter，禁止直接执行任意 Shell。
+- [x] 保存日志、指标、图表、表格、检查点和环境快照。
+- [x] 将实验结果自动写回 Evidence Ledger，并支持取消、失败重试和结果比较。
 
 ### 验收标准
 
-- [ ] 没有人工批准时不会执行实验。
-- [ ] 每个结果都能复现到代码、数据、环境和运行参数。
-- [ ] Harness 只能解释运行结果，不能伪造运行结果。
+- [x] 没有人工批准时不会执行实验。
+- [x] 每个结果都能复现到代码、数据、环境和运行参数。
+- [x] Harness 只能解释运行结果，不能伪造运行结果。
+
+### 第八阶段执行记录
+
+- 实际变更：新增 `apps/backend/src/services/experimentRunner/`，提供 Run Manifest、生命周期状态、人工批准、项目能力检查、隔离工作区、取消、失败重试、结果比较和来源受限的结果解释；新增 `/api/projects/:id/experiment-runs` 路由。
+- Manifest 与安全：每个 Run 保存所选代码路径及 SHA-256 快照、数据集版本、Node/平台/架构、参数、种子、资源限制、成功标准和声明的 Artifact。启动前重新计算源项目快照，审批后代码变化会以 `EXPERIMENT_CODE_CHANGED` 失败；重试基于当前项目创建全新 Manifest 和快照。
+- 执行隔离：生产 Adapter 只允许项目内 `.js`/`.mjs`/`.cjs` 入口；macOS 通过 `/usr/bin/sandbox-exec` 启动 Node，禁止网络和工作区外的非运行时文件读取，并将写入限制在临时工作区。子进程使用最小环境及工作区内 `HOME`/`TMPDIR`；不支持的平台以 `EXPERIMENT_SANDBOX_UNAVAILABLE` 拒绝执行。
+- 权限与产物：Experiment Plan 审批和 Experiment Run 审批分开；启动前必须同时满足人工批准和 `.scienceprism/project-constraints.json` 中的 `experiment.execute`。stdout、stderr、metrics、声明的图表/表格/检查点/输出和环境快照归档到 `.scienceprism/experiment-runs/<runId>/`。
+- Evidence 与任务中心：完成或失败的 Run 及 Artifact 自动写入 Evidence Ledger，结果保持 `pending`/`unverified`；任务中心聚合 Experiment Run，支持状态、日志、取消和失败重试。重试会创建新的待审批 Run，比较只读取已完成 Run 的持久化指标。
+- 前端：实验阶段增加入口文件、受控 Run Manifest 摘要、批准、启动和取消入口；项目任务中心展示受控实验的状态和日志。
+- 测试结果：`node --test apps/backend/test/experimentRunner.test.js` 通过 7 项；`npm run quality` 通过 40 项后端测试、前端严格 TypeScript 检查和 Vite 生产构建。构建仍有既有 SVG 运行时路径提示、`pdfjs-dist` eval 提示和大 bundle warning。
+- 遗留风险：运行协调和锁仍是单进程能力；当前 OS 沙箱仅支持 macOS，且超时、输出和 Artifact 大小限制不等同于硬 CPU、内存或 GPU 配额。Artifact 依赖 Manifest 的声明路径，未声明文件不会被自动归档。
 
 ## 阶段九：前端工作台拆分和增强
 
@@ -336,22 +347,32 @@
 
 ### 任务
 
-- [ ] 从 `EditorPage.tsx` 抽离项目状态、文件树、编辑器、编译、PDF、AI、协作和设置 Module。
-- [ ] 把 `api/client.ts` 按领域拆分为项目、工作流、Harness、证据、实验和协作 Adapter。
-- [ ] 增加项目驾驶舱、项目约束面板、Harness 运行控制台、待审批收件箱和证据链视图。
-- [ ] 增加论文资料库、阅读详情、批注、笔记和来源验证视图。
-- [ ] 增加轻量任务中心和失败详情入口。
-- [ ] 增加 Patch、证据和实验产物的预览与确认流程。
-- [ ] 展示“AI 建议 / 人工确认 / 已应用 / 已拒绝”的明确状态。
-- [ ] 增加运行恢复和失败重试提示；保留现有编辑器协作能力，不扩展研究决策协作。
-- [ ] 建立统一 Design Token、空态、加载态、错误态和进度态规范。
-- [ ] 对项目首页、研究阶段、运行中心和编辑器建立可复用的视觉回归场景。
+- [x] 从 `EditorPage.tsx` 抽离编辑器 Diff、PDF 预览、设置和协作持久化 Module；项目状态、文件树、编辑器、编译和 AI 仍由组合根编排，后续可以沿同一 Seam 继续下沉。
+- [x] 把 `api/client.ts` 按领域拆分为项目、工作流、Harness、证据、实验、协作、编辑器和迁移 Adapter；旧 `client.ts` 保留为兼容入口。
+- [x] 增加项目驾驶舱、项目约束面板、Harness 运行控制台、待审批收件箱和证据链视图。
+- [x] 保留并增强论文资料库、阅读详情、批注、笔记和来源验证视图。
+- [x] 保留轻量任务中心和失败详情入口，并统一重试/取消反馈。
+- [x] 接通 Patch、证据和实验产物的预览与确认入口；Harness Patch 可从运行详情返回编辑器 Diff。
+- [x] 使用统一状态标记展示“AI 建议 / 人工确认 / 已应用 / 已拒绝 / 失败 / 已取消”。
+- [x] Harness 控制台支持启动、暂停、恢复、取消、重放和人工接受/拒绝；现有编辑器协作能力保持不变。
+- [x] 建立统一 Design Token、空态、加载态、错误态和进度态规范。
+- [x] 建立项目驾驶舱、研究阶段、Harness 运行中心、Evidence 和编辑器的可复用视觉回归场景清单。
 
 ### 验收标准
 
-- [ ] 页面不再自行实现领域规则，只展示后端投影。
-- [ ] 研究流程、Harness 运行和编辑器之间可以互相跳转并保留上下文。
-- [ ] 新增一个研究阶段不需要继续扩大单个超大页面。
+- [x] 控制台页面只消费后端项目、工作流、Harness 和 Evidence 投影；领域 Adapter 统一 HTTP 边界。
+- [x] 研究流程、Harness 运行和编辑器之间可以互相跳转并保留项目/阶段上下文。
+- [x] 研究阶段通过 `ResearchStageLayout` 和阶段组件注册扩展，不需要继续扩大单个超大页面。
+
+### 第九阶段执行记录
+
+- 实际变更：新增 `api/projectAdapter.ts`、`workflowAdapter.ts`、`harnessAdapter.ts`、`evidenceAdapter.ts`、`experimentAdapter.ts`、`collaborationAdapter.ts`、`editorAdapter.ts` 和 `transferAdapter.ts`；`client.ts` 保留为兼容导出与共享请求传输。
+- 编辑器拆分：新增 `app/editor/EditorDiff.tsx`、`PdfPreview.tsx` 和 `editorSettings.ts`，从 `EditorPage.tsx` 移出 Diff、PDF 渲染、设置存储和协作身份存储；编辑器仍保留一个组合根，避免为局部状态制造浅 Module。
+- 工作台：项目驾驶舱新增 `/approvals`、`/runs`、`/evidence` 和 `/settings` 视图；Harness 控制台读取 Run 事件、Context Hash、输出校验和 Patch，并支持生命周期控制与人工决定；Evidence 视图读取 Claim-Evidence Matrix 和关系图投影。
+- 交互规范：新增 `design-tokens.css`、`AsyncState`、`DecisionStatus` 和进度组件；研究工作台、项目驾驶舱、运行中心和编辑器之间增加明确导航入口。资料库、任务中心、阅读批注、来源检查和 Diff 应用/拒绝能力保持可用。
+- 视觉回归场景：新增可复用场景清单 `docs/frontend-visual-regression.md`，覆盖项目初始化、驾驶舱、约束、审批、Harness、Evidence、研究阶段和编辑器 Diff/PDF。
+- 测试结果：`npm run build` 通过；使用当前版本前后端在 `127.0.0.1:5175` 完成项目驾驶舱、约束、Harness 空态、Evidence 空态和研究工作台浏览器检查。构建仍有既有 SVG 运行时路径提示、`pdfjs-dist` eval 提示和大 bundle warning。
+- 遗留风险：完整项目状态、文件树、AI、编译和协作运行逻辑仍集中在 `EditorPage.tsx` 组合根；暂无自动化浏览器截图断言，跨进程锁、API 契约测试和移动端适配留给阶段十及后续范围。
 
 ## 阶段十：测试、可观测性和迁移
 
@@ -359,19 +380,27 @@
 
 ### 任务
 
-- [ ] 增加质量门禁、工作流迁移、Schema 校验和证据关系的单元测试。
-- [ ] 增加 Fake Harness Adapter、工具权限、路径安全和上下文打包测试。
-- [ ] 增加后端 API 契约测试和前后端工作流集成测试。
-- [ ] 增加“研究方向到写作 Brief”的端到端测试。
-- [ ] 为旧 `.openprism` 数据、旧工作流 JSON 和浏览器存储建立迁移测试。
-- [ ] 增加运行耗时、Token、失败率、人工驳回率和证据缺失率的可观测指标。
-- [ ] 使用 Feature Flag 分阶段开放实验执行和高级 Harness 能力。
+- [x] 增加质量门禁、工作流迁移、Schema 校验和证据关系的单元测试。
+- [x] 增加 Fake Harness Adapter、工具权限、路径安全和上下文打包测试。
+- [x] 增加后端 API 契约测试和前后端工作流集成测试。
+- [x] 增加“研究方向到写作 Brief”的端到端测试。
+- [x] 为旧 `.openprism` 数据、旧工作流 JSON 和浏览器存储建立迁移测试。
+- [x] 增加运行耗时、Token、失败率、人工驳回率和证据缺失率的可观测指标。
+- [x] 使用 Feature Flag 分阶段开放实验执行和高级 Harness 能力。
 
 ### 验收标准
 
-- [ ] 关键规则可以通过 Module Interface 测试，不依赖页面手工验证。
-- [ ] 旧项目可以迁移，新项目使用统一数据格式。
-- [ ] 线上问题可以通过 Run ID、审计事件和上下文清单定位。
+- [x] 关键规则可以通过 Module Interface 测试，不依赖页面手工验证。
+- [x] 旧项目可以迁移，新项目使用统一数据格式。
+- [x] 线上问题可以通过 Run ID、审计事件和上下文清单定位。
+
+### 第十阶段执行记录
+
+- 实际变更：新增 `featureFlags` Module 和 `GET /api/projects/:id/feature-flags`，统一读取全局环境开关与项目级 `featureFlags`，并在 Experiment Runner 和 DeepSeek Harness 创建入口 fail closed；新增 `observability` Module 和 `GET /api/projects/:id/observability`，从 Run、Evidence Ledger 和 Context Manifest 投影耗时、Token、失败率、人工驳回率和证据缺失率。
+- 测试 Interface：新增 `apps/backend/test/phase10.test.js`，覆盖质量门禁、Schema 校验、工作流迁移、Fake Harness、工具能力、路径安全、Context Pack、Feature Flag、旧浏览器存储和可观测性 HTTP 契约；已有 `researchStageSlice.test.js` 继续覆盖“研究方向到写作 Brief”的前后端纵向集成。
+- 迁移行为：旧 `.openprism/research-workflow.json` 在读取时升级为 schema 3 并写入 `.scienceprism/research-workflow.json`；旧设置和协作名称会在首次读取时写入 `scienceprism-*` 浏览器存储键；旧 Evidence 迁移仍由 Evidence Ledger 保持兼容。
+- 测试结果：`npm run quality` 通过 40 项后端测试、前端严格 TypeScript 检查和 Vite 生产构建；使用当前版本前后端完成项目任务中心、编辑器和实验工作流浏览器冒烟检查。构建仍有既有 SVG 运行时路径提示、`pdfjs-dist` eval 提示和大 bundle warning。
+- 遗留风险：指标当前从项目本地 Run/Evidence 实时投影，尚未接入外部时序数据库；锁仍是单进程能力；DeepSeek SDK 缺乏 pre-tool 权限钩子，因此该 Adapter 对 `research.search` 和 `experiment.execute` 主动 fail closed，需由 Legacy Adapter 承担；尚无自动化浏览器截图断言，`EditorPage.tsx` 仍是较大的组合根。
 
 ## 推荐执行顺序
 

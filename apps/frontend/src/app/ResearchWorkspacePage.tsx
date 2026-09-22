@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  getEvidenceClaimMatrix,
   getResearchWorkflowSkills,
-  listProjects,
-  uploadFiles,
-  updateResearchWorkflowSkillBindings,
-  type ClaimEvidenceMatrix
-} from '../api/client';
+  updateResearchWorkflowSkillBindings
+} from '../api/workflowAdapter';
+import { getEvidenceClaimMatrix, type ClaimEvidenceMatrix } from '../api/evidenceAdapter';
+import { listProjects, uploadFiles } from '../api/projectAdapter';
+import {
+  cancelExperimentRun,
+  createExperimentRun as createProjectExperimentRun,
+  decideExperimentRun,
+  listExperimentRuns,
+  startExperimentRun,
+  type ExperimentRun
+} from '../api/experimentAdapter';
 import { ResearchStageLayout } from './research/ResearchStageLayout';
 import {
   fromHarnessResearchStage,
@@ -60,7 +66,7 @@ interface UiWorkflow {
   method?: Partial<MethodDraft>;
   methodCandidates?: { id: string; name: string; description: string; baselines: string[]; metrics: string[]; implementationRisks: string[] }[];
   experiment?: Partial<ExperimentPlan> & { command?: string };
-  writing?: Partial<WritingEvidenceSummary> & { handoffAt?: string; evidence?: { outline?: string; claims?: unknown[] } };
+  writing?: Partial<WritingEvidenceSummary> & { handoffAt?: string; briefPath?: string; evidence?: { outline?: string; claims?: unknown[] } };
   task?: {
     id?: string;
     stage?: string;
@@ -176,6 +182,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [claimMatrix, setClaimMatrix] = useState<ClaimEvidenceMatrix | null>(null);
+  const [experimentRun, setExperimentRun] = useState<ExperimentRun | null>(null);
   const skillInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshSkills = useCallback(async () => {
@@ -190,6 +197,12 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
     setClaimMatrix(payload.matrix || null);
   }, [projectId]);
 
+  const refreshExperimentRun = useCallback(async () => {
+    if (!projectId) return;
+    const result = await listExperimentRuns(projectId, { limit: '1' });
+    setExperimentRun(result.runs?.[0] || null);
+  }, [projectId]);
+
   const loadWorkflow = useCallback(async () => {
     if (!projectId) return;
     setLoading(true); setError('');
@@ -202,16 +215,22 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
       }
       const next = mergeWorkflow(payload);
       setWorkflow(next); setPolicy({ ...DEFAULT_POLICY, ...(next.search?.policy || {}) });
-      const [skillResult, projectResult] = await Promise.allSettled([refreshSkills(), listProjects()]);
+      const [skillResult, projectResult, experimentResult] = await Promise.allSettled([refreshSkills(), listProjects(), refreshExperimentRun()]);
       if (skillResult.status === 'rejected') setSkills([]);
       if (projectResult.status === 'fulfilled') setProjectName(projectResult.value.projects?.find((item) => item.id === projectId)?.name || next.projectName || `项目 ${projectId}`);
       else setProjectName(next.projectName || `项目 ${projectId}`);
+      if (experimentResult.status === 'rejected') setExperimentRun(null);
     } catch (requestError) { setError(`研究流程加载失败：${getErrorMessage(requestError)}`); }
     finally { setLoading(false); }
-  }, [projectId, refreshSkills]);
+  }, [projectId, refreshExperimentRun, refreshSkills]);
 
   useEffect(() => { if (rawStage && !isResearchStageId(rawStage)) navigate(`/editor/${projectId}/research/direction`, { replace: true }); }, [navigate, projectId, rawStage]);
   useEffect(() => { void loadWorkflow(); }, [loadWorkflow]);
+  useEffect(() => {
+    if (!experimentRun || !['awaiting_approval', 'approved', 'running'].includes(experimentRun.status)) return undefined;
+    const timer = window.setInterval(() => { void refreshExperimentRun(); }, 1000);
+    return () => window.clearInterval(timer);
+  }, [experimentRun, refreshExperimentRun]);
   useEffect(() => {
     fetch('/api/agent/runtime').then((response) => response.ok ? response.json() : null).then((value) => setHarnessState(value?.harnessConfigured === true ? 'ready' : 'unavailable')).catch(() => setHarnessState('unavailable'));
   }, []);
@@ -303,6 +322,35 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const saveMethod = useCallback(() => runAction('save-method', { method: workflow.method || {} }, '方法草案已保存。'), [runAction, workflow.method]);
   const saveExperiment = useCallback(() => patchStage('experiment', { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' }, '实验计划已保存。'), [patchStage, workflow.experiment]);
   const runExperiment = useCallback(() => runAction('run-experiment', { experiment: { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' } }, '实验计划已提交，运行状态会同步到本页面。'), [runAction, workflow.experiment]);
+  const createControlledExperimentRun = useCallback(async () => {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await createProjectExperimentRun(projectId, { plan: { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' } });
+      setExperimentRun(result.run); setNotice('受控 Run 已创建，等待人工批准。');
+    } catch (requestError) { setError(`创建运行失败：${getErrorMessage(requestError)}`); }
+    finally { setBusy(false); }
+  }, [projectId, workflow.experiment]);
+  const approveControlledExperimentRun = useCallback(async () => {
+    if (!experimentRun) return;
+    setBusy(true); setError('');
+    try { const result = await decideExperimentRun(projectId, experimentRun.id, 'approve', '人工批准受控实验运行。'); setExperimentRun(result.run); setNotice('Run 已批准，可以启动隔离执行。'); }
+    catch (requestError) { setError(`批准运行失败：${getErrorMessage(requestError)}`); }
+    finally { setBusy(false); }
+  }, [experimentRun, projectId]);
+  const startControlledExperimentRun = useCallback(async () => {
+    if (!experimentRun) return;
+    setBusy(true); setError('');
+    try { const result = await startExperimentRun(projectId, experimentRun.id); setExperimentRun(result.run); setNotice('Run 已启动，日志和产物会写回项目。'); }
+    catch (requestError) { setError(`启动运行失败：${getErrorMessage(requestError)}`); }
+    finally { setBusy(false); }
+  }, [experimentRun, projectId, refreshExperimentRun]);
+  const cancelControlledExperimentRun = useCallback(async () => {
+    if (!experimentRun) return;
+    setBusy(true); setError('');
+    try { const result = await cancelExperimentRun(projectId, experimentRun.id); setExperimentRun(result.run); setNotice('Run 已取消。'); }
+    catch (requestError) { setError(`取消运行失败：${getErrorMessage(requestError)}`); }
+    finally { setBusy(false); }
+  }, [experimentRun, projectId]);
   const saveReplication = useCallback(() => patchStage('replication', { replication: workflow.replication || {} }, '复现计划已保存。'), [patchStage, workflow.replication]);
   const skipReplication = useCallback(async () => {
     setBusy(true);
@@ -320,7 +368,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const search: SearchRunSummary = { query: workflow.search?.query || '', candidateCount: workflow.search?.count || workflow.papers?.length || 0, selectedCount: selectedIds.length, lastRunAt: workflow.search?.lastRunAt, sources: workflow.search?.sources };
   const replication: ReplicationPlan = { repository: workflow.replication?.repository || '', environment: workflow.replication?.environment || '', dataset: workflow.replication?.dataset || '', note: workflow.replication?.note || '', status: workflow.replication?.status };
   const method: MethodDraft = { title: workflow.method?.title || '', hypothesis: workflow.method?.hypothesis || '', baselines: workflow.method?.baselines || [], ablations: workflow.method?.ablations || [] };
-  const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
+  const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', execution: workflow.experiment?.execution, parameters: workflow.experiment?.parameters, seed: workflow.experiment?.seed, successCriteria: workflow.experiment?.successCriteria, artifacts: workflow.experiment?.artifacts, status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
   const writing: WritingEvidenceSummary = { paperCount: selectedIds.length, innovationCount: selectedIdeas.length, metricCount: experiment.metrics.length, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '', claimMatrix: claimMatrix || undefined };
 
   useEffect(() => {
@@ -347,7 +395,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
     if (stage === 'replication') return <ReplicationStage selectedPapers={(workflow.papers || []).filter((paper) => selectedIds.includes(paper.id))} value={replication} busy={busy} onChange={(next) => updateWorkflow({ replication: next })} onSavePlan={saveReplication} onSkip={skipReplication} />;
     if (stage === 'innovation') return <InnovationStage ideas={workflow.ideas || []} comparison={workflow.ideaComparison || []} selectedIdeaIds={selectedIdeas} selectedPaperCount={selectedIds.length} busy={busy} onGenerate={generateIdeas} onToggleIdea={(ideaId, selected) => updateWorkflow({ ideas: (workflow.ideas || []).map((idea) => idea.id === ideaId ? { ...idea, selected } : idea) })} onSaveSelection={saveIdeaSelection} />;
     if (stage === 'method') return <MethodStage value={method} candidates={workflow.methodCandidates || []} selectedIdeaCount={selectedIdeas.length} busy={busy} onChange={(next) => updateWorkflow({ method: next })} onGenerate={generateMethod} onSave={saveMethod} />;
-    if (stage === 'experiment') return <ExperimentStage value={experiment} busy={busy} onChange={(next) => updateWorkflow({ experiment: { ...next, command: next.protocol } })} onSavePlan={saveExperiment} onSubmitForRun={runExperiment} />;
+    if (stage === 'experiment') return <ExperimentStage value={experiment} run={experimentRun} busy={busy} onChange={(next) => updateWorkflow({ experiment: { ...next, command: next.protocol } })} onSavePlan={saveExperiment} onSubmitForRun={runExperiment} onCreateRun={createControlledExperimentRun} onApproveRun={approveControlledExperimentRun} onStartRun={startControlledExperimentRun} onCancelRun={cancelControlledExperimentRun} />;
     return <WritingStage value={writing} busy={busy} onOutlineChange={(outline) => updateWorkflow({ writing: { ...workflow.writing, outline } })} onPrepareWriting={prepareWriting} onOpenEditor={() => navigate(`/editor/${projectId}${workflow.writing?.briefPath ? `?open=${encodeURIComponent(workflow.writing.briefPath)}` : ''}`)} />;
   };
 
@@ -356,7 +404,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   if (loading) return <div className={`research-stage-loading${embedded ? ' is-embedded' : ''}`}>正在加载研究流程…</div>;
   const stageIndex = RESEARCH_STAGES.findIndex((item) => item.id === stage);
   return <>
-    <ResearchStageLayout projectName={projectName || `项目 ${projectId}`} stage={stage} embedded={embedded} stageStatuses={stageStatuses(workflow)} harnessState={harnessState} busy={busy} context={context} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} onBackToEditor={() => navigate(`/editor/${projectId}`)} onRefresh={() => void loadWorkflow()} onApprove={workflow.activeStage === stage ? approveStage : undefined} onPrevious={stageIndex > 0 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex - 1].id}`) : undefined} onNext={stageIndex < RESEARCH_STAGES.length - 1 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex + 1].id}`) : undefined}>
+    <ResearchStageLayout projectId={projectId} projectName={projectName || `项目 ${projectId}`} stage={stage} embedded={embedded} stageStatuses={stageStatuses(workflow)} harnessState={harnessState} busy={busy} context={context} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} onBackToEditor={() => navigate(`/editor/${projectId}`)} onRefresh={() => void loadWorkflow()} onApprove={workflow.activeStage === stage ? approveStage : undefined} onPrevious={stageIndex > 0 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex - 1].id}`) : undefined} onNext={stageIndex < RESEARCH_STAGES.length - 1 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex + 1].id}`) : undefined}>
       {error && <div className="research-callout research-callout-warning"><strong>操作未完成</strong><p>{error}</p></div>}
       {notice && <div className="research-callout"><strong>已更新</strong><p>{notice}</p></div>}
       {renderStage()}

@@ -1,8 +1,10 @@
 import { StreamLanguage } from '@codemirror/language';
-import { tags as t } from '@lezer/highlight';
 
 // Simple LaTeX mode for CodeMirror 6
 const latexMode = {
+  languageData: {
+    commentTokens: { line: '%' }
+  },
   startState: () => ({
     inMathMode: false,
     inComment: false
@@ -46,9 +48,5 @@ const latexMode = {
 };
 
 export function latex() {
-  return StreamLanguage.define(latexMode, {
-    languageData: {
-      commentTokens: { line: '%' }
-    }
-  });
+  return StreamLanguage.define(latexMode);
 }

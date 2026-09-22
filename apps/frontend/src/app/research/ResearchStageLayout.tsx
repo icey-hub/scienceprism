@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ResearchStageNavigation } from './ResearchStageNavigation';
 import {
   getResearchStage,
@@ -9,6 +10,7 @@ import {
 import './research.css';
 
 export interface ResearchStageLayoutProps {
+  projectId: string;
   projectName: string;
   stage: ResearchStageId;
   embedded?: boolean;
@@ -26,6 +28,7 @@ export interface ResearchStageLayoutProps {
 }
 
 export function ResearchStageLayout({
+  projectId,
   projectName,
   stage,
   embedded = false,
@@ -85,6 +88,8 @@ export function ResearchStageLayout({
           </div>
         </div>
         <div className="research-stage-topbar-actions">
+          <Link className="research-button research-button-quiet" to={`/project/${encodeURIComponent(projectId)}`}>驾驶舱</Link>
+          <Link className="research-button research-button-quiet" to={`/project/${encodeURIComponent(projectId)}/runs`}>运行中心</Link>
           <span className={`research-harness-status is-${harnessState}`}>
             <i aria-hidden="true" /> DeepSeek Harness <small>{harnessLabel}</small>
           </span>

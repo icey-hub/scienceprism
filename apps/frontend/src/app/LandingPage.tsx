@@ -1,206 +1,86 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowRight, BookOpen, Clock3, FilePlus2, FolderOpen, Import, Languages, Search, Settings2, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { listProjects, type ProjectMeta } from '../api/projectAdapter';
+import './landing/start-workspace.css';
 
-const TITLE_TEXT = 'SciencePrism is Here';
-const FEATURE_KEYS = ['completion', 'vision', 'plot', 'search', 'agent', 'review'] as const;
-const AUTO_INTERVAL = 4000;
+function formatUpdatedAt(project: ProjectMeta) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(new Date(project.updatedAt || project.createdAt));
+}
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
-  const [charCount, setCharCount] = useState(0);
-  const [activeFeature, setActiveFeature] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval>>();
-  const [langDropdownOpen, setLangDropdownOpen] = useState(false);
+  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (charCount >= TITLE_TEXT.length) return;
-    const timer = setTimeout(() => setCharCount((c) => c + 1), 90);
-    return () => clearTimeout(timer);
-  }, [charCount]);
-
-  useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setActiveFeature((i) => (i + 1) % FEATURE_KEYS.length);
-    }, AUTO_INTERVAL);
-    return () => clearInterval(timerRef.current);
+    void listProjects()
+      .then((result) => setProjects((result.projects || []).filter((project) => !project.trashed)))
+      .catch(() => setProjects([]))
+      .finally(() => setLoading(false));
   }, []);
 
-  const selectFeature = (i: number) => {
-    setActiveFeature(i);
-    clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setActiveFeature((prev) => (prev + 1) % FEATURE_KEYS.length);
-    }, AUTO_INTERVAL);
-  };
+  const visibleProjects = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    const sorted = [...projects].sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+    if (!normalized) return sorted.slice(0, 8);
+    return sorted.filter((project) => [project.name, project.researchQuestion, ...(project.tags || [])]
+      .some((value) => value?.toLocaleLowerCase().includes(normalized)));
+  }, [projects, query]);
+
+  const switchLanguage = () => void i18n.changeLanguage(i18n.language === 'en-US' ? 'zh-CN' : 'en-US');
 
   return (
-    <div className="landing-page">
-      {/* Top language selector */}
-      <div className="landing-top-bar">
-        <div className="ios-select-wrapper">
-          <button className="ios-select-trigger" onClick={() => setLangDropdownOpen(!langDropdownOpen)}>
-            <span>{i18n.language === 'en-US' ? t('English') : t('中文')}</span>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={langDropdownOpen ? 'rotate' : ''}>
-              <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-          {langDropdownOpen && (
-            <div className="ios-dropdown dropdown-down">
-              {([['zh-CN', t('中文')], ['en-US', t('English')]] as [string, string][]).map(([val, label]) => (
-                <div key={val} className={`ios-dropdown-item ${i18n.language === val ? 'active' : ''}`} onClick={() => { i18n.changeLanguage(val); setLangDropdownOpen(false); }}>
-                  {label}
-                  {i18n.language === val && (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  )}
-                </div>
+    <main className="start-workspace">
+      <aside className="start-workspace-sidebar">
+        <button className="start-workspace-brand" onClick={() => navigate('/')} type="button"><span>S</span><strong>SciencePrism</strong></button>
+        <nav aria-label={t('工作区导航')}>
+          <button className="is-active" type="button"><Clock3 size={17} />{t('快速开始')}</button>
+          <button onClick={() => navigate('/projects')} type="button"><FolderOpen size={17} />{t('所有项目')}</button>
+          <button onClick={() => navigate('/projects')} type="button"><BookOpen size={17} />{t('资料库')}</button>
+        </nav>
+        <div className="start-workspace-sidebar-footer">
+          <button onClick={() => navigate('/projects')} type="button"><Settings2 size={17} />{t('设置')}</button>
+          <button onClick={switchLanguage} type="button"><Languages size={17} />{i18n.language === 'en-US' ? '中文' : 'English'}</button>
+        </div>
+      </aside>
+
+      <section className="start-workspace-main">
+        <header className="start-workspace-heading">
+          <div><span>WORKSPACE</span><h1>{t('快速开始')}</h1><p>{t('继续最近的文稿，或开启一项新的研究。')}</p></div>
+          <button onClick={() => navigate('/projects?action=create')} type="button"><FilePlus2 size={17} />{t('新建项目')}</button>
+        </header>
+
+        <div className="start-workspace-actions" aria-label={t('开始方式')}>
+          <button onClick={() => navigate('/projects?action=create')} type="button"><FilePlus2 size={19} /><span><strong>{t('空白项目')}</strong><small>{t('从研究问题开始')}</small></span><ArrowRight size={16} /></button>
+          <button onClick={() => navigate('/projects?action=templates')} type="button"><Sparkles size={19} /><span><strong>{t('论文模板')}</strong><small>ACL · CVPR · ICML</small></span><ArrowRight size={16} /></button>
+          <button onClick={() => navigate('/projects?action=import')} type="button"><Import size={19} /><span><strong>{t('导入')}</strong><small>Zip · arXiv</small></span><ArrowRight size={16} /></button>
+        </div>
+
+        <section className="start-library" aria-labelledby="recent-documents-title">
+          <div className="start-library-toolbar">
+            <div><Clock3 size={16} /><h2 id="recent-documents-title">{query ? t('搜索结果') : t('最近文稿')}</h2><span>{visibleProjects.length}</span></div>
+            <label><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('搜索项目、问题或标签')} /></label>
+          </div>
+
+          {loading ? <div className="start-library-empty">{t('正在读取项目…')}</div> : visibleProjects.length ? (
+            <div className="start-document-grid">
+              {visibleProjects.map((project, index) => (
+                <button className="start-document" key={project.id} onClick={() => navigate(`/project/${project.id}`)} type="button">
+                  <span className={`start-paper-preview tone-${index % 3}`} aria-hidden="true"><i /><i /><i /><b>{project.name.slice(0, 1).toUpperCase()}</b></span>
+                  <span className="start-document-copy"><strong>{project.name}</strong><small>{project.researchQuestion || t('等待定义研究问题')}</small><time>{formatUpdatedAt(project)}</time></span>
+                </button>
               ))}
             </div>
+          ) : (
+            <div className="start-library-empty"><strong>{query ? t('没有匹配的项目') : t('还没有项目')}</strong><span>{query ? t('试试项目名称、研究问题或标签。') : t('从上方任一种方式开始。')}</span></div>
           )}
-        </div>
-      </div>
-
-      {/* Hero section */}
-      <section className="landing-hero">
-        {/* Main title with typewriter effect */}
-        <h1 className="landing-title">
-          {TITLE_TEXT.split('').map((ch, i) => (
-            <span
-              key={i}
-              className={
-                i < 12
-                  ? 'landing-title-accent'
-                  : 'landing-title-dark'
-              }
-              style={{
-                opacity: i < charCount ? 1 : 0,
-                transition: 'opacity 0.15s ease',
-              }}
-            >
-              {ch}
-            </span>
-          ))}
-          <span className="landing-cursor" />
-        </h1>
-
-        {/* Subtitle */}
-        <p
-          className="landing-subtitle"
-          dangerouslySetInnerHTML={{ __html: t('landing.subtitle') }}
-        />
-
-        {/* CTA buttons */}
-        <div className="landing-cta">
-          <button
-            className="landing-btn-primary"
-            onClick={() => navigate('/projects')}
-          >
-            {t('landing.startWriting')} &rarr;
-          </button>
-        </div>
-
-        {/* Feature badges */}
-        <div className="landing-badges">
-          <div className="landing-badge">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
-            {t('landing.featureAI')}
-          </div>
-          <div className="landing-badge">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
-            {t('landing.featureVision')}
-          </div>
-          <div className="landing-badge">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="20" x2="18" y2="10" />
-              <line x1="12" y1="20" x2="12" y2="4" />
-              <line x1="6" y1="20" x2="6" y2="14" />
-            </svg>
-            {t('landing.featurePlot')}
-          </div>
-          <div className="landing-badge">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            {t('landing.featureSearch')}
-          </div>
-        </div>
+          {!query && projects.length > visibleProjects.length && <button className="start-library-more" onClick={() => navigate('/projects')} type="button">{t('查看所有项目')}<ArrowRight size={14} /></button>}
+        </section>
       </section>
-
-      {/* Feature carousel */}
-      <section className="landing-carousel">
-        <div className="carousel-tabs">
-          {FEATURE_KEYS.map((key, i) => (
-            <button
-              key={key}
-              className={`carousel-tab ${activeFeature === i ? 'active' : ''}`}
-              onClick={() => selectFeature(i)}
-            >
-              {t(`landing.feat.${key}.tab`)}
-            </button>
-          ))}
-        </div>
-
-        <div className="carousel-track-wrapper">
-          <div
-            className="carousel-track"
-            style={{ transform: `translateX(-${activeFeature * 100}%)` }}
-          >
-            {FEATURE_KEYS.map((key) => (
-              <div className="carousel-card" key={key}>
-                <div className="carousel-card-icon">
-                  <FeatureIcon name={key} />
-                </div>
-                <h3 className="carousel-card-title">
-                  {t(`landing.feat.${key}.title`)}
-                </h3>
-                <p className="carousel-card-desc">
-                  {t(`landing.feat.${key}.desc`)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="carousel-dots">
-          {FEATURE_KEYS.map((_, i) => (
-            <button
-              key={i}
-              className={`carousel-dot ${activeFeature === i ? 'active' : ''}`}
-              onClick={() => selectFeature(i)}
-            />
-          ))}
-        </div>
-      </section>
-    </div>
+    </main>
   );
-}
-
-function FeatureIcon({ name }: { name: string }) {
-  const props = { width: 32, height: 32, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-  switch (name) {
-    case 'completion':
-      return <svg {...props}><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>;
-    case 'vision':
-      return <svg {...props}><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>;
-    case 'plot':
-      return <svg {...props}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>;
-    case 'search':
-      return <svg {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>;
-    case 'agent':
-      return <svg {...props}><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg>;
-    case 'review':
-      return <svg {...props}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
-    default:
-      return null;
-  }
 }
