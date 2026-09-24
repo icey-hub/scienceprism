@@ -337,6 +337,21 @@ function buildWarnings({ request, files, evidence, workflow, ledgerError, policy
   return { warnings, prompts, conflicts };
 }
 
+/**
+ * The contract's typed fields and rules are already rendered into
+ * `instructions.prompt`, so storing the whole contract again would count the
+ * same text twice against the token budget. The pack keeps only the contract's
+ * identity and required keys for audit; the prompt remains the authoritative
+ * record of what the model was told.
+ */
+function compactStageContract(stageContract) {
+  if (!stageContract) return null;
+  return {
+    stage: stageContract.stage ?? null,
+    required: clone(stageContract.required ?? null)
+  };
+}
+
 function buildContextWithoutHash({ stage, task, activePath, prompt, humanInstructions, selection, compileLog, files, evidence, evidenceGraph, decisions, skills, stageContract, warnings, prompts, budget, workflowVersion, projectConstraints }) {
   return {
     schemaVersion: CONTEXT_PACK_SCHEMA_VERSION,
@@ -348,7 +363,7 @@ function buildContextWithoutHash({ stage, task, activePath, prompt, humanInstruc
       human: humanInstructions || '',
       warnings: prompts,
       skills: clone(skills),
-      stageContract: clone(stageContract)
+      stageContract: compactStageContract(stageContract)
     },
     selection: selection || '',
     compileLog: compileLog || '',

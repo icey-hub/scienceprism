@@ -251,32 +251,148 @@ export function parseResearchStageOutput(stageName, value) {
 
 export const validateStageOutput = validateResearchStageOutput;
 
-// Kept as a plain object so the Harness prompt can include a stable, readable
-// contract without depending on zod internals or an additional converter.
-export const RESEARCH_STAGE_CONTRACTS = Object.freeze({
-  search_strategy: {
-    required: ['stage=search_strategy', 'researchQuestion', 'humanDirection', 'queries[]', 'sources[]', 'rationale']
-  },
-  paper_screening: {
-    required: ['stage=paper_screening', 'decisions[]', 'summary'],
-    decision: 'accept|reject|needs-review'
-  },
-  reproduction_plan: {
-    required: ['stage=reproduction_plan', 'paperId', 'objective', 'metrics[]', 'expectedOutputs[]', 'humanApprovalRequired=true']
-  },
-  innovation_ideas: {
-    required: ['stage=innovation_ideas', 'humanDirection', 'ideas[]']
-  },
-  method_proposals: {
-    required: ['stage=method_proposals', 'selectedIdeaId', 'proposals[]', 'humanDecisionRequired=true']
-  },
-  experiment_plan: {
-    required: ['stage=experiment_plan', 'methodId', 'datasetIds[]', 'metrics[]', 'successCriteria[]', 'humanApprovalRequired=true']
-  },
-  experiment_results: {
-    required: ['stage=experiment_results', 'runId', 'status', 'metrics']
-  },
-  writing_brief: {
-    required: ['stage=writing_brief', 'title', 'claims[]', 'outline[]']
+/**
+ * Derives a readable, typed description of a stage contract from its zod schema.
+ *
+ * The previous hand-written `{ required: [...] }` summary listed field names
+ * only. A real model then produced `queries: [{...}]` instead of `string[]` and
+ * added unknown keys, which `.strict()` rejects -- so the stage failed for
+ * reasons the prompt never mentioned. Deriving the description from the schema
+ * keeps the prompt honest without introducing a second source of truth.
+ *
+ * This walks a small, fixed set of zod type tags and degrades to 'unknown'
+ * rather than throwing, so a future schema change cannot break the prompt.
+ */
+function unwrapZodSchema(schema) {
+  const modifiers = [];
+  let current = schema;
+  for (;;) {
+    const typeName = current?._def?.typeName;
+    if (typeName === 'ZodOptional') { modifiers.push('optional'); current = current._def.innerType; continue; }
+    if (typeName === 'ZodNullable') { modifiers.push('nullable'); current = current._def.innerType; continue; }
+    if (typeName === 'ZodDefault') { modifiers.push('has default'); current = current._def.innerType; continue; }
+    return { schema: current, modifiers };
   }
+}
+
+function zodShapeOf(schema) {
+  const shape = schema?._def?.shape;
+  if (typeof shape === 'function') return shape();
+  return shape && typeof shape === 'object' ? shape : null;
+}
+
+/** Renders one zod schema as a short type phrase for the Harness prompt. */
+export function describeZodType(schema) {
+  const { schema: base, modifiers } = unwrapZodSchema(schema);
+  const definition = base?._def || {};
+  let text;
+  switch (definition.typeName) {
+    case 'ZodString': {
+      // Surfacing the pattern matters: `id` is a string with a character
+      // pattern, and a model that returns a human-readable name fails validation.
+      const pattern = (definition.checks || []).find((check) => check.kind === 'regex');
+      text = pattern ? `string matching ${String(pattern.regex)}` : 'string';
+      break;
+    }
+    case 'ZodNumber': text = 'number'; break;
+    case 'ZodBoolean': text = 'boolean'; break;
+    case 'ZodLiteral': text = JSON.stringify(definition.value); break;
+    case 'ZodEnum': text = definition.values.map((value) => JSON.stringify(value)).join(' | '); break;
+    case 'ZodRecord': text = `object map of ${describeZodType(definition.valueType)}`; break;
+    case 'ZodArray': {
+      const limits = [];
+      if (typeof definition.minLength?.value === 'number') limits.push(`min ${definition.minLength.value}`);
+      if (typeof definition.maxLength?.value === 'number') limits.push(`max ${definition.maxLength.value}`);
+      text = `array of ${describeZodType(definition.type)}${limits.length ? ` (${limits.join(', ')})` : ''}`;
+      break;
+    }
+    case 'ZodObject': {
+      const shape = zodShapeOf(base);
+      text = shape
+        ? `object { ${Object.entries(shape).map(([key, value]) => `${key}: ${describeZodType(value)}`).join('; ')} }`
+        : 'object';
+      break;
+    }
+    default: text = 'unknown';
+  }
+  return modifiers.length ? `${text} (${modifiers.join(', ')})` : text;
+}
+
+function isRequiredZodField(schema) {
+  const typeName = schema?._def?.typeName;
+  return typeName !== 'ZodOptional' && typeName !== 'ZodDefault';
+}
+
+/** Typed `field: type` lines for one stage, derived from its zod schema. */
+export function describeResearchStageFields(stageName) {
+  const shape = zodShapeOf(getResearchStageSchema(stageName));
+  if (!shape) return [];
+  return Object.entries(shape).map(([key, value]) => `${key}: ${describeZodType(value)}`);
+}
+
+/** Required keys for one stage, derived from its zod schema. */
+export function requiredResearchStageKeys(stageName) {
+  const shape = zodShapeOf(getResearchStageSchema(stageName));
+  if (!shape) return [];
+  return Object.entries(shape).filter(([, value]) => isRequiredZodField(value)).map(([key]) => key);
+}
+
+/**
+ * Semantic guidance a zod schema cannot express: what a field's values must
+ * *mean*, not just their type. Kept beside the derivation so the prompt and the
+ * schema stay one edit apart.
+ */
+const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
+  search_strategy: Object.freeze([
+    'sources must contain ids from input.availableSources (registered Source Adapter ids such as "arxiv"), never venue names or descriptions.'
+  ]),
+  paper_screening: Object.freeze([
+    'decisions[].paperId must be a paper id taken from the stage input.'
+  ]),
+  reproduction_plan: Object.freeze([
+    'paperId must be a paper id taken from the stage input.'
+  ]),
+  innovation_ideas: Object.freeze([
+    'ideas[].relatedPaperIds must contain only paper ids taken from the stage input.',
+    'ideas[].id is a new identifier you choose; it must match the id character pattern and contain no spaces.'
+  ]),
+  method_proposals: Object.freeze([
+    'proposals[].ideaId must be the approved idea id taken from the stage input.',
+    'recommendation must be exactly one of the proposals[].id values you produced (same id pattern, no spaces), or null.',
+    'proposals[].id is a new identifier you choose; it must match the id character pattern and contain no spaces.'
+  ]),
+  experiment_plan: Object.freeze([
+    'methodId must be the approved method id taken from the stage input.',
+    'baselineIds must contain only ids present in the stage input.'
+  ]),
+  experiment_results: Object.freeze([
+    'runId must be an existing Experiment Run id from the stage input.'
+  ]),
+  writing_brief: Object.freeze([
+    'claims[].evidenceIds must contain only Evidence ids that already exist in this project; never invent an Evidence id.',
+    'claims[].id is a new identifier you choose; it must match the id character pattern and contain no spaces.',
+    'citationPaperIds must contain only paper ids taken from the stage input.'
+  ])
 });
+
+/**
+ * Prompt-facing contract per stage. Derived, never hand-maintained: `fields`
+ * carries the types the model must match, `required` lists the non-optional
+ * keys, `rules` states the strictness the validators actually apply, and
+ * `notes` carries per-stage semantics the schema cannot express.
+ */
+export const RESEARCH_STAGE_CONTRACTS = Object.freeze(Object.fromEntries(
+  Object.keys(RESEARCH_STAGE_SCHEMAS).map((stageName) => [
+    stageName,
+    Object.freeze({
+      stage: stageName,
+      required: Object.freeze(requiredResearchStageKeys(stageName)),
+      fields: Object.freeze(describeResearchStageFields(stageName)),
+      notes: Object.freeze(RESEARCH_STAGE_CONTRACT_NOTES[stageName] || []),
+      rules: Object.freeze([
+        'Return exactly these keys and no others; any additional key fails validation.',
+        'Match each type literally: "array of string" is a JSON array of plain strings, never an array of objects.'
+      ])
+    })
+  ])
+));

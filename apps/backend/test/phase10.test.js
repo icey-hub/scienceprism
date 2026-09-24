@@ -15,7 +15,8 @@ const { registerResearchWorkflowRoutes } = await import('../src/routes/researchW
 const { buildContextPack, contextManifest } = await import('../src/services/harnessRuntime/contextPackager.js');
 const { assertCapability, assertProjectPath, isPathAllowed, resolveCapabilityPolicy, HARNESS_CAPABILITIES, DEFAULT_PROJECT_CAPABILITIES } = await import('../src/services/harnessRuntime/capabilities.js');
 const { evaluatePaperCandidate } = await import('../src/services/researchResearch/qualityGate.js');
-const { parseResearchStageOutput } = await import('../src/services/researchResearch/schemas.js');
+const { parseResearchStageOutput, RESEARCH_STAGE_CONTRACTS, RESEARCH_STAGE_SCHEMAS, requiredResearchStageKeys, describeResearchStageFields } = await import('../src/services/researchResearch/schemas.js');
+const { buildResearchHarnessPrompt } = await import('../src/services/researchResearch/harnessAdapter.js');
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
 const { toFrontendWorkflow } = await import('../src/services/researchWorkflow/projection.js');
 const { getResearchWorkflow } = await import('../src/services/researchWorkflow/index.js');
@@ -238,4 +239,53 @@ test('the grantable capability vocabulary holds only enforceable capabilities', 
   // than silently honoured, so removing a capability cannot widen access.
   const policy = resolveCapabilityPolicy({ configured: ['project.read', 'project.write'] });
   assert.deepEqual(policy.configured, ['project.read']);
+});
+
+test('stage contracts are derived from their zod schema and cannot drift', () => {
+  for (const stage of Object.keys(RESEARCH_STAGE_SCHEMAS)) {
+    const schema = RESEARCH_STAGE_SCHEMAS[stage];
+    const shape = schema._def.shape();
+    const schemaKeys = Object.keys(shape).sort();
+
+    const derivedFields = describeResearchStageFields(stage);
+    const fieldKeys = derivedFields.map((line) => line.slice(0, line.indexOf(':'))).sort();
+    assert.deepEqual(fieldKeys, schemaKeys, `${stage}: derived fields must cover every schema key`);
+
+    assert.deepEqual(
+      [...requiredResearchStageKeys(stage)].sort(),
+      Object.entries(shape).filter(([, value]) => !['ZodOptional', 'ZodDefault'].includes(value._def.typeName)).map(([key]) => key).sort(),
+      `${stage}: required keys must match the schema`
+    );
+
+    // The prompt-facing contract must stay in sync with the derivation.
+    assert.deepEqual([...RESEARCH_STAGE_CONTRACTS[stage].fields], derivedFields);
+    assert.deepEqual([...RESEARCH_STAGE_CONTRACTS[stage].required], requiredResearchStageKeys(stage));
+  }
+});
+
+test('stage contract fields carry types, and the prompt states strictness', () => {
+  const searchFields = describeResearchStageFields('search_strategy');
+  assert.ok(searchFields.includes('queries: array of string (min 1)'), `unexpected queries field: ${searchFields.join(' | ')}`);
+  assert.ok(searchFields.includes('sources: array of string (min 1)'), `unexpected sources field: ${searchFields.join(' | ')}`);
+  assert.ok(searchFields.some((line) => line.startsWith('stage: ')), 'the stage discriminator must be described');
+
+  const prompt = buildResearchHarnessPrompt({ stage: 'search', input: { researchQuestion: 'q' } });
+  assert.match(prompt, /array of string/, 'the prompt must state element types');
+  assert.match(prompt, /any additional key fails validation/, 'the prompt must state that unknown keys are rejected');
+
+  // Regression for the real-model failure this contract was written for: an
+  // array of objects plus one unknown key is exactly what the model returned.
+  const rejected = parseResearchStageOutput('search_strategy', {
+    stage: 'search_strategy',
+    researchQuestion: 'How can retrieval stay grounded?',
+    humanDirection: 'long-context retrieval',
+    aiAdditions: [],
+    queries: [{ text: 'grounded retrieval' }],
+    sources: [{ name: 'arxiv' }],
+    rationale: 'Seeded from the direction.',
+    deduplicationPlan: 'not part of the contract'
+  });
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.errors.some((error) => error.code === 'invalid_type'));
+  assert.ok(rejected.errors.some((error) => error.code === 'unrecognized_keys'));
 });

@@ -28,6 +28,9 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
     throw new Error(`Unknown research stage: ${stage}`);
   }
   const contract = RESEARCH_STAGE_CONTRACTS[normalizedStage];
+  const contractFields = Array.isArray(contract?.fields) ? contract.fields : [];
+  const contractRules = Array.isArray(contract?.rules) ? contract.rules : [];
+  const contractNotes = Array.isArray(contract?.notes) ? contract.notes : [];
   return [
     'You are an assistant in a human-led research workflow.',
     'The human owns the research direction, paper selection, innovation choice, method approval, and final claims.',
@@ -35,7 +38,11 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
     'Return JSON only. Do not use Markdown fences, comments, or prose outside the JSON object.',
     'Every Paper Claim must cite existing confirmed Evidence by evidenceIds. If support is missing, add the item to unsupportedClaims and keep the claim explicitly unverified; never present speculation as a verified result.',
     `Research stage: ${normalizedStage}`,
-    `Required output contract:\n${safeJson(contract)}`,
+    `Required output fields (name: type) for ${normalizedStage}:`,
+    contractFields.length ? contractFields.map((line) => `- ${line}`).join('\n') : '- (no contract available)',
+    'Output contract rules:',
+    contractRules.length ? contractRules.map((rule) => `- ${rule}`).join('\n') : '- Return only the fields listed above.',
+    contractNotes.length ? `Field semantics:\n${contractNotes.map((note) => `- ${note}`).join('\n')}` : '',
     `Stage-specific project skills:\n${researchSkillPrompt(normalizedStage, skills)}`,
     context ? `Known workflow context:\n${safeJson(context)}` : '',
     input ? `Stage input:\n${safeJson(input)}` : '',
