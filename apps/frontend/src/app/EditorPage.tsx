@@ -4490,6 +4490,7 @@ export default function EditorPage() {
                           try {
                             const res = await runAgent({
                               task: 'peer_review',
+                              role: 'paper-reviewer',
                               prompt: t('Read all .tex files in the project (start from the main file and any included sections). Use list_files and read_file tools to inspect content. Write a detailed reviewer-style report. Include: Summary, Strengths, Weaknesses, Questions, Missing Experiments, Writing/Clarity, Suggestions, Score (1-10), and Confidence. Output report text only; do not propose patches or code.'),
                               selection: '',
                               content: '',
@@ -4518,6 +4519,7 @@ export default function EditorPage() {
                         onClick={async () => {
                           const res = await runAgent({
                             task: 'consistency_check',
+                            role: 'paper-reviewer',
                             prompt: `Read all .tex files in the project using list_files and read_file tools. Perform a thorough consistency check across the entire paper. Check the following dimensions:
 
 1. **Terminology consistency**: Identify terms that refer to the same concept but use different wording (e.g., "feature extraction" vs "feature engineering", "model" vs "network" vs "architecture" used interchangeably).
@@ -4601,6 +4603,7 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                         onClick={async () => {
                           const res = await runAgent({
                             task: 'missing_citations',
+                            role: 'paper-reviewer',
                             prompt: t('Find claims that likely need citations and list them.'),
                             selection: '',
                             content: '',

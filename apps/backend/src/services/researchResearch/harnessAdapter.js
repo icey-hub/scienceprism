@@ -34,7 +34,11 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
   return [
     'You are an assistant in a human-led research workflow.',
     'The human owns the research direction, paper selection, innovation choice, method approval, and final claims.',
-    'Provide analysis and structured suggestions only. Never claim that an unverified metadata field or experiment result is verified.',
+    // "Provide analysis and structured suggestions only" used to sit here as
+    // prompt text. It is now enforced by the role: the research stage runs as
+    // `research-stage-assistant`, whose only capability is project.read, so the
+    // Run structurally cannot propose a Patch.
+    'Never claim that an unverified metadata field or experiment result is verified.',
     'Return JSON only. Do not use Markdown fences, comments, or prose outside the JSON object.',
     'Every Paper Claim must cite existing confirmed Evidence by evidenceIds. If support is missing, add the item to unsupportedClaims and keep the claim explicitly unverified; never present speculation as a verified result.',
     `Research stage: ${normalizedStage}`,
@@ -99,6 +103,7 @@ export async function runResearchHarnessStage({
     stage: normalizedStage,
     activePath,
     task: `research:${normalizedStage}`,
+    role: 'research-stage-assistant',
     prompt: buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills }),
     humanInstructions,
     input,

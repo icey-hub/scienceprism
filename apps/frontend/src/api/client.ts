@@ -303,6 +303,10 @@ export function runAgent(payload: {
   compileLog?: string;
   llmConfig?: Partial<LLMConfig>;
   interaction?: 'chat' | 'agent';
+  // Names the agent role for this request. The backend narrows the Run's
+  // capabilities to the role's allowance, so a read-only task can no longer
+  // hold patch.propose merely because the caller said "do not propose patches".
+  role?: string;
   history?: { role: 'user' | 'assistant'; content: string }[];
 }) {
   return request<{

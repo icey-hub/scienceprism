@@ -12,6 +12,7 @@ process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 const { registerPlotRoutes } = await import('../src/routes/plot.js');
 const { registerTransferRoutes } = await import('../src/routes/transfer.js');
 const { registerVisionRoutes } = await import('../src/routes/vision.js');
+const { registerAgentRoutes } = await import('../src/routes/agent.js');
 
 async function createProject(id, capabilities) {
   const root = path.join(dataDir, id);
@@ -122,5 +123,24 @@ test('storing a converted image is denied when the project revokes patch.propose
   const body = response.json();
   assert.equal(body.ok, false);
   assert.equal(body.code, 'CAPABILITY_DENIED');
+  await app.close();
+});
+
+test('the agent route forwards the role to the Harness Runtime', async () => {
+  const projectId = 'gate-agent-role';
+  await createProject(projectId, ['project.read', 'patch.propose']);
+
+  const app = Fastify();
+  registerAgentRoutes(app);
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/agent/run',
+    payload: { task: 'peer_review', prompt: 'review the manuscript', mode: 'tools', projectId, role: 'no-such-role' }
+  });
+
+  // An unknown role only fails closed if the route actually forwarded it, so a
+  // 400 naming the role proves the plumbing rather than the prompt text.
+  assert.equal(response.statusCode, 400);
+  assert.match(response.body, /no-such-role/);
   await app.close();
 });

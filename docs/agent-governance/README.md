@@ -100,7 +100,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 - **Round 1 关键指标**：后端测试 40（36 通过 / 4 失败）→ **51（全通过）**；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0；工具产出文档 0 → 1。
 - **交付物（工具真实产出）**：`aidoc/aidoc-research-document/research/writing-brief.md` + `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json`。
 - **Round 2 分支**：`feat/agent-governance-r2`（从 r1 尖端切出，D-4）。
-- **Round 2 进度**：011 ✅ 约束注册表；012 ✅ 约束可选开关；013 ✅ 收口漂移（9 → 5）+ 16/16 全有测试；014 ✅ 验证；015 ✅ 收口 4 处高危绕过；016 ✅ 验证；017 ✅ 角色注册表；018 ✅ **角色接入 Harness Runtime**（角色只收窄、未知角色 fail-closed、Run 记录角色）；下一步 019（删 prompt 假约束与三个竞争人格）。测试 51 → **76 项全绿**。
+- **Round 2 进度**：011 ✅ 约束注册表；012 ✅ 约束可选开关；013 ✅ 收口漂移；014 ✅ 验证；015 ✅ 收口 4 处高危绕过；016 ✅ 验证；017 ✅ 角色注册表；018 ✅ 角色接入 Harness Runtime；019 ✅ **删 prompt 假约束**（改用角色在代码里强制，并打通 role 透传链）；下一步 020（Round 2 收尾 + 对比文档）。测试 51 → **78 项全绿**。
 - **目标 ② 已闭环**：8 角色 + 12 个真实入口符号 + 能力只收窄 + 未知角色 fail-closed + Run 审计记录。详见 `agent-roles.md`。
 - **剩余漂移 5 条**（需更大改动）：C-04（actor 自报，无法区分 AI 与人类）、C-07（无 Patch 应用接口）、C-09（`assertNetworkHost` 未接进 Harness 路径）、C-10（legacy 适配器不接收 limits）、C-11（不确定性字段全为可选）。
 - **约束审计结论**：16 条中 13 core / 3 standard；14 条有测试、2 条缺口（C-01、C-10，已锁）；**9 条文档与代码不一致**；**2 处疑似 AI 主观添加**（C-11 字段集、C-16 Feature Flag）。详见 `constraint-audit.md`。

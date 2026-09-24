@@ -20,6 +20,7 @@ export function registerAgentRoutes(fastify) {
       compileLog,
       llmConfig,
       interaction = 'agent',
+      role,
       history = []
     } = req.body || {};
 
@@ -58,7 +59,11 @@ export function registerAgentRoutes(fastify) {
     }
 
     if (mode === 'tools') {
-      return runAgentRuntime({ projectId, activePath, task, prompt, selection, compileLog, llmConfig, lang });
+      // `role` is forwarded so the Runtime can narrow the Run's capabilities to
+      // the role's allowance. A read-only task then cannot hold patch.propose
+      // merely because its prompt asked the model not to use it, and an unknown
+      // role fails closed inside createHarnessRun.
+      return runAgentRuntime({ projectId, activePath, task, prompt, selection, compileLog, llmConfig, lang, role });
     }
 
     const system =

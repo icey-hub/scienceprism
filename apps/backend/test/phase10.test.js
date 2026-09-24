@@ -17,7 +17,7 @@ const { buildContextPack, contextManifest } = await import('../src/services/harn
 const { assertCapability, assertProjectPath, isPathAllowed, resolveCapabilityPolicy, HARNESS_CAPABILITIES, DEFAULT_PROJECT_CAPABILITIES } = await import('../src/services/harnessRuntime/capabilities.js');
 const { evaluatePaperCandidate } = await import('../src/services/researchResearch/qualityGate.js');
 const { parseResearchStageOutput, RESEARCH_STAGE_CONTRACTS, RESEARCH_STAGE_SCHEMAS, RESEARCH_STAGES, requiredResearchStageKeys, describeResearchStageFields } = await import('../src/services/researchResearch/schemas.js');
-const { buildResearchHarnessPrompt } = await import('../src/services/researchResearch/harnessAdapter.js');
+const { buildResearchHarnessPrompt, createResearchHarnessRunner } = await import('../src/services/researchResearch/harnessAdapter.js');
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
 const { toFrontendWorkflow } = await import('../src/services/researchWorkflow/projection.js');
 const { getResearchWorkflow } = await import('../src/services/researchWorkflow/index.js');
@@ -273,6 +273,11 @@ test('stage contract fields carry types, and the prompt states strictness', () =
   const prompt = buildResearchHarnessPrompt({ stage: 'search', input: { researchQuestion: 'q' } });
   assert.match(prompt, /array of string/, 'the prompt must state element types');
   assert.match(prompt, /any additional key fails validation/, 'the prompt must state that unknown keys are rejected');
+  assert.doesNotMatch(
+    prompt,
+    /Provide analysis and structured suggestions only/,
+    'a rule the role now enforces structurally must not be restated as prompt text'
+  );
 
   // Regression for the real-model failure this contract was written for: an
   // array of objects plus one unknown key is exactly what the model returned.
@@ -340,4 +345,19 @@ test('the research stage contract vocabulary is locked', () => {
   // was a full zod contract, prompt, and skill binding that nothing could reach.
   assert.ok(!RESEARCH_STAGES.includes('paper_screening'), 'a stage contract nothing runs must not come back');
   assert.equal(RESEARCH_STAGE_CONTRACTS.paper_screening, undefined);
+});
+
+test('the research stage runs under the research-stage-assistant role', async () => {
+  let captured = null;
+  const run = createResearchHarnessRunner({
+    runHarness: async (request) => {
+      captured = request;
+      return { ok: false, reply: '', runId: null };
+    }
+  });
+
+  await run({ stage: 'search_strategy', input: { researchQuestion: 'How can retrieval stay grounded?' } });
+
+  assert.equal(captured.role, 'research-stage-assistant');
+  assert.deepEqual(captured.capabilities, ['project.read'], 'the stage must not be able to propose a Patch');
 });
