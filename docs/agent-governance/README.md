@@ -94,13 +94,13 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：Round 2 已完成（迭代 011–020）→ 进入 Round 3。**
+**阶段：Round 3 进行中（迭代 021–030）。**
 
-- **Round 2 收尾**：对比文档 `rounds/round-02-comparison.md`；tag `round-02-complete`；分支 `feat/agent-governance-r2` 推 `scienceprism`。
-- **Round 2 关键指标**：后端测试 **51 → 78**；约束有测试 **14/16 → 16/16**；漂移 **9 → 5**；角色 **0 → 8**（+4 强制模块、12 真实入口）；高危绕过 1 处 fail-closed / 2 处可拒绝 / 1 处据实降级；**零依赖变更**。
-- **目标完成度**：① 约束注册表 + 收口高危绕过 ✅ ｜ ② 角色注册表 + 接入 Runtime ✅ ｜ ③ skill 补齐 ⬜ ｜ ④ 绘图方案 ⬜ ｜ ⑤ aidoc 落点 ⚠️ 部分。
-- **Round 3 首批目标**：③ skill 补齐（产品侧 3 个 + 开发侧 playbook）、④ 复杂矢量插画级绘图方案（细胞结构图基准）、剩余 5 条漂移收口。
-- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 20 拍）。
+- **Round 3 进度**：021 ✅ **复杂矢量插画级绘图方案**（手写 SVG + Chrome 栅格化，4 张参考图含细胞结构图，全部实际渲染并目视复核）；下一步 022（绘图产物接可复现门禁）。
+- **绘图结论**：主方案 = **手写 SVG**。它是本机约束下唯一同时满足「能画复杂插画 + 零安装 + 离线 + 中文直出 + 可 diff + 不越界写缓存」的方案。产物在 `docs/agent-governance/assets/diagrams/`，详见 `drawing-comparison.md`。
+- **剩余待办**：目标 ③ skill 补齐；目标 ⑤ `aidoc/` 落点策略；剩余 5 条漂移（C-04/C-07/C-09/C-10/C-11）。
+- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 21 拍）。
+
 - 子 agent 机制实测：6 次派发 5 次失败，且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主**（U-15），派发前先查存活数（U-16）。
 
 ## 历史轮次（细节见各自对比文档）

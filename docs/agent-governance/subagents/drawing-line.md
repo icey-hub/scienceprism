@@ -21,7 +21,7 @@
 
 ## 3. 独占写范围（只准写这些）
 
-- `tools/diagram/**`（新建）
+- `scripts/build-diagrams.mjs`（新建；放在 scripts/ 而不是被 gitignore 的 tools/）
 - `docs/agent-governance/assets/diagrams/**`（新建）
 - `docs/agent-governance/drawing-candidates.md`、`drawing-comparison.md`（新建）
 - `scripts/setup-diagram-toolchain.sh`（新建）

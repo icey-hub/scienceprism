@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="460" viewBox="0 0 940 460">
+<defs>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.18"/>
+  </filter>
+</defs>
+<rect width="940" height="460" fill="#ffffff"/>
+<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker></defs>
+<rect x="10" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
+<text x="90" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">研究者</text>
+<path d="M 90 70 L 90 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
+<rect x="230" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
+<text x="310" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">前端</text>
+<path d="M 310 70 L 310 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
+<rect x="450" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
+<text x="530" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">后端 Runtime</text>
+<path d="M 530 70 L 530 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
+<rect x="670" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
+<text x="750" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">模型</text>
+<path d="M 750 70 L 750 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
+<path d="M 96 110 L 304 110" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="200" y="102" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">提交研究方向</text>
+<path d="M 316 160 L 524 160" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="420" y="152" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">POST /research-workflow</text>
+<path d="M 536 210 L 744 210" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="640" y="202" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">Harness Run（project.read）</text>
+<path d="M 744 258 L 536 258" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="640" y="250" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">JSON 阶段输出</text>
+<path d="M 524 306 L 316 306" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="420" y="298" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">校验 + 证据检查</text>
+<path d="M 304 356 L 96 356" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="200" y="348" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">等待人工审批</text>
+<path d="M 96 402 L 304 402" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+<text x="200" y="394" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">人工批准</text>
+</svg>
