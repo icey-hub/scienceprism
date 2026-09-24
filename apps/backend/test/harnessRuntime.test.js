@@ -267,3 +267,41 @@ test('every real Harness adapter is rollout-gated, not only the DeepSeek one', a
   const exempt = await createHarnessRun(projectId, { adapter: 'fake', task: 'exempt' });
   assert.equal(exempt.adapter, 'fake');
 });
+
+test('a named role narrows the Run capabilities and is recorded on the Run', async () => {
+  const projectId = 'harness-role-narrow';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(
+    path.join(root, '.scienceprism', 'project-constraints.json'),
+    JSON.stringify({ capabilities: ['project.read', 'patch.propose', 'research.search'] })
+  );
+
+  const run = await createHarnessRun(projectId, { adapter: 'fake', role: 'paper-reviewer', task: 'review' });
+
+  assert.equal(run.role, 'paper-reviewer');
+  assert.equal(run.roleAuthority, 'suggest-only');
+  assert.deepEqual(run.capabilities.granted, ['project.read'], 'a read-only role must not keep patch.propose');
+  assert.ok(run.capabilities.denied.includes('patch.propose'), 'the removal must be visible, not silent');
+});
+
+test('an unknown role fails closed instead of running unconstrained', async () => {
+  const projectId = 'harness-role-unknown';
+  await createProject(projectId);
+
+  await assert.rejects(
+    () => createHarnessRun(projectId, { adapter: 'fake', role: 'no-such-role' }),
+    (error) => error.code === 'UNKNOWN_ROLE'
+  );
+});
+
+test('a Run without a role keeps the Project grant unchanged', async () => {
+  const projectId = 'harness-role-absent';
+  await createProject(projectId);
+
+  const run = await createHarnessRun(projectId, { adapter: 'fake' });
+
+  assert.equal(run.role, null);
+  assert.equal(run.roleAuthority, null);
+  assert.deepEqual(run.capabilities.granted, ['project.read', 'patch.propose']);
+});

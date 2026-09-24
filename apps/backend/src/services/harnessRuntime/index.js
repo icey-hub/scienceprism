@@ -22,6 +22,7 @@ import { fakeHarnessAdapter } from './adapters/fakeAdapter.js';
 import { copyBundledResearchSkills, isBundledSkillPath, restrictWorkspaceResearchSkills } from '../researchResearch/researchSkills.js';
 import { buildContextPack, contextManifest } from './contextPackager.js';
 import { assertProjectFeatureEnabled } from '../featureFlags.js';
+import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
@@ -437,11 +438,29 @@ export async function createHarnessRun(projectId, request = {}) {
   // C-16 covers "advanced Harness adapters" plural. Only the in-process fake
   // adapter that tests rely on is exempt; every real adapter is rollout-gated.
   if (adapter !== 'fake') await assertProjectFeatureEnabled(projectId, 'advancedHarness', { adapter });
+  // A named role narrows what this Run may do: the effective grant is the
+  // intersection of the Project's grant and the role's allowance, so naming a
+  // role can only ever remove capabilities. An unknown role fails closed rather
+  // than silently running unconstrained.
+  const role = request.role ? getRole(request.role) : null;
+  if (request.role && !role) {
+    throw new HarnessRuntimeError(400, 'UNKNOWN_ROLE', `Unknown agent role: ${request.role}.`, { role: request.role });
+  }
+  const narrowed = role ? resolveRoleCapabilities(role.id, capabilities) : null;
+  const effectiveCapabilities = role
+    ? {
+        ...capabilities,
+        granted: narrowed.granted,
+        denied: [...new Set([...capabilities.denied, ...narrowed.denied])],
+        role: role.id,
+        roleAuthority: role.authority
+      }
+    : capabilities;
   const contextPack = await buildContextPack({
     projectId,
     projectRoot,
     request: { ...request, adapter },
-    policy: capabilities,
+    policy: effectiveCapabilities,
     constraints
   });
   const createdAt = now();
@@ -460,14 +479,16 @@ export async function createHarnessRun(projectId, request = {}) {
     finishedAt: null,
     attempt: 0,
     replayOf: request.replayOf || null,
+    role: role?.id || null,
+    roleAuthority: role?.authority || null,
     model: request.llmConfig?.model || getEnv('HARNESS_MODEL') || process.env.DEEPSEEK_MODEL || (adapter === 'deepseek' ? 'deepseek-flash' : null),
     skills: Array.isArray(request.researchSkills) ? request.researchSkills : [],
     contextHash: contextPack.contextHash,
     contextManifest: contextManifest(contextPack),
     contextPack,
-    capabilities,
-    limits: buildLimits(request, capabilities),
-    fallback: request.fallback !== false && getEnv('HARNESS_FALLBACK') !== 'false' && capabilities.constraints?.fallback !== false,
+    capabilities: effectiveCapabilities,
+    limits: buildLimits(request, effectiveCapabilities),
+    fallback: request.fallback !== false && getEnv('HARNESS_FALLBACK') !== 'false' && effectiveCapabilities.constraints?.fallback !== false,
     request: sanitizeRequest({ ...request, projectId, adapter }),
     events: [],
     patches: [],
