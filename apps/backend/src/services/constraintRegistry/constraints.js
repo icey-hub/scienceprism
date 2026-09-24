@@ -114,10 +114,10 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     statement: 'Each Harness Run is bounded by a timeout and a token budget.',
     tier: 'standard',
     scope: ['harness', 'limits'],
-    enforcement: { module: 'services/harnessRuntime/index.js', symbol: 'createHarnessRun' },
-    testRef: { file: 'harnessRuntime.test.js', name: 'Harness Run limits fall back to the shared constraint defaults' },
+    enforcement: { module: 'services/agentService.js', symbol: 'buildToolAgentModel' },
+    testRef: { file: 'harnessRuntime.test.js', name: 'the Run token budget is applied by the legacy tool-agent model' },
     provenance: { source: 'adr', ref: 'ADR-0006' },
-    drift: 'The token budget is passed only to the DeepSeek SDK; the legacy adapter never receives limits and nothing enforces a cumulative budget.'
+    drift: null
   },
   {
     id: 'C-11',

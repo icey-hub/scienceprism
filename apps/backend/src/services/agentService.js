@@ -15,6 +15,29 @@ import { extractArxivId, fetchArxivEntry, buildArxivBibtex } from './arxivServic
 import { t } from '../i18n/index.js';
 import { assertCapability, assertNetworkHost, assertProjectPath, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
 
+/**
+ * Builds the tool-agent model.
+ *
+ * Exported so the Run's token budget is testable without a network call: the
+ * Harness Runtime computes `limits.maxTokens`, and C-10 requires that the legacy
+ * path actually applies it rather than ignoring it.
+ */
+export function buildToolAgentModel({ llmConfig, limits } = {}) {
+  const resolved = resolveLLMConfig(llmConfig);
+  const maxTokens = Number(limits?.maxTokens);
+  return {
+    resolved,
+    model: new ChatOpenAI({
+      model: resolved.model,
+      temperature: 0.2,
+      apiKey: resolved.apiKey,
+      openAIApiKey: resolved.apiKey,
+      ...(Number.isFinite(maxTokens) && maxTokens > 0 ? { maxTokens } : {}),
+      configuration: { baseURL: normalizeBaseURL(normalizeChatEndpoint(resolved.endpoint)) }
+    })
+  };
+}
+
 export async function runToolAgent({
   projectId,
   activePath,
@@ -24,6 +47,7 @@ export async function runToolAgent({
   compileLog,
   contextPack,
   llmConfig,
+  limits,
   lang = 'zh-CN',
   capabilities = DEFAULT_PROJECT_CAPABILITIES,
   capabilityPolicy
@@ -160,18 +184,10 @@ export async function runToolAgent({
     }
   });
 
-  const resolved = resolveLLMConfig(llmConfig);
+  const { resolved, model: llm } = buildToolAgentModel({ llmConfig, limits });
   if (!resolved.apiKey) {
     return { ok: false, reply: 'SCIENCEPRISM_LLM_API_KEY not set', patches: [] };
   }
-
-  const llm = new ChatOpenAI({
-    model: resolved.model,
-    temperature: 0.2,
-    apiKey: resolved.apiKey,
-    openAIApiKey: resolved.apiKey,
-    configuration: { baseURL: normalizeBaseURL(normalizeChatEndpoint(resolved.endpoint)) }
-  });
 
   const system = [
     'You are a LaTeX paper assistant for SciencePrism.',

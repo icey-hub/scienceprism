@@ -321,6 +321,8 @@ async function executeRun(projectId, runId, request, control) {
       dshHome,
       capabilities: run.capabilities.granted,
       capabilityPolicy: run.capabilities,
+      // Every adapter receives the Run's limits, not only the DeepSeek SDK.
+      limits: run.limits,
       signal: control.controller.signal,
       emit
     });

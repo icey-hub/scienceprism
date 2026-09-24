@@ -4,13 +4,17 @@ import { HarnessRuntimeError } from '../errors.js';
 export const legacyHarnessAdapter = Object.freeze({
   id: 'legacy',
   label: 'LangChain Agent Adapter',
-  async run({ request, capabilities, capabilityPolicy, signal, emit }) {
+  async run({ request, capabilities, capabilityPolicy, limits, signal, emit }) {
     if (signal?.aborted) throw signal.reason || new Error('Harness Run aborted.');
     emit({ type: 'adapter/started', data: { adapter: 'legacy' } });
     const result = await runToolAgent({
       ...request,
       capabilities,
       capabilityPolicy,
+      // C-10: the Run's token budget has to reach this path too. It used to be
+      // handed only to the DeepSeek SDK, so a legacy Run was effectively
+      // unbounded on tokens.
+      limits,
       signal
     });
     if (!result.ok) {

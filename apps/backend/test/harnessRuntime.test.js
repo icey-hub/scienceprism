@@ -397,3 +397,42 @@ test('a Run whose Patches a human rejected cannot be applied', async () => {
   );
   assert.equal(await readFile(path.join(root, 'main.tex'), 'utf8'), 'old\n');
 });
+
+test('the Run token budget is applied by the legacy tool-agent model', async () => {
+  const { buildToolAgentModel } = await import('../src/services/agentService.js');
+
+  const bounded = buildToolAgentModel({ llmConfig: { apiKey: 'test-key', model: 'test-model' }, limits: { maxTokens: 1234 } });
+  assert.equal(bounded.model.maxTokens, 1234, 'the Run budget must cap the legacy model');
+
+  const unbounded = buildToolAgentModel({ llmConfig: { apiKey: 'test-key', model: 'test-model' } });
+  assert.equal(unbounded.model.maxTokens, undefined, 'no limits means the provider default');
+});
+
+test('every adapter receives the Run limits, not only the DeepSeek SDK', async () => {
+  const { registerHarnessAdapter } = await import('../src/services/harnessRuntime/index.js');
+  const { fakeHarnessAdapter } = await import('../src/services/harnessRuntime/adapters/fakeAdapter.js');
+  const projectId = 'harness-limits-adapter';
+  await createProject(projectId);
+
+  let captured = null;
+  // Uses the registration seam kept in iteration 028: shadow the fake adapter
+  // with a probe, then put the real one back.
+  registerHarnessAdapter({
+    id: 'fake',
+    label: 'limits probe',
+    async run(args) {
+      captured = args;
+      return { finalResponse: '{}', events: [], sessionId: 'probe', patches: [] };
+    }
+  });
+  try {
+    const run = await createHarnessRun(projectId, { adapter: 'fake', task: 'limits' });
+    await startHarnessRun(projectId, run.id, { wait: true });
+  } finally {
+    registerHarnessAdapter(fakeHarnessAdapter);
+  }
+
+  assert.ok(captured, 'the probe adapter should have run');
+  assert.equal(captured.limits.timeoutMs, PROJECT_CONSTRAINT_LIMITS.timeoutMs);
+  assert.equal(captured.limits.maxTokens, PROJECT_CONSTRAINT_LIMITS.maxTokens);
+});
