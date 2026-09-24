@@ -1,6 +1,13 @@
 import { CONSTRAINT_REGISTRY, CONSTRAINT_TIERS, DRIFTED_CONSTRAINTS, UNTESTED_CONSTRAINTS } from './constraints.js';
 
 export { CONSTRAINT_REGISTRY, CONSTRAINT_TIERS, DRIFTED_CONSTRAINTS, UNTESTED_CONSTRAINTS };
+export {
+  CONSTRAINT_POLICY_FILE,
+  constraintPolicyProjection,
+  isConstraintEnabled,
+  normalizeConstraintPolicy,
+  readConstraintPolicy
+} from './policy.js';
 
 /**
  * Read projections over the constraint registry.

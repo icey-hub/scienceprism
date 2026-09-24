@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -8,14 +9,21 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const srcRoot = path.join(here, '..', 'src');
 const repoRoot = path.join(here, '..', '..', '..');
 
+const dataDir = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-constraints-'));
+process.env.SCIENCEPRISM_DATA_DIR = dataDir;
+
 const {
   CONSTRAINT_REGISTRY,
   CONSTRAINT_TIERS,
   DRIFTED_CONSTRAINTS,
   UNTESTED_CONSTRAINTS,
   constraintCatalog,
+  constraintPolicyProjection,
   getConstraint,
+  isConstraintEnabled,
   listConstraints,
+  normalizeConstraintPolicy,
+  readConstraintPolicy,
   renderConstraintCatalog
 } = await import('../src/services/constraintRegistry/index.js');
 
@@ -101,4 +109,51 @@ test('the registry exposes consistent projections', () => {
   for (const constraint of CONSTRAINT_REGISTRY) {
     assert.ok(rendered.includes(`| ${constraint.id} |`), `rendered catalogue is missing ${constraint.id}`);
   }
+});
+
+test('a project may disable standard constraints but never a core one', () => {
+  const policy = normalizeConstraintPolicy({ disabled: ['C-16', 'C-08', 'C-99'] });
+
+  assert.deepEqual(policy.disabled, ['C-16'], 'only the standard constraint is switched off');
+  assert.deepEqual(policy.rejected, [
+    { id: 'C-08', reason: 'CORE_CONSTRAINT_IMMUTABLE' },
+    { id: 'C-99', reason: 'UNKNOWN_CONSTRAINT' }
+  ]);
+  assert.equal(isConstraintEnabled(policy, 'C-16'), false);
+  assert.equal(isConstraintEnabled(policy, 'C-08'), true, 'a core invariant must stay on');
+  assert.equal(policy.enabled.length, CONSTRAINT_REGISTRY.length - 1);
+});
+
+test('an absent policy file leaves every constraint enabled', async () => {
+  const projectId = 'constraints-no-policy';
+  await mkdir(path.join(dataDir, projectId), { recursive: true });
+  await writeFile(path.join(dataDir, projectId, 'project.json'), '{}\n');
+
+  const policy = await readConstraintPolicy(projectId);
+
+  assert.deepEqual(policy.disabled, []);
+  assert.equal(policy.enabled.length, CONSTRAINT_REGISTRY.length);
+  assert.equal(policy.preset, 'standard');
+});
+
+test('a stored policy cannot switch off a core constraint', async () => {
+  const projectId = 'constraints-core-attempt';
+  await mkdir(path.join(dataDir, projectId, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(dataDir, projectId, 'project.json'), '{}\n');
+  await writeFile(
+    path.join(dataDir, projectId, '.scienceprism', 'constraint-policy.json'),
+    JSON.stringify({ preset: 'relaxed', disabled: ['C-08', 'C-16'] })
+  );
+
+  const policy = await readConstraintPolicy(projectId);
+
+  assert.deepEqual(policy.disabled, ['C-16']);
+  assert.deepEqual(policy.rejected, [{ id: 'C-08', reason: 'CORE_CONSTRAINT_IMMUTABLE' }]);
+  assert.equal(isConstraintEnabled(policy, 'C-08'), true, 'the policy file must not be able to weaken a core invariant');
+
+  const projection = constraintPolicyProjection(policy);
+  assert.equal(projection.preset, 'relaxed');
+  assert.equal(projection.constraints.length, CONSTRAINT_REGISTRY.length, 'a disabled constraint stays visible, not hidden');
+  assert.equal(projection.constraints.find((entry) => entry.id === 'C-16').enabled, false);
+  assert.equal(projection.constraints.find((entry) => entry.id === 'C-08').enabled, true);
 });
