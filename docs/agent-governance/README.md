@@ -100,7 +100,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 - **Round 1 关键指标**：后端测试 40（36 通过 / 4 失败）→ **51（全通过）**；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0；工具产出文档 0 → 1。
 - **交付物（工具真实产出）**：`aidoc/aidoc-research-document/research/writing-brief.md` + `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json`。
 - **Round 2 分支**：`feat/agent-governance-r2`（从 r1 尖端切出，D-4）。
-- **Round 2 进度**：011 ✅ 约束注册表骨架 + 审计文档；012 ✅ 约束可选开关（`core` 不可关）；013 ✅ 收口漂移（9 → 5 条）并补掉 2 条测试缺口（**16/16 全有测试**）；下一步 014（验证）。测试 51 → **63 项全绿**。
+- **Round 2 进度**：011 ✅ 约束注册表骨架 + 审计文档；012 ✅ 约束可选开关（`core` 不可关）；013 ✅ 收口漂移（9 → 5 条）并补掉 2 条测试缺口（**16/16 全有测试**）；014 ✅ 验证（门禁 exit 0、零依赖变更、越界自查干净）；下一步 015（约束策略接入执行路径）。测试 51 → **63 项全绿**。
 - **剩余漂移 5 条**（需更大改动）：C-04（actor 自报，无法区分 AI 与人类）、C-07（无 Patch 应用接口）、C-09（`assertNetworkHost` 未接进 Harness 路径）、C-10（legacy 适配器不接收 limits）、C-11（不确定性字段全为可选）。
 - **约束审计结论**：16 条中 13 core / 3 standard；14 条有测试、2 条缺口（C-01、C-10，已锁）；**9 条文档与代码不一致**；**2 处疑似 AI 主观添加**（C-11 字段集、C-16 Feature Flag）。详见 `constraint-audit.md`。
 - 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 10 拍）。
