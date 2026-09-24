@@ -148,8 +148,13 @@ export function assertNetworkHost(policy, url) {
   } catch {
     throw new HarnessRuntimeError(403, 'NETWORK_DENIED', 'Harness network URL is invalid.', { url });
   }
+  // Fail closed. An empty allowlist denies every host, which is what
+  // capabilityPrompt has always told the model ("Allowed network hosts: none").
+  // It previously allowed any host when the list was empty, so the sentence the
+  // model was given and the enforcement disagreed. A project that wants network
+  // access now names the hosts it wants.
   const allowlist = policy?.networkAllowlist || [];
-  if (allowlist.length && !allowlist.includes(host)) {
+  if (!allowlist.includes(host)) {
     throw new HarnessRuntimeError(403, 'NETWORK_DENIED', `Harness network host denied: ${host}.`, { host, allowlist });
   }
   return host;

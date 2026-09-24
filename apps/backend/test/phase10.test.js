@@ -14,7 +14,7 @@ const { getProjectObservability, normalizeTokenUsage } = await import('../src/se
 const { registerObservabilityRoutes } = await import('../src/routes/observability.js');
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
 const { buildContextPack, contextManifest } = await import('../src/services/harnessRuntime/contextPackager.js');
-const { assertCapability, assertProjectPath, isPathAllowed, resolveCapabilityPolicy, HARNESS_CAPABILITIES, DEFAULT_PROJECT_CAPABILITIES } = await import('../src/services/harnessRuntime/capabilities.js');
+const { assertCapability, assertNetworkHost, assertProjectPath, isPathAllowed, resolveCapabilityPolicy, HARNESS_CAPABILITIES, DEFAULT_PROJECT_CAPABILITIES } = await import('../src/services/harnessRuntime/capabilities.js');
 const { evaluatePaperCandidate } = await import('../src/services/researchResearch/qualityGate.js');
 const { parseResearchStageOutput, RESEARCH_STAGE_CONTRACTS, RESEARCH_STAGE_SCHEMAS, RESEARCH_STAGES, requiredResearchStageKeys, describeResearchStageFields } = await import('../src/services/researchResearch/schemas.js');
 const { buildResearchHarnessPrompt, createResearchHarnessRunner } = await import('../src/services/researchResearch/harnessAdapter.js');
@@ -360,4 +360,27 @@ test('the research stage runs under the research-stage-assistant role', async ()
 
   assert.equal(captured.role, 'research-stage-assistant');
   assert.deepEqual(captured.capabilities, ['project.read'], 'the stage must not be able to propose a Patch');
+});
+
+test('the network allowlist fails closed, matching what the model is told', () => {
+  const allowed = { granted: ['research.search'], networkAllowlist: ['export.arxiv.org'] };
+
+  assert.equal(assertNetworkHost(allowed, 'https://export.arxiv.org/api/query?search_query=all:x'), 'export.arxiv.org');
+  assert.throws(
+    () => assertNetworkHost(allowed, 'https://example.com/collect'),
+    (error) => error.code === 'NETWORK_DENIED'
+  );
+  assert.throws(
+    () => assertNetworkHost({ granted: ['research.search'], networkAllowlist: [] }, 'https://export.arxiv.org/'),
+    (error) => error.code === 'NETWORK_DENIED',
+    'an empty allowlist must deny every host, which is what capabilityPrompt states'
+  );
+  assert.throws(
+    () => assertNetworkHost({ granted: [], networkAllowlist: ['export.arxiv.org'] }, 'https://export.arxiv.org/'),
+    (error) => error.code === 'CAPABILITY_DENIED'
+  );
+  assert.throws(
+    () => assertNetworkHost(allowed, 'not-a-url'),
+    (error) => error.code === 'NETWORK_DENIED'
+  );
 });

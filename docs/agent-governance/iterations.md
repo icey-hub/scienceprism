@@ -110,6 +110,27 @@
 
 Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执行时我在目标 ③ 方向先取证，发现**一半 skill 绑定是死配置 + 一个 skill 永远加载不到**——这是比绘图门禁更实的冗余，且属"减"拍的正当目标，因此把 022 改为删死配置，把绘图产物门禁并入 023（验证拍，那里天然适合加校验）。
 
+## Round 4 节奏映射（迭代 031–040）
+
+| # | 拍型 | 内容 | 状态 |
+| --- | --- | --- | --- |
+| 031 | 加 | **收口 C-09**：网络 allowlist 由 fail-open 改为 fail-closed（代码与文档一致） | ✅ |
+| 032 | 减 | 收口 C-11：不确定性字段收敛为"一条强制通道 + 其余可选" | ⬜ |
+| 033 | 验证 | 验证 031–032 | ⬜ |
+| 034 | 加 | 收口 C-10：把 limits 透传给 legacy 适配器 | ⬜ |
+| 035 | 减 | 收口 C-04：actor 来源校验（区分 AI 与人类） | ⬜ |
+| 036 | 验证 | 验证 034–035 | ⬜ |
+| 037 | 加 | **R-15**：科研工具产出统一写入 `aidoc/` 的落点策略 | ⬜ |
+| 038 | 减 | 待取证 | ⬜ |
+| 039 | 验证 | 验证 037–038 | ⬜ |
+| 040 | 验证 | Round 4 收尾 + `rounds/round-04-comparison.md` + 推 scienceprism | ⬜ |
+
+## Round 4 逐拍记录
+
+| # | 拍型 | 变更摘要 | 验证证据 |
+| --- | --- | --- | --- |
+| 031 | 加 | **收口 C-09，并发现一个真实的 fail-open**。原注册表把 C-09 记为"Harness 路径不查网络白名单"，但逐条读代码后**该说法会误导**：① legacy 适配器**根本不发工具事件**（只发 `adapter/started`/`assistant/message`/`turn/end`），所以工具事件缝只看到 deepseek 的事件；② deepseek 对 `research.search` **在启动前就 fail-closed**（`CAPABILITY_POLICY_UNENFORCEABLE`）；③ 唯一能联网的是 `agentService` 的两个 arXiv 工具，它们**先 `assertCapability` 再 `assertNetworkHost`** 才 `fetch`。**但顺着这条线查出一个真问题**：`assertNetworkHost` 在 `networkAllowlist` **为空时放行任意主机**（`if (allowlist.length && ...)`），而 `capabilityPrompt` 明确告诉模型 "Allowed network hosts: **none**" —— **代码 fail-open、文档说 fail-closed**。已改为 `if (!allowlist.includes(host))` 拒绝，并加注释写明这段历史；注册表 C-09 的 `enforcement` 改指 `assertNetworkHost`、`testRef` 指向新测试、**drift 归零**；`docs/project-constraints.md` 的 C-09 行写明"网络双重 fail-closed" | `npm run quality` exit 0（91 项，90 → 91）；新增 1 项测试覆盖 5 种情形：白名单内主机放行、白名单外拒绝、**空白名单拒绝任意主机**、缺 `research.search` 能力拒绝、非法 URL 拒绝；改动前确认**无任何测试依赖旧的 fail-open 行为**（`grep networkAllowlist apps/backend/test` 只有一处非空白名单用法）；注册表投影：**漂移 4 → 3**（剩 C-04/C-10/C-11） |
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。

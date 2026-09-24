@@ -104,10 +104,10 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     statement: 'File scope, sensitive-file filtering, network access, and tool capabilities are denied unless granted and enforceable.',
     tier: 'core',
     scope: ['harness', 'capability'],
-    enforcement: { module: 'services/harnessRuntime/capabilities.js', symbol: 'assertCapability' },
-    testRef: { file: 'phase10.test.js', name: 'Fake Harness capability, path safety, and context packaging stay fail closed' },
+    enforcement: { module: 'services/harnessRuntime/capabilities.js', symbol: 'assertNetworkHost' },
+    testRef: { file: 'phase10.test.js', name: 'the network allowlist fails closed, matching what the model is told' },
     provenance: { source: 'adr', ref: 'ADR-0006' },
-    drift: 'assertNetworkHost exists and is called from agentService.js, but the Harness path never calls it, so the network allowlist is not enforced there.'
+    drift: null
   },
   {
     id: 'C-10',
