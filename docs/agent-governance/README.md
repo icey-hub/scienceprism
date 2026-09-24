@@ -28,9 +28,7 @@
 | D-4 | Round 2 从 r1 尖端切出 | ✅ 采纳 |
 | D-5 | 接受 `core` 级约束不可关（tier 模型） | ✅ 采纳 |
 | D-6 | Round 1 收口 4 处高危绕过 | ✅ 采纳（默认转 fail-closed） |
-| U-1 | 执行本 goal 要开 3 个子 agent | 已记录，见「子 agent 分工」 |
-| U-2 | 每轮写 `AGENTS.md` + 迭代 README，防目标偏移 | ✅ 已执行 |
-| U-3 | 绘图目标是**复杂矢量插画级**（细胞结构图），不是线段加方框 | 已记录，I-13 基准据此重做 |
+| U-01…U-13 | 用户追加要求（子 agent 上限、写边界、必读文档、doc 文件夹、**未获指示不得执行**、**派发前查存活数**） | 见 `requirements.md` 第二节（单一事实源，不在此重复） |
 
 ## 子 agent 分工（上限 3，写范围互不重叠）
 
@@ -89,9 +87,19 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-- 分支：`feat/agent-governance-r1`（基线 `33a2b5b`）
-- 下一步最小动作：完成 I-02 —— 让 `experimentRunner` 的 4 个测试在**无可用 OS 沙箱**的机器上仍然可验证，且不削弱生产路径的 fail-closed 行为。
-- 阻塞：无。
+**阶段：尚未进入执行计划 / 未修改任何产品代码。**
+
+- 已完成：I-01（基线提交 + tag + 分支 + 治理脚手架 + 需求/计划/任务书）。
+- 产品代码改动：**零**（`apps/`、`packages/` 相对 `round-00-baseline` 无变化，可复现验证：`git diff --name-only round-00-baseline..HEAD -- apps/ packages/`）。
+- I-02 的修法已完成调研与实证（Node 权限模型可作为第二隔离策略；`sandbox-exec` 在本机 exit 71），但**代码尚未落地**。
+- 子 agent：角色线存活中并已创建 `apps/backend/src/services/agentRoles/`；审计线存活中（仅产出文档）。按 U-13，存活数已达 2，**不再派发新子 agent**。
+- 待用户明确指示后，才可开始改代码（U-12）。
+
+## 下一步（需用户明确指示才执行）
+
+1. 由用户确认「开始执行」。
+2. 确认存活子 agent 数 ≤1 后再派发（U-13）。
+3. I-02：落地第二隔离策略并让 40 项测试全绿。
 
 ## 恢复协议
 
