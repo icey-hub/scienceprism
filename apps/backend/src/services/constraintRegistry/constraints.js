@@ -178,6 +178,16 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     testRef: { file: 'phase10.test.js', name: 'feature flags can be opened or disabled by environment and project constraints' },
     provenance: { source: 'ai-subjective', ref: 'Feature flags appear in no ADR and are not mentioned in CONTEXT.md.' },
     drift: null
+  },
+  {
+    id: 'C-17',
+    statement: 'Documents the research tool produces land under the repository aidoc/ directory, never inside the agent-governance docs.',
+    tier: 'core',
+    scope: ['workflow', 'document'],
+    enforcement: { module: 'services/researchWorkflow/documentLanding.js', symbol: 'assertDocumentLandingPath' },
+    testRef: { file: 'documentLanding.test.js', name: 'a produced document must land under aidoc/' },
+    provenance: { source: 'context', ref: 'The user requirement R-15 and U-21: deliverables must be documents the tool actually produced, written to aidoc/, not agent-authored governance notes.' },
+    drift: null
   }
 ]);
 

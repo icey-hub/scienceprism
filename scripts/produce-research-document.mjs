@@ -9,8 +9,10 @@
  * Usage:
  *   node scripts/produce-research-document.mjs [projectId] ["research question"] ["scope"]
  *
- * Output lands in $SCIENCEPRISM_DATA_DIR/<projectId>/ (aidoc/ by default),
- * including research/writing-brief.md.
+ * Output lands in the repository's aidoc/ directory (R-15), including
+ * research/writing-brief.md. The landing directory is pinned below rather than
+ * inherited from .env, which is gitignored, so a fresh clone still writes tool
+ * output where the requirement says. Override with SCIENCEPRISM_AIDOC_DIR.
  *
  * Calls are strictly serial: the configured gateway is shared with the DSH
  * session (U-20), so this script never issues concurrent model requests.
@@ -39,6 +41,13 @@ async function loadDotEnv() {
   }
 }
 await loadDotEnv();
+
+// R-15: pin the document landing directory instead of inheriting it from the
+// gitignored .env. config/constants.js reads the environment at import time, so
+// this must happen before the imports below.
+const { assertDocumentLandingPath, resolveDocumentLandingDir } = await import('../apps/backend/src/services/researchWorkflow/documentLanding.js');
+const LANDING_DIR = resolveDocumentLandingDir(REPO_ROOT, { override: process.env.SCIENCEPRISM_AIDOC_DIR });
+process.env.SCIENCEPRISM_DATA_DIR = LANDING_DIR;
 
 const projectId = process.argv[2] || 'aidoc-research-document';
 const researchQuestion = process.argv[3] || 'How can retrieval-augmented generation keep every generated claim traceable to a verifiable source?';
@@ -184,12 +193,15 @@ async function main() {
 
   const briefPath = writing.briefPath || 'research/writing-brief.md';
   const absoluteBrief = path.join(projectRoot, briefPath);
+  // R-15: fail loudly rather than silently leaving the document somewhere the
+  // requirement does not allow.
+  const landingRelativePath = assertDocumentLandingPath(absoluteBrief, LANDING_DIR);
   const brief = await fs.readFile(absoluteBrief, 'utf8');
   log('done', `writing brief written: ${absoluteBrief} (${brief.length} chars)`);
 
   console.log('\n=== produced by the tool ===');
-  console.log(`project root : ${projectRoot}`);
-  console.log(`document     : ${absoluteBrief}`);
+  console.log(`landing dir  : ${LANDING_DIR}`);
+  console.log(`document     : ${landingRelativePath}`);
   console.log(`claims       : ${(writing.claims || []).length}`);
   console.log(`outline      : ${(writing.outline || []).join(' / ')}`);
   console.log(`limitations  : ${(writing.limitations || []).join(' | ')}`);
