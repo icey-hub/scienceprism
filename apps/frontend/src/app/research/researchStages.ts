@@ -1,15 +1,7 @@
-export type ResearchStageId =
-  | 'direction'
-  | 'search'
-  | 'selection'
-  | 'replication'
-  | 'innovation'
-  | 'method'
-  | 'experiment'
-  | 'writing';
-
-/** The workflow service calls the innovation stage "ideation". */
-export type HarnessResearchStageId = Exclude<ResearchStageId, 'innovation'> | 'ideation';
+// The vocabulary itself lives in a shared module so the API layer can use it
+// without depending on the app layer, and so there is only one definition.
+export type { HarnessResearchStageId, ResearchStageId } from '../../researchStageIds';
+import type { HarnessResearchStageId, ResearchStageId } from '../../researchStageIds';
 
 export type ResearchStageStatus = 'locked' | 'ready' | 'active' | 'complete' | 'error';
 

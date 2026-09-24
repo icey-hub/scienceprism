@@ -144,7 +144,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | # | 拍型 | 内容 | 状态 |
 | --- | --- | --- | --- |
 | 041 | 加 | **角色可见性**：新增 `GET /api/agent/roles`，前端在阶段侧栏展示运行角色/权限/能力/Skill | ✅ |
-| 042 | 减 | 消除前端 `ResearchStageId` 双词汇（`innovation` vs `ideation`） | ⬜ |
+| 042 | 减 | 消除前端 `ResearchStageId` 双词汇（**两处独立字面量列表 → 单一共享定义**） | ✅ |
 | 043 | 验证 | 验证 041–042 | ⬜ |
 | 044 | 加 | 失败重试回灌（校验错误回喂模型） | ⬜ |
 | 045 | 减 | 待取证 | ⬜ |
@@ -159,6 +159,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | # | 拍型 | 变更摘要 | 验证证据 |
 | --- | --- | --- | --- |
 | 041 | 加 | **角色可见性（用户选定的方向）**。取证：角色注册表自迭代 018 起**只存在于服务层**，前端完全看不到"谁将代表我行动"。处置：① 新增 `GET /api/agent/roles?stage=`，返回 `catalog` 与**投影后的角色列表**（id / purpose / authority / capabilities / skills / forbiddenActions / stageScope）；② `client.ts` 新增 `getAgentRoles` 与 `AgentRoleSummary` 类型；③ `ResearchWorkspacePage` 按当前阶段拉取；④ `ResearchStageLayout` 侧栏新增「RUNNING ROLE」面板，**列出该阶段全部适用角色**（不硬编码角色 id）并注明"角色只能收窄权限、审批仍由人工完成"；⑤ `research.css` 配套样式。**过程中发现两处**：① **前端存在两套 `ResearchStageId` 词汇**——UI 用 `innovation`、`client.ts` 用 `ideation`，二者**并不相同**（tsc 直接报错暴露），已在调用处用既有的 `toHarnessResearchStage` 转换，并在 `client.ts` 注释里记下这处重复待清理（→ 042 拍）；② **我又把命令输出写到了 `/tmp/q.txt`**（违反写入边界），已删除并复查 `/tmp` 无残留 | `npm run quality` exit 0（**100 项**，99 → 100，含前端 tsc 与 build）；新增 1 项路由测试：全量返回 8 个角色、`?stage=writing` 收窄到 2 个且都含 `writing`、投影携带 authority/capabilities/skills/forbiddenActions、**未知阶段返回空数组而非全量**；**端到端实跑**路由：`writing` 返回 `paper-reviewer`(1 skill) 与 `research-stage-assistant`(8 skill)，能力均为 `project.read` |
+| 042 | 减 | **消除前端 `ResearchStageId` 双词汇**（041 拍发现的问题）。取证：**两个文件各自定义了一份同名的字面量列表**——`app/research/researchStages.ts` 用 `innovation`，`api/client.ts` 用 `ideation`，**两份内容不同**。这不是命名差异而是**两套并行词汇**：把 UI 的阶段值传给 API 函数**无法通过类型检查**，而报错信息完全看不出"存在两套词汇"。处置：① 新建中立共享模块 `apps/frontend/src/researchStageIds.ts` 持有两个类型（`ResearchStageId` / `HarnessResearchStageId`），**名字本身表明属于哪套词汇**；② `researchStages.ts` 改为**转导出**（现有 13 个导入方无需改动）；③ `client.ts` **删掉本地定义**，内部 **16 处**改用 `HarnessResearchStageId`；④ `workflowAdapter.ts` 的 re-export 改指共享模块。**为何放中立模块**：先确认 `api/` 层**没有任何** import `app/` 层的先例，直接让 client 依赖 app 会**反转分层**，所以词汇下沉到共享模块 | `npm run quality` exit 0（**103 项**，100 → 103，含前端 tsc 与 build）；**词汇定义处从 2 个文件收敛到 1 个**；新增 `frontendVocabulary.test.js` **3 项不变量**：① 两个类型在全前端**各只能有一处定义**、且必须在共享模块；② 两套词汇**只在创新阶段不同**（`innovation` ↔ `ideation`）且 `toHarnessResearchStage`/`fromHarnessResearchStage` **往返可逆**；③ **`api/` 层不得 import `app/` 层**（锁住分层）。**门禁实证**：往 `client.ts` 追加一行重复的 `export type ResearchStageId` → 门禁**变红**并报 `must be declared once`；还原后**恢复绿**，且工作区无临时文件残留 |
 
 ## 环境变化记录
 

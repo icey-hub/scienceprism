@@ -1,3 +1,4 @@
+import type { HarnessResearchStageId } from '../researchStageIds';
 export interface ProjectMeta {
   id: string;
   name: string;
@@ -341,13 +342,13 @@ export interface AgentRoleSummary {
   capabilities: string[];
   skills: string[];
   forbiddenActions: string[];
-  stageScope: ResearchStageId[];
+  stageScope: HarnessResearchStageId[];
 }
 
-export function getAgentRoles(stage?: ResearchStageId) {
+export function getAgentRoles(stage?: HarnessResearchStageId) {
   return request<{
     ok: boolean;
-    stage: ResearchStageId | null;
+    stage: HarnessResearchStageId | null;
     catalog: { total: number; entrypointCount: number };
     roles: AgentRoleSummary[];
   }>(`/api/agent/roles${stage ? `?stage=${encodeURIComponent(stage)}` : ''}`);
@@ -356,7 +357,7 @@ export function getAgentRoles(stage?: ResearchStageId) {
 export interface HarnessRun {
   id: string;
   projectId: string;
-  stage: ResearchStageId | string | null;
+  stage: HarnessResearchStageId | string | null;
   task: string;
   adapter: 'deepseek' | 'legacy' | 'fake' | string;
   status: 'created' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | string;
@@ -777,26 +778,10 @@ export async function visionToLatex(payload: {
   return res.json() as Promise<{ ok: boolean; latex?: string; assetPath?: string; error?: string }>;
 }
 
-/**
- * The workflow ("harness") stage vocabulary, which calls the innovation stage
- * `ideation`. The UI stage vocabulary in app/research/researchStages.ts calls it
- * `innovation` and bridges with toHarnessResearchStage; the two lists are
- * otherwise identical, which is a duplication worth removing.
- */
-export type ResearchStageId =
-  | 'direction'
-  | 'search'
-  | 'selection'
-  | 'replication'
-  | 'ideation'
-  | 'method'
-  | 'experiment'
-  | 'writing';
-
 export type ResearchStageStatus = 'pending' | 'in_progress' | 'awaiting_approval' | 'approved' | 'rejected' | 'skipped';
 
 export interface ResearchStageState {
-  id: ResearchStageId;
+  id: HarnessResearchStageId;
   status: ResearchStageStatus;
   data: Record<string, unknown>;
   updatedAt: string;
@@ -812,25 +797,25 @@ export interface ResearchWorkflowState {
   version: number;
   projectId: string;
   title: string;
-  currentStage: ResearchStageId;
+  currentStage: HarnessResearchStageId;
   stages: ResearchStageState[];
   policy: Record<string, unknown>;
   audit: Array<{
     id: string;
     type: string;
-    stage: ResearchStageId;
+    stage: HarnessResearchStageId;
     at: string;
     actor: ResearchActor;
     details?: Record<string, unknown>;
   }>;
   updatedAt: string;
-  skillBindings?: Partial<Record<ResearchStageId, string[]>>;
+  skillBindings?: Partial<Record<HarnessResearchStageId, string[]>>;
 }
 
 export interface ResearchSkillSummary {
   name: string;
   description: string;
-  stages: ResearchStageId[];
+  stages: HarnessResearchStageId[];
   source: 'built-in' | 'project';
   enabled?: boolean;
 }
@@ -890,7 +875,7 @@ export function createResearchWorkflow(projectId: string, payload: { title?: str
 }
 
 export function updateResearchWorkflow(projectId: string, payload: {
-  stage?: ResearchStageId;
+  stage?: HarnessResearchStageId;
   status?: ResearchStageStatus;
   data?: Record<string, unknown>;
   policy?: Record<string, unknown>;
@@ -904,14 +889,14 @@ export function updateResearchWorkflow(projectId: string, payload: {
 
 // C-04: approval and reset must name their actor. It is required here, not
 // defaulted, so a caller cannot inherit a "human" label it never claimed.
-export function approveResearchWorkflow(projectId: string, payload: { actor: ResearchActor; stage: ResearchStageId; note?: string }) {
+export function approveResearchWorkflow(projectId: string, payload: { actor: ResearchActor; stage: HarnessResearchStageId; note?: string }) {
   return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow/approve`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
 
-export function resetResearchWorkflow(projectId: string, actor: ResearchActor, stage?: ResearchStageId) {
+export function resetResearchWorkflow(projectId: string, actor: ResearchActor, stage?: HarnessResearchStageId) {
   return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow/reset`, {
     method: 'POST',
     body: JSON.stringify(stage ? { actor, stage } : { actor })
@@ -922,20 +907,20 @@ export function getResearchWorkflowSkills(projectId: string) {
   return request<{
     ok: boolean;
     skills: ResearchSkillSummary[];
-    bindings: Partial<Record<ResearchStageId, string[]>>;
+    bindings: Partial<Record<HarnessResearchStageId, string[]>>;
   }>(`/api/projects/${projectId}/research-workflow/skills`);
 }
 
 export function updateResearchWorkflowSkillBindings(
   projectId: string,
-  bindings: Partial<Record<ResearchStageId, string[]>>,
+  bindings: Partial<Record<HarnessResearchStageId, string[]>>,
   note?: string,
   concurrency?: { expectedVersion?: number; idempotencyKey?: string }
 ) {
   return request<{
     ok: boolean;
     workflow: ResearchWorkflowState;
-    bindings: Partial<Record<ResearchStageId, string[]>>;
+    bindings: Partial<Record<HarnessResearchStageId, string[]>>;
   }>(`/api/projects/${projectId}/research-workflow/skills/bindings`, {
     method: 'PUT',
     body: JSON.stringify({ bindings, ...(note ? { note } : {}), ...(concurrency || {}) })
