@@ -115,6 +115,42 @@ test('research Harness rejects a writing output that cites no confirmed Evidence
   assert.equal(result.validation.errors[0].code, 'UNSUPPORTED_CLAIM');
 });
 
+test('an unsupported claim is accepted once declared, and only then', async () => {
+  const projectId = 'evidence-declared-uncertainty';
+  await createProject(projectId);
+  await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'Question' } });
+
+  const brief = (unsupportedClaims) => JSON.stringify({
+    stage: 'writing_brief',
+    title: 'Draft',
+    claims: [{ id: 'claim-1', text: 'Unsupported result', evidenceIds: ['missing'], confidence: 0.4 }],
+    outline: ['Introduction'],
+    citationPaperIds: [],
+    limitations: [],
+    unsupportedClaims
+  });
+  const run = (unsupportedClaims) => runResearchHarnessStage({
+    projectId,
+    stage: 'writing',
+    runHarness: async () => ({ ok: true, reply: brief(unsupportedClaims), runId: null })
+  });
+
+  // C-11: naming the claim is what makes the uncertainty explicit, which is
+  // exactly what the stage contract asks the model to do.
+  const declared = await run(['claim-1 rests on a preprint with no confirmed Evidence.']);
+  assert.equal(declared.ok, true, JSON.stringify(declared.validation?.errors || []));
+
+  // Omitting it is the silent uncertainty C-11 forbids.
+  const undeclared = await run([]);
+  assert.equal(undeclared.ok, false);
+  assert.equal(undeclared.validation.errors[0].code, 'UNSUPPORTED_CLAIM');
+
+  // Naming a different claim must not count as declaring this one.
+  const wrongClaim = await run(['claim-10 is unsupported.']);
+  assert.equal(wrongClaim.ok, false);
+  assert.equal(wrongClaim.validation.errors[0].code, 'UNSUPPORTED_CLAIM');
+});
+
 test('Evidence Ledger routes expose entries, matrix, graph, and version conflicts', async () => {
   const projectId = 'evidence-routes';
   await createProject(projectId);

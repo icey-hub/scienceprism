@@ -348,7 +348,8 @@ const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
   writing_brief: Object.freeze([
     'claims[].evidenceIds must contain only Evidence ids that already exist in this project; never invent an Evidence id.',
     'claims[].id is a new identifier you choose; it must match the id character pattern and contain no spaces.',
-    'citationPaperIds must contain only paper ids taken from the stage input.'
+    'citationPaperIds must contain only paper ids taken from the stage input.',
+    'unsupportedClaims must name every claim you could not fully support, including that claim id; an unsupported claim that is not declared here fails validation.'
   ])
 });
 

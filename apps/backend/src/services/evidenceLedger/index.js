@@ -226,9 +226,21 @@ export async function getClaimEvidenceMatrix(projectId, { claims } = {}) {
   return checkClaimEvidence(ledger, claimRows(ledger, workflow, claims));
 }
 
+/**
+ * Whether an uncertainty declaration names a particular claim id. The ids use
+ * `[A-Za-z0-9._:-]`, so those characters act as the boundary: "claim-1" inside
+ * "claim-10" does not count as naming claim-1.
+ */
+function mentionsId(text, id) {
+  if (!id) return false;
+  const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Za-z0-9._:-])${escaped}($|[^A-Za-z0-9._:-])`).test(String(text));
+}
+
 export async function validateStageEvidence(projectId, stage, output) {
   const normalizedStage = String(stage || '').trim();
-  const claims = normalizedStage === 'writing' || normalizedStage === 'writing_brief'
+  const isWriting = normalizedStage === 'writing' || normalizedStage === 'writing_brief';
+  const claims = isWriting
     ? Array.isArray(output?.claims) ? output.claims : []
     : [];
   const references = collectEvidenceReferences(output);
@@ -238,15 +250,26 @@ export async function validateStageEvidence(projectId, stage, output) {
     text: `Evidence reference at ${reference.path}`,
     evidenceIds: [reference.id]
   }));
-  if (!claims.length && !referenceClaims.length) return { ok: true, errors: [], warnings: normalizedStage === 'writing' || normalizedStage === 'writing_brief' ? [{ code: 'NO_PAPER_CLAIMS', message: 'No Paper Claims were returned; any prose remains a draft until claims are linked to Evidence.' }] : [] };
+  if (!claims.length && !referenceClaims.length) return { ok: true, errors: [], warnings: isWriting ? [{ code: 'NO_PAPER_CLAIMS', message: 'No Paper Claims were returned; any prose remains a draft until claims are linked to Evidence.' }] : [] };
   const ledger = await getEvidenceLedger(projectId);
   const matrix = checkClaimEvidence(ledger, [...claims, ...referenceClaims]);
-  const errors = matrix.rows.filter((row) => row.status !== 'supported').map((row) => ({
-    path: row.id.startsWith('evidence-reference-') ? row.id : `claims.${row.id}.evidenceIds`,
-    code: row.status === 'unsupported' ? 'UNSUPPORTED_CLAIM' : 'EVIDENCE_REQUIRES_VERIFICATION',
-    message: row.status === 'unsupported' ? 'Paper Claim has no complete Evidence chain.' : 'Paper Claim references missing, unverified, or stale Evidence.',
-    details: { missingEvidenceIds: row.missingEvidenceIds, unverifiedEvidenceIds: row.unverifiedEvidenceIds, staleEvidenceIds: row.staleEvidenceIds }
-  }));
+  // C-11: uncertainty has to be declared, not silently omitted. The stage prompt
+  // tells the model to record anything it cannot support in `unsupportedClaims`,
+  // so a claim the matrix cannot support is acceptable when that claim is named
+  // there; an undeclared one is exactly the silent omission this constraint
+  // forbids. `caveats`/`limitations`/`missingMetadata` stay optional hints.
+  const declaredUncertainty = isWriting && Array.isArray(output?.unsupportedClaims)
+    ? output.unsupportedClaims.map((entry) => String(entry))
+    : [];
+  const errors = matrix.rows
+    .filter((row) => row.status !== 'supported')
+    .filter((row) => !(isWriting && !row.id.startsWith('evidence-reference-') && declaredUncertainty.some((entry) => mentionsId(entry, row.id))))
+    .map((row) => ({
+      path: row.id.startsWith('evidence-reference-') ? row.id : `claims.${row.id}.evidenceIds`,
+      code: row.status === 'unsupported' ? 'UNSUPPORTED_CLAIM' : 'EVIDENCE_REQUIRES_VERIFICATION',
+      message: row.status === 'unsupported' ? 'Paper Claim has no complete Evidence chain.' : 'Paper Claim references missing, unverified, or stale Evidence.',
+      details: { missingEvidenceIds: row.missingEvidenceIds, unverifiedEvidenceIds: row.unverifiedEvidenceIds, staleEvidenceIds: row.staleEvidenceIds }
+    }));
   return { ok: errors.length === 0, errors, warnings: [], matrix };
 }
 

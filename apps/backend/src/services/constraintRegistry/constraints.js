@@ -122,12 +122,12 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
   {
     id: 'C-11',
     statement: 'Unknown metadata, unsupported results, and missing evidence must remain explicitly uncertain.',
-    tier: 'standard',
+    tier: 'core',
     scope: ['contract', 'evidence'],
-    enforcement: { module: 'services/researchResearch/schemas.js', symbol: 'validateResearchStageOutput' },
-    testRef: { file: 'evidenceLedger.test.js', name: 'claim matrix detects missing, unverified, and stale evidence' },
-    provenance: { source: 'ai-subjective', ref: 'The caveats/limitations/unsupportedClaims/missingMetadata field set appears in no ADR and is not enforced by any code path.' },
-    drift: 'Most of these fields are optional schema defaults, so nothing requires them.'
+    enforcement: { module: 'services/evidenceLedger/index.js', symbol: 'validateStageEvidence' },
+    testRef: { file: 'evidenceLedger.test.js', name: 'an unsupported claim is accepted once declared, and only then' },
+    provenance: { source: 'adr', ref: 'ADR-0008 and the roadmap invariant that unverified metadata, results, and claims must be marked explicitly uncertain. The caveats/limitations/missingMetadata field set was AI-added and stays an optional hint.' },
+    drift: null
   },
   {
     id: 'C-12',
