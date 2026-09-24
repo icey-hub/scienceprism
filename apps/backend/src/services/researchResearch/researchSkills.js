@@ -20,16 +20,9 @@ export const RESEARCH_SKILL_STAGES = Object.freeze([
 const STAGE_SET = new Set(RESEARCH_SKILL_STAGES);
 const SKILL_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
-/**
- * The workflow stages whose Harness Run actually executes.
- *
- * Only four contract stages are ever invoked (search_strategy,
- * innovation_ideas, method_proposals, writing_brief), which normalise to these
- * workflow stages. A skill bound to any other stage can never load, so no such
- * binding is declared here, and a test asserts this list still matches the
- * invocations in researchWorkflow/application.js.
- */
-export const HARNESS_EXECUTED_STAGES = Object.freeze(['search', 'ideation', 'method', 'writing']);
+// Re-exported so existing importers keep one obvious place to read it; the fact
+// itself lives in the workflow module because the role registry needs it too.
+export { HARNESS_EXECUTED_STAGES } from '../researchWorkflow/executedStages.js';
 
 export const DEFAULT_RESEARCH_SKILL_BINDINGS = Object.freeze({
   search: Object.freeze(['literature-search']),

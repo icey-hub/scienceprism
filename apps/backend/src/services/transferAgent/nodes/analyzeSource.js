@@ -3,7 +3,6 @@ import path from 'path';
 import { getProjectRoot } from '../../projectService.js';
 import { safeJoin } from '../../../utils/pathUtils.js';
 import { listFilesRecursive } from '../../../utils/fsUtils.js';
-import { isTextFile } from '../../../utils/texUtils.js';
 
 /**
  * Recursively resolve \input{} and \include{} references,

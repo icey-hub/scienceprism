@@ -7,7 +7,6 @@ import {
   BookOpenText,
   ChevronDown,
   Copy,
-  FileArchive,
   FilePlus2,
   Folder,
   Languages,

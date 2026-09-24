@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import {
   transferStart,
   transferStep,
-  transferSubmitImages,
   mineruTransferStart,
   mineruTransferUploadPdf,
   listTemplates,

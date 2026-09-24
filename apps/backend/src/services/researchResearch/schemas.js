@@ -1,4 +1,8 @@
 import { z } from 'zod';
+// The evidence vocabulary has one owner: the ledger schema. It used to be
+// inlined here as well, so adding a kind or a status in one place silently
+// disagreed with the other.
+import { EVIDENCE_KINDS, VERIFICATION_STATUSES } from '../evidenceLedger/schema.js';
 
 const nonEmpty = z.string().trim().min(1);
 const id = nonEmpty.regex(/^[A-Za-z0-9._:-]+$/, 'id contains unsupported characters');
@@ -7,14 +11,14 @@ const stage = (name) => z.literal(name);
 
 const evidenceSchema = z.object({
   id,
-  kind: z.enum(['research-question', 'paper', 'dataset', 'code', 'environment', 'method', 'experiment-plan', 'experiment-run', 'result', 'experiment', 'log', 'figure', 'table', 'artifact', 'human-note', 'paper-claim']),
+  kind: z.enum(EVIDENCE_KINDS),
   referenceId: nonEmpty,
   summary: nonEmpty,
   location: z.string().trim().min(1).nullable().optional(),
   sourceUrl: z.string().trim().min(1).nullable().optional(),
   sourcePath: z.string().trim().min(1).nullable().optional(),
   acquiredAt: z.string().trim().min(1).nullable().optional(),
-  verificationStatus: z.enum(['unverified', 'pending', 'partially-verified', 'verified', 'human-confirmed', 'approved', 'rejected', 'superseded']).optional(),
+  verificationStatus: z.enum(VERIFICATION_STATUSES).optional(),
   version: z.string().trim().min(1).nullable().optional(),
   sha256: z.string().trim().min(1).nullable().optional()
 }).strict();

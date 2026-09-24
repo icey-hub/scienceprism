@@ -1,3 +1,5 @@
+import { HARNESS_EXECUTED_STAGES } from '../researchWorkflow/executedStages.js';
+
 /**
  * The agent role registry.
  *
@@ -73,8 +75,9 @@ export const AGENT_ROLES = Object.freeze([
     // Only the stages that actually run a Harness Run. The other four are
     // human-owned or deterministic (direction is human, selection is decided by
     // the quality gate, replication is manual, experiment records a plan), so
-    // this role never executes there.
-    stageScope: ['search', 'ideation', 'method', 'writing'],
+    // this role never executes there. Shared with the skill bindings so the two
+    // cannot drift apart.
+    stageScope: [...HARNESS_EXECUTED_STAGES],
     authority: 'suggest-only',
     allowedCapabilities: ['project.read'],
     allowedSkills: ['literature-search', 'paper-card', 'dataset-audit', 'statistics-audit', 'experiment-design-audit', 'research-writing', 'claim-evidence-audit', 'figure-table-plan'],
