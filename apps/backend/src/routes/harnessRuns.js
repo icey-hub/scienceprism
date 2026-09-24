@@ -1,4 +1,5 @@
 import {
+  applyHarnessRunPatches,
   cancelHarnessRun,
   createHarnessRun,
   decideHarnessRun,
@@ -77,4 +78,19 @@ export function registerHarnessRunRoutes(fastify) {
       note: body.note
     });
   }));
+
+  // The explicit Patch application step C-07 refers to. It requires an accepted
+  // Run, so it is never an automatic write of model output into the project.
+  fastify.post(`${BASE_PATH}/:runId/apply`, async (req, reply) => {
+    try {
+      const body = bodyOf(req);
+      const result = await applyHarnessRunPatches(req.params.id, req.params.runId, {
+        actor: body.actor || req.headers?.['x-scienceprism-actor'] || 'human',
+        paths: body.paths
+      });
+      return reply.send({ ok: true, run: result.run, applied: result.applied });
+    } catch (error) {
+      return sendError(req, reply, error);
+    }
+  });
 }

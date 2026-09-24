@@ -84,10 +84,10 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     statement: 'Harness work runs in a temporary, physically filtered project copy; original files change only through an explicit Patch application.',
     tier: 'core',
     scope: ['harness', 'isolation'],
-    enforcement: { module: 'services/harnessRuntime/index.js', symbol: 'startHarnessRun' },
-    testRef: { file: 'harnessRuntime.test.js', name: 'Harness workspace physically contains only allowed project paths' },
+    enforcement: { module: 'services/harnessRuntime/index.js', symbol: 'applyHarnessRunPatches' },
+    testRef: { file: 'harnessRuntime.test.js', name: 'an accepted Run applies its Patches to the project exactly once' },
     provenance: { source: 'adr', ref: 'ADR-0001' },
-    drift: 'No Patch application route exists anywhere in the repository, so the second half holds only because it is unimplemented.'
+    drift: null
   },
   {
     id: 'C-08',

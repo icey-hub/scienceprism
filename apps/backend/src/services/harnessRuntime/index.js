@@ -8,6 +8,7 @@ import { PROJECT_CONSTRAINT_LIMITS } from '../../config/projectConstraintDefault
 import { safeJoin } from '../../utils/pathUtils.js';
 import {
   applyProjectConstraintPolicy,
+  assertProjectPath,
   capabilityForToolName,
   DEFAULT_PROJECT_CAPABILITIES,
   isPathAllowed,
@@ -617,6 +618,72 @@ export async function decideHarnessRun(projectId, runId, { decision, actor = 'hu
     run.humanDecision = { status: decision === 'accept' ? 'accepted' : 'rejected', actor: String(actor), note: String(note || ''), at: now() };
     run.updatedAt = now();
     return run;
+  });
+}
+
+/**
+ * Applies an accepted Run's Patches to the Project.
+ *
+ * C-07 states that the original project changes only through an explicit Patch
+ * application, but no such path existed, so the constraint held only because it
+ * was unimplemented. This is that path, and it is deliberately narrow:
+ * a human must have accepted the Run first, every path is re-checked against the
+ * current Project Constraint policy on the way in, a Patch is never applied
+ * twice, and the Run records exactly what was written.
+ */
+export async function applyHarnessRunPatches(projectId, runId, { actor = 'human', paths } = {}) {
+  const { root } = await getRunDocument(projectId);
+  const constraints = await readProjectConstraints(root);
+  const policy = applyProjectConstraintPolicy(
+    resolveCapabilityPolicy({ configured: constraints.capabilities || DEFAULT_PROJECT_CAPABILITIES }),
+    constraints
+  );
+  const requested = Array.isArray(paths) ? new Set(paths.map(String)) : null;
+
+  return withHarnessRunLock(projectId, async () => {
+    const document = await readHarnessRuns(root, projectId);
+    const index = document.runs.findIndex((run) => run.id === runId);
+    if (index < 0) throw new HarnessRuntimeError(404, 'HARNESS_RUN_NOT_FOUND', 'Harness Run not found.', { runId });
+    const run = clone(document.runs[index]);
+
+    if (run.humanDecision?.status !== 'accepted') {
+      throw new HarnessRuntimeError(
+        409,
+        'PATCH_APPLICATION_REQUIRES_ACCEPTANCE',
+        'A human must accept the Harness Run before its Patches can be applied.',
+        { runId, humanDecision: run.humanDecision?.status || 'none' }
+      );
+    }
+
+    const alreadyApplied = new Set(run.appliedPatches || []);
+    const applied = [];
+    for (const patch of run.patches || []) {
+      if (requested && !requested.has(patch.path)) continue;
+      if (alreadyApplied.has(patch.path)) continue;
+      // Re-checked here rather than trusted from Run creation: the policy may
+      // have narrowed since, and this is the write that matters.
+      const relativePath = assertProjectPath(patch.path, policy, { operation: 'patch' });
+      const absolute = safeJoin(root, relativePath);
+      if (patch.deleted) {
+        await fs.rm(absolute, { force: true });
+      } else {
+        await fs.mkdir(path.dirname(absolute), { recursive: true });
+        await fs.writeFile(absolute, String(patch.content ?? ''), 'utf8');
+      }
+      applied.push(relativePath);
+    }
+
+    if (!applied.length) {
+      throw new HarnessRuntimeError(409, 'NO_PATCHES_TO_APPLY', 'The Run has no unapplied Patch matching the request.', { runId });
+    }
+
+    run.appliedPatches = [...alreadyApplied, ...applied];
+    run.patchApplication = { appliedAt: now(), actor: String(actor), paths: applied };
+    run.events = [...(run.events || []), { type: 'patches.applied', at: now(), details: { paths: applied, actor: String(actor) } }];
+    run.updatedAt = now();
+    document.runs[index] = run;
+    await writeHarnessRuns(root, document);
+    return { run: clone(run), applied };
   });
 }
 

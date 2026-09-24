@@ -8,9 +8,11 @@ const dataDir = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
 process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 
 const {
+  applyHarnessRunPatches,
   cancelHarnessRun,
   copyWorkspace,
   createHarnessRun,
+  decideHarnessRun,
   getHarnessRun,
   listHarnessRuns,
   pauseHarnessRun,
@@ -304,4 +306,94 @@ test('a Run without a role keeps the Project grant unchanged', async () => {
   assert.equal(run.role, null);
   assert.equal(run.roleAuthority, null);
   assert.deepEqual(run.capabilities.granted, ['project.read', 'patch.propose']);
+});
+
+async function acceptedRunWithPatch(projectId, { path: relativePath = 'main.tex', content = 'new\n', original = 'old\n' } = {}) {
+  const result = await runHarnessRequest({
+    projectId,
+    adapter: 'fake',
+    stage: 'writing',
+    task: 'apply',
+    capabilities: ['project.read', 'patch.propose'],
+    fakePatches: [{ path: relativePath, original, content, diff: 'diff' }]
+  });
+  await decideHarnessRun(projectId, result.runId, { decision: 'accept', actor: 'researcher' });
+  return result.runId;
+}
+
+test('a Run no human has accepted cannot have its Patches applied', async () => {
+  const projectId = 'harness-apply-pending';
+  const root = await createProject(projectId);
+  const result = await runHarnessRequest({
+    projectId,
+    adapter: 'fake',
+    task: 'apply',
+    capabilities: ['project.read', 'patch.propose'],
+    fakePatches: [{ path: 'main.tex', original: 'old\n', content: 'new\n', diff: 'diff' }]
+  });
+
+  await assert.rejects(
+    () => applyHarnessRunPatches(projectId, result.runId, {}),
+    (error) => error.code === 'PATCH_APPLICATION_REQUIRES_ACCEPTANCE'
+  );
+  assert.equal(await readFile(path.join(root, 'main.tex'), 'utf8'), 'old\n', 'the project must stay untouched');
+});
+
+test('an accepted Run applies its Patches to the project exactly once', async () => {
+  const projectId = 'harness-apply-accepted';
+  const root = await createProject(projectId);
+  const runId = await acceptedRunWithPatch(projectId);
+
+  const applied = await applyHarnessRunPatches(projectId, runId, { actor: 'researcher' });
+
+  assert.deepEqual(applied.applied, ['main.tex']);
+  assert.equal(await readFile(path.join(root, 'main.tex'), 'utf8'), 'new\n');
+  assert.deepEqual(applied.run.appliedPatches, ['main.tex']);
+  assert.ok(applied.run.events.some((event) => event.type === 'patches.applied'));
+
+  // Applying twice must refuse rather than write the same Patch again.
+  await assert.rejects(
+    () => applyHarnessRunPatches(projectId, runId, {}),
+    (error) => error.code === 'NO_PATCHES_TO_APPLY'
+  );
+});
+
+test('the apply step re-checks the current policy, not the policy at Run creation', async () => {
+  const projectId = 'harness-apply-recheck';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, 'sections'), { recursive: true });
+  await writeFile(path.join(root, 'sections', 'method.tex'), 'old\n');
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  const constraintsPath = path.join(root, '.scienceprism', 'project-constraints.json');
+  await writeFile(constraintsPath, JSON.stringify({ capabilities: ['project.read', 'patch.propose'], allowedPaths: ['sections'] }));
+
+  const runId = await acceptedRunWithPatch(projectId, { path: 'sections/method.tex' });
+
+  // The project narrows its allowed paths after the Run was created.
+  await writeFile(constraintsPath, JSON.stringify({ capabilities: ['project.read', 'patch.propose'], allowedPaths: ['other'] }));
+
+  await assert.rejects(
+    () => applyHarnessRunPatches(projectId, runId, {}),
+    (error) => error.code === 'PATH_DENIED'
+  );
+  assert.equal(await readFile(path.join(root, 'sections', 'method.tex'), 'utf8'), 'old\n');
+});
+
+test('a Run whose Patches a human rejected cannot be applied', async () => {
+  const projectId = 'harness-apply-rejected';
+  const root = await createProject(projectId);
+  const result = await runHarnessRequest({
+    projectId,
+    adapter: 'fake',
+    task: 'apply',
+    capabilities: ['project.read', 'patch.propose'],
+    fakePatches: [{ path: 'main.tex', original: 'old\n', content: 'new\n', diff: 'diff' }]
+  });
+  await decideHarnessRun(projectId, result.runId, { decision: 'reject', actor: 'researcher' });
+
+  await assert.rejects(
+    () => applyHarnessRunPatches(projectId, result.runId, {}),
+    (error) => error.code === 'PATCH_APPLICATION_REQUIRES_ACCEPTANCE'
+  );
+  assert.equal(await readFile(path.join(root, 'main.tex'), 'utf8'), 'old\n');
 });
