@@ -22,7 +22,7 @@ function safeJson(value) {
 }
 
 /** Build the deterministic instruction envelope for one research stage. */
-export function buildResearchHarnessPrompt({ stage, input, humanInstructions, context, skills = [] } = {}) {
+export function buildResearchHarnessPrompt({ stage, input, humanInstructions, context, skills = [], repair } = {}) {
   const normalizedStage = normalizeResearchStage(stage);
   if (!RESEARCH_STAGES.includes(normalizedStage)) {
     throw new Error(`Unknown research stage: ${stage}`);
@@ -51,8 +51,30 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
     context ? `Known workflow context:\n${safeJson(context)}` : '',
     input ? `Stage input:\n${safeJson(input)}` : '',
     humanInstructions ? `Human instructions:\n${asText(humanInstructions)}` : '',
+    // C-05: a reply that failed the contract gets one repair attempt, with the
+    // validation errors quoted back. Without this the model never learns why the
+    // output was rejected.
+    repair ? `Your previous reply was rejected:\n${asText(repair)}` : '',
     'If evidence is missing, represent the uncertainty explicitly and add it to risks, caveats, limitations, or missingMetadata as appropriate.'
   ].filter(Boolean).join('\n\n');
+}
+
+/**
+ * A validation failure is worth one repair attempt; a transport failure is not
+ * retried here, because that is the Run limit's job.
+ */
+export const MAX_VALIDATION_ATTEMPTS = 2;
+
+/** Quotes the validation errors back so the model can correct exactly them. */
+export function validationRepairInstructions(validation) {
+  const errors = (Array.isArray(validation?.errors) ? validation.errors : []).slice(0, 10);
+  return [
+    'Fix exactly these problems and reply with the corrected JSON object only.',
+    ...(errors.length
+      ? errors.map((error) => `- ${error?.path ? `${error.path}: ` : ''}${error?.message || 'invalid value'}`)
+      : ['- The reply was not a valid JSON object for this stage.']),
+    'Do not add commentary. Do not invent Evidence ids that do not exist in this project.'
+  ].join('\n');
 }
 
 /**
@@ -98,13 +120,12 @@ export async function runResearchHarnessStage({
   }
 
   const activeSkills = projectId ? await getResearchStageSkills(projectId, normalizedStage) : [];
-  const harnessResult = await runHarness({
+  const baseRequest = {
     projectId,
     stage: normalizedStage,
     activePath,
     task: `research:${normalizedStage}`,
     role: 'research-stage-assistant',
-    prompt: buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills }),
     humanInstructions,
     input,
     context,
@@ -118,21 +139,45 @@ export async function runResearchHarnessStage({
     researchSkills: activeSkills.map((skill) => skill.name),
     researchSkillMetadata: activeSkills.map(({ name, description, stages }) => ({ name, description, stages })),
     capabilities: ['project.read']
-  });
-  const parsedValidation = parseResearchStageOutput(normalizedStage, harnessResult?.reply || '');
-  const evidenceValidation = projectId && parsedValidation.ok
-    ? await validateStageEvidence(projectId, normalizedStage, parsedValidation.data)
-    : { ok: true, errors: [], warnings: [] };
-  const validation = evidenceValidation.ok
-    ? { ...parsedValidation, evidence: evidenceValidation }
-    : { ...parsedValidation, ok: false, data: null, errors: [...parsedValidation.errors, ...evidenceValidation.errors], evidence: evidenceValidation };
-  if (harnessResult?.runId) await recordHarnessRunValidation(projectId, harnessResult.runId, validation);
+  };
+
+  const attempt = async (repair) => {
+    const harnessResult = await runHarness({
+      ...baseRequest,
+      prompt: buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills, repair })
+    });
+    const parsedValidation = parseResearchStageOutput(normalizedStage, harnessResult?.reply || '');
+    const evidenceValidation = projectId && parsedValidation.ok
+      ? await validateStageEvidence(projectId, normalizedStage, parsedValidation.data)
+      : { ok: true, errors: [], warnings: [] };
+    const validation = evidenceValidation.ok
+      ? { ...parsedValidation, evidence: evidenceValidation }
+      : { ...parsedValidation, ok: false, data: null, errors: [...parsedValidation.errors, ...evidenceValidation.errors], evidence: evidenceValidation };
+    if (harnessResult?.runId) await recordHarnessRunValidation(projectId, harnessResult.runId, validation);
+    return { harnessResult, validation };
+  };
+
+  // C-05: a reply that breaks the contract gets one repair attempt, with the
+  // validation errors quoted back, so the model learns why it was rejected.
+  // Only validation failures are retried — a transport failure is the Run
+  // limit's business. Calls stay strictly serial (U-20): the retry is awaited
+  // and never issued alongside the first attempt.
+  const attempts = [];
+  let { harnessResult, validation } = await attempt(null);
+  attempts.push({ attempt: 1, ok: validation.ok, runId: harnessResult?.runId ?? null, errorCodes: (validation.errors || []).map((error) => error?.code) });
+
+  if (!validation.ok && harnessResult?.ok && attempts.length < MAX_VALIDATION_ATTEMPTS) {
+    ({ harnessResult, validation } = await attempt(validationRepairInstructions(validation)));
+    attempts.push({ attempt: 2, ok: validation.ok, runId: harnessResult?.runId ?? null, errorCodes: (validation.errors || []).map((error) => error?.code) });
+  }
+
   return {
     ...harnessResult,
     ok: Boolean(harnessResult?.ok && validation.ok),
     stage,
     output: validation.ok ? validation.data : null,
-    validation
+    validation: { ...validation, attempts },
+    attempts
   };
 }
 

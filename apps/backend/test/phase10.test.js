@@ -384,3 +384,74 @@ test('the network allowlist fails closed, matching what the model is told', () =
     (error) => error.code === 'NETWORK_DENIED'
   );
 });
+
+test('a reply that breaks the stage contract gets one repair attempt with the errors quoted back', async () => {
+  const { MAX_VALIDATION_ATTEMPTS, runResearchHarnessStage } = await import('../src/services/researchResearch/harnessAdapter.js');
+  assert.equal(MAX_VALIDATION_ATTEMPTS, 2);
+
+  const valid = {
+    stage: 'search_strategy',
+    researchQuestion: 'How can retrieval stay grounded?',
+    humanDirection: 'long-context retrieval',
+    aiAdditions: [],
+    queries: ['bounded retrieval'],
+    sources: ['arxiv'],
+    inclusionCriteria: [],
+    exclusionCriteria: [],
+    rationale: 'keeps provenance'
+  };
+  // Missing humanDirection, queries, sources, rationale.
+  const invalid = { stage: 'search_strategy', researchQuestion: 'How can retrieval stay grounded?' };
+
+  const prompts = [];
+  const replies = [JSON.stringify(invalid), JSON.stringify(valid)];
+  const result = await runResearchHarnessStage({
+    stage: 'search_strategy',
+    input: { researchQuestion: 'How can retrieval stay grounded?' },
+    runHarness: async ({ prompt }) => {
+      prompts.push(prompt);
+      return { ok: true, reply: replies[prompts.length - 1], runId: null };
+    }
+  });
+
+  assert.equal(result.ok, true, 'the repaired reply must be accepted');
+  assert.equal(prompts.length, 2, 'exactly one repair attempt');
+
+  // The second prompt has to tell the model why the first was rejected.
+  assert.match(prompts[1], /Your previous reply was rejected/);
+  assert.match(prompts[1], /queries|sources|humanDirection|rationale/);
+
+  assert.equal(result.attempts.length, 2);
+  assert.equal(result.attempts[0].ok, false);
+  assert.equal(result.attempts[1].ok, true);
+  assert.deepEqual(result.validation.attempts, result.attempts);
+});
+
+test('a reply that fails twice is reported with both attempts and not retried again', async () => {
+  const { runResearchHarnessStage } = await import('../src/services/researchResearch/harnessAdapter.js');
+  const invalid = JSON.stringify({ stage: 'search_strategy', researchQuestion: 'q' });
+
+  let calls = 0;
+  const result = await runResearchHarnessStage({
+    stage: 'search_strategy',
+    runHarness: async () => { calls += 1; return { ok: true, reply: invalid, runId: null }; }
+  });
+
+  assert.equal(calls, 2, 'at most one repair attempt');
+  assert.equal(result.ok, false);
+  assert.equal(result.attempts.length, 2);
+  assert.ok(result.attempts.every((attempt) => attempt.ok === false));
+});
+
+test('a failed Run is not retried as a contract repair', async () => {
+  const { runResearchHarnessStage } = await import('../src/services/researchResearch/harnessAdapter.js');
+
+  let calls = 0;
+  const result = await runResearchHarnessStage({
+    stage: 'search_strategy',
+    runHarness: async () => { calls += 1; return { ok: false, reply: '', runId: null }; }
+  });
+
+  assert.equal(calls, 1, 'a transport failure belongs to the Run limit, not to contract repair');
+  assert.equal(result.ok, false);
+});

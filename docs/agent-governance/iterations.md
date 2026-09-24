@@ -146,7 +146,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 041 | 加 | **角色可见性**：新增 `GET /api/agent/roles`，前端在阶段侧栏展示运行角色/权限/能力/Skill | ✅ |
 | 042 | 减 | 消除前端 `ResearchStageId` 双词汇（**两处独立字面量列表 → 单一共享定义**） | ✅ |
 | 043 | 验证 | 验证 041–042：门禁 + 回归 + 边界自检（含 /tmp）+ 词汇单一来源确认 | ✅ |
-| 044 | 加 | 失败重试回灌（校验错误回喂模型） | ⬜ |
+| 044 | 加 | **失败重试回灌**：契约校验失败时把错误回喂模型重试一次（严格串行、有界、可审计） | ✅ |
 | 045 | 减 | 待取证 | ⬜ |
 | 046 | 验证 | 验证 044–045 | ⬜ |
 | 047 | 加 | `docs/project-constraints.md` 整表由注册表生成 | ⬜ |
@@ -162,6 +162,8 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 042 | 减 | **消除前端 `ResearchStageId` 双词汇**（041 拍发现的问题）。取证：**两个文件各自定义了一份同名的字面量列表**——`app/research/researchStages.ts` 用 `innovation`，`api/client.ts` 用 `ideation`，**两份内容不同**。这不是命名差异而是**两套并行词汇**：把 UI 的阶段值传给 API 函数**无法通过类型检查**，而报错信息完全看不出"存在两套词汇"。处置：① 新建中立共享模块 `apps/frontend/src/researchStageIds.ts` 持有两个类型（`ResearchStageId` / `HarnessResearchStageId`），**名字本身表明属于哪套词汇**；② `researchStages.ts` 改为**转导出**（现有 13 个导入方无需改动）；③ `client.ts` **删掉本地定义**，内部 **16 处**改用 `HarnessResearchStageId`；④ `workflowAdapter.ts` 的 re-export 改指共享模块。**为何放中立模块**：先确认 `api/` 层**没有任何** import `app/` 层的先例，直接让 client 依赖 app 会**反转分层**，所以词汇下沉到共享模块 | `npm run quality` exit 0（**103 项**，100 → 103，含前端 tsc 与 build）；**词汇定义处从 2 个文件收敛到 1 个**；新增 `frontendVocabulary.test.js` **3 项不变量**：① 两个类型在全前端**各只能有一处定义**、且必须在共享模块；② 两套词汇**只在创新阶段不同**（`innovation` ↔ `ideation`）且 `toHarnessResearchStage`/`fromHarnessResearchStage` **往返可逆**；③ **`api/` 层不得 import `app/` 层**（锁住分层）。**门禁实证**：往 `client.ts` 追加一行重复的 `export type ResearchStageId` → 门禁**变红**并报 `must be declared once`；还原后**恢复绿**，且工作区无临时文件残留 |
 
 | 043 | 验证 | 验证 041–042 两拍：全量门禁 + 回归 + 工作区边界自检（含 /tmp）+ 词汇单一来源确认 | ① `npm run quality` **exit 0**（103 项 / 0 失败 / 前端 tsc / build）。② **词汇单一来源确认**：前端仅 **1 个文件**定义两个阶段类型（原为 2 个文件各自的字面量列表）。③ **角色路由在 harness 词汇下仍可用**：`?stage=ideation` 返回 `research-stage-assistant`（200）。④ 边界：`package.json` / `package-lock.json` **零变更**；**工作区外无目录**；**/tmp 无我的残留**（041 拍的 `/tmp/q.txt` 已清除且复查） |
+
+| 044 | 加 | **失败重试回灌（校验错误回喂模型）**。此前模型输出一旦不合契约就**直接失败**，模型永远不知道被拒的原因——真实跑通过程中这类失败出现过多次（字段名不全、sources 填成场馆名、id 含非法字符）。处置：① `buildResearchHarnessPrompt` 新增 `repair` 参数，把上次被拒原因写进 prompt；② 新增 `validationRepairInstructions(validation)` 把校验错误**逐条引用**回喂（最多 10 条），并重申"不要臆造 Evidence id"；③ `runResearchHarnessStage` 抽出单次尝试，失败后**重试一次**，返回 `attempts` 记录每次的 ok / runId / errorCodes；④ 新增 `MAX_VALIDATION_ATTEMPTS = 2`。**三条边界**：**只重试校验失败**（传输失败属 Run limit 职责，不在此重试）、**严格串行**（U-20：重试是 await 的，绝不与首次并发）、**有界**（最多 2 次尝试，不会循环） | `npm run quality` exit 0（**106 项**，103 → 106，含前端 tsc 与 build）；新增 3 项测试：① **先错后对**——第一次缺字段被拒、第二次按修复指令补全 → 接受，且**第二个 prompt 必须包含 "Your previous reply was rejected" 与被拒字段名**，`attempts` 两次记录为 [false, true]；② **连错两次**——只调用 **2 次**（不是 3 次）且 `attempts` 两次均为 false；③ **传输失败不重试**——`ok:false` 的 Run 只调用 **1 次**。C-05 文档行同步写明"一次修复尝试 + attempts 记录" |
 
 ## 环境变化记录
 
