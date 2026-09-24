@@ -94,13 +94,14 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：Round 4 进行中（迭代 031–040）。**
+**阶段：Round 4 已完成（迭代 031–040）。五个既定目标全部达成。**
 
-- **Round 4 进度**：031 ✅ **加**：收口 C-09（网络 allowlist 由 fail-open 改为 fail-closed）；032 ✅ **减**：收口 C-11（不确定性收敛为**一条强制通道**，点名即接受、未点名即拒）；033 ✅ **验证**：门禁 exit 0、运行时直证修复生效、零依赖变更；034 ✅ **加**：收口 C-10（token 预算现在传给**每个**适配器）；035 ✅ **减**：收口 C-04（删掉 `actor` 的 `'human'` 缺省）→ **漂移全部清零**；036 ✅ **验证**：门禁 exit 0、漂移 0 确认、运行时直证 C-04；037 ✅ **加**：R-15 落地——产出落点变成产品策略并注册为 **C-17**；038 ✅ **减**：删 6 处无用导入 + 合并重复词表（重复组 8 → 5）；039 ✅ **验证**：门禁 exit 0、漂移 0、无用导入复扫 0、落点仍正确；下一步 040（Round 4 收尾）。
-- **✅ 约束治理**：**17 条、17/17 有测试、漂移 0**。溯源 ADR 15 / 用户需求 1（C-17）/ AI 主观 1（C-16）。
-- **目标完成度**：① ✅ ｜ ② ✅ ｜ ③ ✅ ｜ ④ ✅ ｜ ⑤ ✅ **本轮完成**（`aidoc/` 落点已是产品策略并有门禁）。
-- **Round 4 剩余**：角色在前端展示、失败重试回灌；038 减拍待取证；040 Round 4 收尾 + 对比文档 + 推送。
-- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 37 拍）。
+- **Round 4 收尾**：对比文档 `rounds/round-04-comparison.md`；tag `round-04-complete`；分支 `feat/agent-governance-r4` 推 `scienceprism`。
+- **Round 4 关键指标**：后端测试 **90 → 99**；**文档-代码漂移 4 → 0（清零）**；约束 **16 → 17**（新增 C-17）；未使用导入 **6 → 0**；跨文件重复字面量 **8 → 5 组**；**零依赖变更**。
+- **✅ 目标完成度：① ✅ ｜ ② ✅ ｜ ③ ✅ ｜ ④ ✅ ｜ ⑤ ✅ —— 五项全部达成。**
+- **✅ 约束治理**：**17 条、17/17 有测试、漂移 0**。溯源 ADR 15 / **用户需求 1（C-17）** / AI 主观 1（C-16）。
+- **Round 5 候选**（待与用户确认）：前端展示角色/能力/可用 skill、失败重试回灌、`project-constraints.md` 整表由注册表生成、剩余 5 组重复字面量。
+- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 40 拍）。
 - 子 agent 机制实测：6 次派发 5 次失败，且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主**（U-15），派发前先查存活数（U-16）。
 
 ## 历史轮次（细节见各自对比文档）
@@ -110,6 +111,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 | Round 1（001–010） | `feat/agent-governance-r1` | `round-01-complete` | `rounds/round-01-comparison.md` | 测试 40（36 通过 / 4 失败）→ 51 全通过；工具首次产出文档 `aidoc/aidoc-research-document/research/writing-brief.md`；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0 |
 | Round 2（011–020） | `feat/agent-governance-r2` | `round-02-complete` | `rounds/round-02-comparison.md` | 测试 51 → 78；约束注册表落地且 16/16 有测试；漂移 9 → 5；角色 0 → 8 并接入 Runtime；高危绕过 1 fail-closed / 2 可拒绝 / 1 降级；零依赖变更 |
 | Round 3（021–030） | `feat/agent-governance-r3` | `round-03-complete` | `rounds/round-03-comparison.md` | 测试 78 → 90；复杂矢量插画落地（细胞结构图，零安装）；skill 5 → 8 且绑定 8 → 4 全可达；开发侧 playbook 0 → 2；C-07 收口（实现 Patch 应用路径），漂移 5 → 4；死代码 9 → 2；零依赖变更 |
+| Round 4（031–040） | `feat/agent-governance-r4` | `round-04-complete` | `rounds/round-04-comparison.md` | 测试 90 → 99；**漂移 4 → 0 清零**；约束 16 → 17（新增来自**用户需求**的 C-17）；网络 allowlist 由 fail-open 转 fail-closed；审批必须显式声明身份；token 预算覆盖每个适配器；`aidoc/` 落点成为产品策略；无用导入 6 → 0；重复字面量 8 → 5；零依赖变更 |
 
 Round 1 的 PR 待你审：https://github.com/icey-hub/scienceprism/pull/new/feat/agent-governance-r1
 
