@@ -34,7 +34,7 @@
 
 ### 3.2 角色注册表
 
-`apps/backend/src/services/agentRoles/` + `docs/agent-roles.md`：
+`apps/backend/src/services/agentRoles/` + `aidoc/agent-roles.md`：
 `{ id, purpose, stageScope, allowedCapabilities, allowedSkills, outputContract, authority, handoff, forbiddenActions }`
 
 已取证得到的 8 角色分类法（待验证落地）：`editor-chat-assistant`、`project-agent`、`paper-reviewer`、`research-stage-assistant`、`latex-conversion-engine`、`plot-code-generator`、`template-migration-agent`、`experiment-interpreter`。

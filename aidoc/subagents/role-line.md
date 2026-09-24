@@ -7,7 +7,7 @@
 建立 **agent 角色注册表**，把「靠 prompt 隐式定义的角色」变成代码里显式的角色对象，并接入 Harness Runtime 的能力/skill 解析。
 
 覆盖迭代：
-- **I-07** 角色注册表（8 角色）+ `docs/agent-roles.md` + ADR-0011
+- **I-07** 角色注册表（8 角色）+ `aidoc/agent-roles.md` + ADR-0011
 - **I-08** 角色解析器（role → 能力 + skill 集合），供 Harness Runtime 使用
 
 ## 2. 停止条件
@@ -20,7 +20,7 @@
 - `apps/backend/src/services/agentRoles/**`（新建）
 - `apps/backend/src/services/harnessRuntime/roleResolver.js`（新建，**只允许新建这一个文件**）
 - `apps/backend/test/agentRoles.test.js`（新建）
-- `docs/agent-roles.md`（新建）
+- `aidoc/agent-roles.md`（新建）
 - `docs/adr/0011-*.md`（新建）
 
 **不得触碰**：`apps/backend/src/services/harnessRuntime/index.js` 及其他既有文件、`apps/backend/src/services/constraintRegistry/**`、`apps/backend/src/routes/**`、`apps/backend/src/services/experimentRunner/**`、`apps/backend/src/services/transferAgent/**`、`package.json`、`package-lock.json`、`AGENTS.md`、`aidoc/**`。
@@ -55,7 +55,7 @@
 
 | 迭代 | 交付物 | 验收（可执行） |
 | --- | --- | --- |
-| I-07 | `agentRoles/` + `docs/agent-roles.md` + ADR-0011 | 注册表覆盖全部 AI 入口（清单与代码交叉核对，逐条给 file:line）；每个角色写明 authority / 能力 / skill / 禁止行为 |
+| I-07 | `agentRoles/` + `aidoc/agent-roles.md` + ADR-0011 | 注册表覆盖全部 AI 入口（清单与代码交叉核对，逐条给 file:line）；每个角色写明 authority / 能力 / skill / 禁止行为 |
 | I-08 | `roleResolver.js` | 给定 role → 返回能力与 skill 集合；越权（请求超出角色能力）被拒（负向测试）；golden test 对比改造前后行为一致；附「Lead 需在 `index.js` 改哪一行」的精确说明 |
 
 ## 8. 硬约束
