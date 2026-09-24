@@ -12,7 +12,7 @@
 | 001 | 加 | 基线提交 + tag + 分支 + 治理脚手架（需求/计划/看板/任务书） | ✅ |
 | 002 | 加 | 第二隔离策略（Node 权限模型）+ 策略选择 + 隔离方式记录 | ✅ |
 | 003 | 减 | 清虚高与死 seam：`project.write` 声明、`assertNetworkHost` 未接线 | ✅ |
-| 004 | 验证 | 验证 002–003：全量测试 + 边界自检 + 记录 | 🔄 |
+| 004 | 验证 | 验证 002–003：全量测试 + 边界自检 + 记录 | ✅ |
 | 005 | 加 | 约束注册表骨架（零行为变更）+ 审计文档 | ⬜ |
 | 006 | 减 | 收敛 `project-constraints.json` 的 4 处重复默认值 + 第 5 个读写点 | ⬜ |
 | 007 | 验证 | 验证 005–006 + 文档一致性门禁 | ⬜ |
@@ -27,7 +27,7 @@
 | 001 | 加 | 基线提交、tag `round-00-baseline`、分支 `feat/agent-governance-r1`、治理脚手架 | `git diff round-00-baseline..HEAD -- apps/ packages/` 无输出（零产品代码改动） |
 | 002 | 加 | `adapters.js`：新增 Node 权限模型回退（`nodePermissionCommand`）、纯函数 `chooseIsolationStrategy`、`isOsSandboxApplicable`；`index.js`：Run 记录 `execution.isolation` | `npm run quality` → 44 项测试通过 / 0 失败、tsc 通过、vite build 通过、exit 0。新增 4 项测试：隔离记录、策略选择表（5 组）、回退策略真实越权拒绝（读 `/etc/hosts` → `ERR_ACCESS_DENIED`；工作区内写入成功）、OS 沙箱可用性报告 |
 | 003 | 减 | **删除 `project.write`**（`HARNESS_CAPABILITIES` 5 → 4 项）。安全依据：全仓库零断言，授予它不产生任何行为；写入在设计中只能经 `patch.propose` + 人工应用表达。同时修正 `docs/harness-runtime.md` 把两者并列的误导表述。**未删** `assertNetworkHost`：复核发现它确实在 `agentService.js:122,156` 被调用，属「Harness 路径未接线」的**加**项，不是死代码 | `node --test` → 45 项通过 / 0 失败；`npm run quality` exit 0；新增词表锁测试（含「存储的未知能力授权会被丢弃而非静默生效」负向断言）；`grep project.write apps/backend/src` 仅剩注释 |
-| 004 | 验证 | （进行中） | — |
+| 004 | 验证 | 验证 002–003：全量质量门禁 + 回归对比 + 工作区边界自检 | ① `npm run quality` **exit 0**（45 项测试 / 0 失败 / tsc 通过 / vite build 通过）。② 回归对比：后端测试 **40 → 45**（+4 隔离相关、+1 词表锁）；能力词表 **5 → 4**；产品代码改动仅 3 个文件（`adapters.js`、`experimentRunner/index.js`、`capabilities.js`）。③ 边界自检：`package.json` / `package-lock.json` **零变更**（未装任何依赖）；工作区内安装产物仅 `.npm-cache`(1.5M) / `tools/`(空) / `.cache/`(空)，全部在仓库内且已 gitignore。④ **越界自查（发现问题并已修复）**：早期探测阶段我在 `/tmp` 写过 `baseline_tests.txt`、`baseline_typecheck.txt` 与 `exp_sim.*` 临时目录——那违反了 U-02/U-03；已全部删除并复查无残留。此后所有写入均限工作区内 |
 
 ## 环境变化记录
 
