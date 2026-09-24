@@ -17,7 +17,7 @@
 | 006 | 加 | 源名归一化到注册适配器 + 真实模型驱动脚本 | ✅ |
 | 007 | 验证 | **真实模型跑通全流程，工具产出 `aidoc/` 文档** | ✅ |
 | 008 | 减 | 收敛 `project-constraints.json` 的重复默认值（5 处 → 1 处） | ✅ |
-| 009 | 减 | 删 prompt 假约束与装饰性重复（`paper_screening` 角色、无溯源兜底草稿） | ⬜ |
+| 009 | 减 | 删无溯源的兜底草稿 + 死契约 `paper_screening` | ✅ |
 | 010 | 验证 | Round 1 收尾 + `rounds/round-01-comparison.md` + 推 scienceprism | ⬜ |
 
 ### 计划重排说明（诚实记录）
@@ -36,6 +36,7 @@
 | 006 | 加 | **源名归一化**。搜索阶段曾在 `validation.ok=true` 的情况下静默搜到 0 篇：模型把 `sources` 填成场地描述（`arXiv (cs.CL) — preprint server`），每个都命中不了 Source Adapter 注册表。现在 input 广播 `availableSources`，模型给的源名与注册 id 求交，未注册的记为 `SOURCE_NOT_REGISTERED`，全部落空时回退到注册集 | `node --test` 48 项通过；新增回归用例使用真实模型返回的散文形状，断言回退后仍能搜到论文；随后真实管线从 **0 篇 → 39 篇通过质量门** |
 | 007 | 验证 | **真实模型端到端跑通**：`scripts/produce-research-document.mjs` 用项目自身服务层串行执行 方向 → 检索 → 选择 → 跳过复现 → 创新点 → 方法 → 实验计划 → 写作交接 | 4 次串行模型调用（严格单发，遵守 U-20），约 90 秒；产出 `aidoc/aidoc-research-document/research/writing-brief.md`（8581 字符、6 条带 Evidence ID 的 claim、9 节大纲、12 条局限）；同时产出 `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json` 审计记录。文档**主动声明**所引 3 篇论文并非 RAG 主题，把贡献定位为提案而非已验证结果 |
 | 008 | 减 | **约束默认值 5 处 → 1 处**。新增 `config/projectConstraintDefaults.js` 作为唯一来源；`harnessRuntime/index.js` 的 4 个本地常量、`projectHub/dashboard.js` 的 `DEFAULT_CONSTRAINTS`、`deepseekAdapter.js` 的 `49152` 字面量全部改为引用它。安全依据：三处数值完全相同（`49152/600000/1/1`），合并后行为不变；`DEFAULT_CONSTRAINTS` 与 `CONSTRAINT_FILE` 的导出经 grep 确认**全仓库零消费**，故一并删除。顺带发现并处理第 5 处重复（`deepseekAdapter`） | `npm run quality` exit 0（49 项）；`grep -rn "49152\|600000" apps/backend/src` 只剩 defaults 模块；`grep DEFAULT_TIMEOUT_MS…` 产品代码已无本地常量；新增**防重复门禁测试**：扫描 `src` 树，任何文件重述 `49152` 或再声明本地约束默认常量即失败 |
+| 009 | 减 | ① **删除无溯源的兜底草稿**：Harness 失败时不再用代码编造 `paper-gap-N` 创新点与 `method-draft-N` 方法候选（含中文占位文案）。安全依据：这些内容看起来像 AI 产出，却没有 Run / 模型 / 上下文 / 溯源，正是 ADR-0001 与 C-04 要禁止的；删除后失败阶段留空，由 readiness 门禁挡住审批。② **删除死契约 `paper_screening`**：schema、注册表项、别名、语义注记、以及 `contextPackager` 与 `researchSkills` 两张别名表里的条目。安全依据：真正跑 LLM 的只有 4 个阶段（`search_strategy`/`innovation_ideas`/`method_proposals`/`writing`），论文筛选由确定性质量门决定；捆绑 skill 声明的是工作流阶段名（`selection`）而非该契约名 | `npm run quality` exit 0（51 项）；新增两项测试：① Harness 失败后 `ideas` 为空、`task.status=failed`、且审批被 `STAGE_NOT_READY` 挡住；② 阶段契约词表锁（8 → 7，且断言 `paper_screening` 不得回归）；`grep -rn paper_screening apps/` 产品代码零残留 |
 
 ## 环境变化记录
 

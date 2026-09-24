@@ -16,7 +16,7 @@ const { registerResearchWorkflowRoutes } = await import('../src/routes/researchW
 const { buildContextPack, contextManifest } = await import('../src/services/harnessRuntime/contextPackager.js');
 const { assertCapability, assertProjectPath, isPathAllowed, resolveCapabilityPolicy, HARNESS_CAPABILITIES, DEFAULT_PROJECT_CAPABILITIES } = await import('../src/services/harnessRuntime/capabilities.js');
 const { evaluatePaperCandidate } = await import('../src/services/researchResearch/qualityGate.js');
-const { parseResearchStageOutput, RESEARCH_STAGE_CONTRACTS, RESEARCH_STAGE_SCHEMAS, requiredResearchStageKeys, describeResearchStageFields } = await import('../src/services/researchResearch/schemas.js');
+const { parseResearchStageOutput, RESEARCH_STAGE_CONTRACTS, RESEARCH_STAGE_SCHEMAS, RESEARCH_STAGES, requiredResearchStageKeys, describeResearchStageFields } = await import('../src/services/researchResearch/schemas.js');
 const { buildResearchHarnessPrompt } = await import('../src/services/researchResearch/harnessAdapter.js');
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
 const { toFrontendWorkflow } = await import('../src/services/researchWorkflow/projection.js');
@@ -322,4 +322,22 @@ test('project constraint defaults have a single source of truth', async () => {
     }
   }
   assert.deepEqual(offenders, [], 'constraint default limits must live only in config/projectConstraintDefaults.js');
+});
+
+test('the research stage contract vocabulary is locked', () => {
+  assert.deepEqual([...RESEARCH_STAGES].sort(), [
+    'experiment_plan',
+    'experiment_results',
+    'innovation_ideas',
+    'method_proposals',
+    'reproduction_plan',
+    'search_strategy',
+    'writing_brief'
+  ]);
+
+  // paper_screening was removed as a reduce beat: no code path ever ran it,
+  // because paper selection is decided by the deterministic quality gate. It
+  // was a full zod contract, prompt, and skill binding that nothing could reach.
+  assert.ok(!RESEARCH_STAGES.includes('paper_screening'), 'a stage contract nothing runs must not come back');
+  assert.equal(RESEARCH_STAGE_CONTRACTS.paper_screening, undefined);
 });

@@ -70,7 +70,6 @@ function normalizeStage(stage) {
     experiment: 'experiment',
     writing: 'writing',
     search_strategy: 'search',
-    paper_screening: 'selection',
     reproduction_plan: 'replication',
     innovation_ideas: 'ideation',
     method_proposals: 'method',

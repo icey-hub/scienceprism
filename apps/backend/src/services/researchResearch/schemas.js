@@ -37,24 +37,6 @@ const searchStrategySchema = z.object({
   rationale: nonEmpty
 }).strict();
 
-const paperScreeningSchema = z.object({
-  stage: stage('paper_screening'),
-  policyId: nonEmpty.nullable().optional(),
-  decisions: z.array(z.object({
-    paperId: nonEmpty,
-    decision: z.enum(['accept', 'reject', 'needs-review']),
-    reasons: z.array(nonEmpty).min(1),
-    qualityScore: z.number().min(0).max(100).nullable().optional(),
-    confidence: confidence.nullable().optional()
-  }).strict()),
-  missingMetadata: z.array(z.object({
-    paperId: nonEmpty,
-    fields: z.array(nonEmpty).min(1),
-    action: z.enum(['verify', 'reject', 'request-source'])
-  }).strict()).default([]),
-  summary: nonEmpty
-}).strict();
-
 const reproductionPlanSchema = z.object({
   stage: stage('reproduction_plan'),
   paperId: nonEmpty,
@@ -175,7 +157,6 @@ const writingBriefSchema = z.object({
 
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
   search_strategy: searchStrategySchema,
-  paper_screening: paperScreeningSchema,
   reproduction_plan: reproductionPlanSchema,
   innovation_ideas: innovationIdeasSchema,
   method_proposals: methodProposalsSchema,
@@ -191,7 +172,6 @@ export const RESEARCH_STAGES = Object.freeze(Object.keys(RESEARCH_STAGE_SCHEMAS)
 export const RESEARCH_STAGE_ALIASES = Object.freeze({
   direction: 'search_strategy',
   search: 'search_strategy',
-  selection: 'paper_screening',
   replication: 'reproduction_plan',
   ideation: 'innovation_ideas',
   method: 'method_proposals',
@@ -345,9 +325,6 @@ export function requiredResearchStageKeys(stageName) {
 const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
   search_strategy: Object.freeze([
     'sources must contain ids from input.availableSources (registered Source Adapter ids such as "arxiv"), never venue names or descriptions.'
-  ]),
-  paper_screening: Object.freeze([
-    'decisions[].paperId must be a paper id taken from the stage input.'
   ]),
   reproduction_plan: Object.freeze([
     'paperId must be a paper id taken from the stage input.'

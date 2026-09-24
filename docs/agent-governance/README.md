@@ -97,8 +97,8 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 **阶段：执行中（U-18 已授权）。迭代预算 200 轮，按「加 / 减 / 验证」三拍循环（U-19）。**
 
 - 迭代日志：`iterations.md`（每拍一行，含验证证据；commit 标题带 `iter-NNN`）。
-- 当前进度：**迭代 009（减）** —— 删 prompt 假约束与装饰性重复。
-- 已完成：001（基线 + 治理脚手架）、002（Node 权限模型第二隔离策略）、003（**减**：删无断言的 `project.write`）、004（**验证**：门禁 exit 0 + 边界自检）、005（**加**：阶段契约从 zod schema 派生）、006（**加**：源名归一化）、007（**验证**：真实模型跑通全流程，工具产出 `aidoc/` 文档）、008（**减**：约束默认值 5 处 → 1 处 + 防重复门禁）。
+- 当前进度：**迭代 010（验证）** —— Round 1 收尾 + `rounds/round-01-comparison.md` + 推 scienceprism。
+- 已完成：001（基线 + 治理脚手架）、002（Node 权限模型第二隔离策略）、003（**减**：删无断言的 `project.write`）、004（**验证**：门禁 exit 0 + 边界自检）、005（**加**：阶段契约从 zod schema 派生）、006（**加**：源名归一化）、007（**验证**：真实模型跑通全流程，工具产出 `aidoc/` 文档）、008（**减**：约束默认值 5 处 → 1 处 + 防重复门禁）、009（**减**：删无溯源兜底草稿 + 死契约 `paper_screening`）。
 - **交付物（工具真实产出）**：`aidoc/aidoc-research-document/research/writing-brief.md` + `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json`。
 - 计划重排：原 005 = 约束注册表，因真实模型跑不通写作管线（R-01 活样本，且阻塞 U-21）而改为契约/源解析修复；约束注册表顺延（见 `iterations.md` 的「计划重排说明」）。
 - 文档目录：agent 治理文档在 **`docs/agent-governance/`**；**`aidoc/` 专用于科研工具产出的文档**（R-15），当前尚未创建。

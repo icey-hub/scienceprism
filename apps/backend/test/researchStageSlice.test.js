@@ -153,3 +153,37 @@ test('an unregistered source name from the model is reported and still searches 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('a failed ideation Harness Run leaves the stage empty instead of fabricating ideas', async () => {
+  const projectId = 'stage-six-no-fabricated-ideas';
+  await createProject(projectId);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(arxivXml(), { status: 200, headers: { 'content-type': 'application/atom+xml' } });
+  try {
+    let workflow = await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'How can retrieval stay grounded?' } });
+    workflow = await approve(projectId, 'direction');
+    workflow = await runUiAction(projectId, {
+      action: 'search',
+      query: 'grounded retrieval',
+      adapter: 'fake',
+      fakeResponse: JSON.stringify({ stage: 'search_strategy', researchQuestion: 'How can retrieval stay grounded?', humanDirection: 'long-context retrieval', aiAdditions: [], queries: ['grounded retrieval'], sources: ['arxiv'], inclusionCriteria: ['retrieval'], exclusionCriteria: [], rationale: 'Use the research direction as the query seed.' }),
+      policy: { venueLevel: 'Any', publicationType: 'Any', peerReviewed: false, requireCode: false }
+    }, 'human');
+    workflow = await approve(projectId, 'search');
+    workflow = await runUiAction(projectId, { action: 'select-papers', paperIds: [stageData(workflow, 'search').papers[0].id] }, 'human');
+    workflow = await approve(projectId, 'selection');
+
+    const failed = await runUiAction(projectId, { action: 'generate-ideas', adapter: 'fake', fakeError: 'model unavailable' }, 'human');
+    const ideation = stageData(failed, 'ideation');
+
+    assert.deepEqual(ideation.ideas, [], 'a failed Run must not manufacture ideas in code');
+    assert.equal(ideation.task.status, 'failed');
+    await assert.rejects(
+      () => approve(projectId, 'ideation'),
+      (error) => error.code === 'STAGE_NOT_READY',
+      'the readiness gate must block approval of an empty ideation stage'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

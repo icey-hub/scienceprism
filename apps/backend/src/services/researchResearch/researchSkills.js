@@ -33,7 +33,6 @@ export const DEFAULT_RESEARCH_SKILL_BINDINGS = Object.freeze({
 
 const STAGE_ALIASES = Object.freeze({
   search_strategy: 'search',
-  paper_screening: 'selection',
   reproduction_plan: 'replication',
   innovation: 'ideation',
   innovation_ideas: 'ideation',

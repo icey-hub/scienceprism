@@ -160,8 +160,12 @@ export async function runUiAction(projectId, body, actor) {
     const selectedIds = Array.isArray(body.paperIds) ? body.paperIds : [...selectedPaperIdsFrom(workflow)];
     const papers = (stageData(workflow, 'selection').selectedPapers || stageData(workflow, 'search').papers || []).filter((paper) => selectedIds.includes(String(paper.id)) || selectedIds.includes(paper.id));
     const harness = await runResearchStage({ stage: 'innovation_ideas', projectId, input: { papers, direction: body.direction || stageData(workflow, 'direction') }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
-    const ideas = harness.ok && harness.output?.ideas ? harness.output.ideas : papers.slice(0, 3).map((paper, index) => ({ id: `paper-gap-${index + 1}`, title: `围绕“${paper.title || '候选论文'}”的可检验扩展`, problem: '需要人工补充明确的研究缺口。', motivation: '由入选论文生成的起点，不代表已验证创新。', hypothesis: '需要人工补充可检验假设。', novelty: '尚未验证的新颖性候选。', relatedPaperIds: [paper.id].filter(Boolean), validationPlan: ['人工补充可执行的验证计划。'], risks: ['Harness 未返回结构化创新点，当前内容仅作草稿。'], selected: false }));
-    const task = createStageTask({ stage: 'ideation', input: { paperIds: selectedIds, direction: body.direction || stageData(workflow, 'direction') }, output: harness.ok ? harness.output : { ideas }, validation: taskValidation(harness.validation, harness.ok ? [] : ['The fallback idea list is an unverified draft.']), harness, adapters: ['harness', 'evidence-ledger'] });
+    // No fabricated fallback: a failed Harness Run leaves the stage empty so the
+    // readiness gate blocks approval. Manufacturing placeholder ideas in code
+    // produced content that looked like AI output but had no Run, model, context,
+    // or provenance behind it.
+    const ideas = harness.ok && harness.output?.ideas ? harness.output.ideas : [];
+    const task = createStageTask({ stage: 'ideation', input: { paperIds: selectedIds, direction: body.direction || stageData(workflow, 'direction') }, output: harness.ok ? harness.output : { ideas }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'evidence-ledger'] });
     return updateStage(projectId, 'ideation', { ideas, innovationPoints: ideas, harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
   }
   if (action === 'select-ideas') {
@@ -176,9 +180,9 @@ export async function runUiAction(projectId, body, actor) {
     const ideas = stageData(workflow, 'ideation').ideas || [];
     const selected = ideas.filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
     const harness = await runResearchStage({ stage: 'method_proposals', projectId, input: { ideas: selected }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
-    const proposals = harness.ok && harness.output?.proposals?.length ? harness.output.proposals : selected.map((idea, index) => ({ id: `method-draft-${index + 1}`, name: `围绕 ${idea.title || idea.id} 的方法候选`, ideaId: idea.id, description: '需要人工补充方法机制。', components: ['待补充'], assumptions: ['待人工确认'], baselines: ['待补充可比基线'], metrics: ['待补充评价指标'], ablations: [], implementationRisks: ['当前为未验证草案。'] }));
+    const proposals = harness.ok && harness.output?.proposals?.length ? harness.output.proposals : [];
     const method = proposals[0] ? { ...proposals[0], title: proposals[0].name } : {};
-    const task = createStageTask({ stage: 'method', input: { selectedIdeaIds: selected.map((idea) => idea.id) }, output: { stage: harness.output, proposals }, validation: taskValidation(harness.validation, harness.ok ? [] : ['The method candidates are an unverified draft.']), harness, adapters: ['harness', 'human-decision'] });
+    const task = createStageTask({ stage: 'method', input: { selectedIdeaIds: selected.map((idea) => idea.id) }, output: { stage: harness.output, proposals }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'human-decision'] });
     return updateStage(projectId, 'method', { method, methodPlan: method, methodProposals: proposals, harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
   }
   if (action === 'save-method') return updateStage(projectId, 'method', { method: body.method || {}, task: createStageTask({ stage: 'method', input: { method: body.method || {} }, output: { method: body.method || {} }, validation: { ok: true, errors: [], warnings: [] }, adapters: ['human-decision'] }) }, body, actor);
