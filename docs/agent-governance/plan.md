@@ -96,6 +96,26 @@
 | I-19 | 角色/约束可见性 + 文档同步 | 运行前摘要 + 设置页开关列表 |
 | I-20 | Round 2 收尾 | `rounds/round-02-comparison.md` |
 
+## 5.5 迭代节奏：加 / 减 / 验证（U-19，200 轮预算）
+
+每一拍都是一个**已提交且已验证**的纵向切片，按三拍循环推进：
+
+| 拍 | 内容 | 完成判据 |
+| --- | --- | --- |
+| **加** | 引入一个能力 / 模块 / 约束 / skill / 文档 | 新东西有可执行验证证据 |
+| **减** | 删除或收缩：死代码、重复 owner、未断言的声明、冗余默认值、prompt 里重复代码的假约束 | 删除后测试仍全绿，且给出「减掉了什么、为什么安全」 |
+| **验证** | 用可执行证据证明前两拍的结果，并写进看板 | 确切命令 + 输出；回归对比 |
+
+**减的候选池（已取证，逐轮消费）**：
+1. `project.write` 在 `capabilities.js` 声明但全仓库零断言 → 虚高词表。
+2. `assertNetworkHost` 从未在 Harness 路径被调用 → 死 seam，接上或删掉。
+3. `project-constraints.json` 的默认值重复 4 处（`capabilities.js`、`featureFlags.js`、`projectHub/dashboard.js`、`harnessRuntime/index.js`）→ 收敛为单一来源。
+4. 8 阶段定义有 2 个 owner（`stageContracts.js` 与前端 `researchStages.ts`）。
+5. 三个互相竞争的「LaTeX writing assistant」人格（`agentService.js:177`、`routes/agent.js:74`、`EditorPage.tsx:1513`）。
+6. `paper_screening` 的 AI 角色无人消费（`qualityGate.js` 才是决策者）→ 装饰性重复。
+7. `researchWorkflow/application.js` 里无 Harness Run 的确定性兜底草稿（丢溯源）。
+8. 前端本地重算后端决策（`SelectionStage.tsx:78`、`ExperimentStage.tsx:43`、`WritingStage.tsx:27`）违反约束归属规则。
+
 ## 6. 分支 / 提交 / 对比文档规范
 
 - 分支：r1 从基线提交切出；r2 从 r1 尖端切出（D-4）。

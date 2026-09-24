@@ -94,15 +94,14 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：已暂停（用户指示）/ 尚未进入执行计划 / 未修改任何产品代码。**
+**阶段：执行中（U-18 已授权）。迭代预算 200 轮，按「加 / 减 / 验证」三拍循环（U-19）。**
 
-- 已完成：I-01（基线提交 `33a2b5b` + tag `round-00-baseline` + 分支 `feat/agent-governance-r1` + 治理脚手架）。
-- 文档目录：agent 治理文档在 **`docs/agent-governance/`**（本看板、`plan.md`、`requirements.md`、`subagents/*`）；**`aidoc/` 专用于科研工具产出的文档**（U-10 / U-17 / R-15），当前尚未创建。
-- 产品代码改动：**零**。可复现验证：`git diff --name-only round-00-baseline..HEAD -- apps/ packages/`（无输出）。
-- 会话内 goal：已不存在（`get_goal` 返回 null），无需暂停动作。
-- 子 agent 产出：**已按用户指示全部删除**（`agentRoles/`、`roleResolver.js`、`agent-roles.md`、`ADR-0011`），后续重做。
-- 子 agent 机制实测：6 次派发 5 次失败（无总结、无产出），且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主，子 agent 仅在必要时试**（U-15）。
-- I-02 修法已实证但**代码未落地**：Node 权限模型可作第二隔离策略，实测能拦住越权读 `/etc/hosts`、越权写、`child_process` 与网络。
+- 迭代日志：`iterations.md`（每拍一行，含验证证据与 commit）。
+- 当前进度：**迭代 002（加）** —— 第二隔离策略落地中。
+- 已完成：迭代 001（基线提交 `33a2b5b` + tag `round-00-baseline` + 分支 `feat/agent-governance-r1` + 治理脚手架）。
+- 文档目录：agent 治理文档在 **`docs/agent-governance/`**；**`aidoc/` 专用于科研工具产出的文档**（R-15），当前尚未创建。
+- 会话内 goal：`goal-16c676ec`（armed，200 轮）。
+- 子 agent 机制实测：6 次派发 5 次失败（无总结、无产出），且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主，子 agent 仅在必要时试**（U-15），派发前先查存活数（U-16）。
 
 ## 恢复条件（满足才继续）
 
