@@ -70,10 +70,14 @@ export const AGENT_ROLES = Object.freeze([
   {
     id: 'research-stage-assistant',
     purpose: 'One structured producer per Research Stage; JSON output only.',
-    stageScope: ['direction', 'search', 'selection', 'replication', 'ideation', 'method', 'experiment', 'writing'],
+    // Only the stages that actually run a Harness Run. The other four are
+    // human-owned or deterministic (direction is human, selection is decided by
+    // the quality gate, replication is manual, experiment records a plan), so
+    // this role never executes there.
+    stageScope: ['search', 'ideation', 'method', 'writing'],
     authority: 'suggest-only',
     allowedCapabilities: ['project.read'],
-    allowedSkills: ['literature-search', 'paper-card', 'dataset-audit', 'statistics-audit', 'research-writing'],
+    allowedSkills: ['literature-search', 'paper-card', 'dataset-audit', 'statistics-audit', 'experiment-design-audit', 'research-writing', 'claim-evidence-audit', 'figure-table-plan'],
     outputContract: 'json:research-stage-contract',
     handoff: 'The stage task reaches awaiting_approval; only a human Approval advances it.',
     forbiddenActions: ['proposing patches', 'executing experiments', 'using the network', 'declaring a Paper Candidate or Experiment Result verified', 'granting Approval', 'advancing a stage'],

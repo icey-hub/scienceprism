@@ -5,7 +5,6 @@ whenToUse: Use after papers are selected, especially before reproduction, innova
 metadata:
   owner: scienceprism
   stages:
-    - replication
     - ideation
     - method
 ---

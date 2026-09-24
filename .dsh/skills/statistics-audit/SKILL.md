@@ -5,7 +5,7 @@ whenToUse: Use while planning experiments, interpreting completed runs, or prepa
 metadata:
   owner: scienceprism
   stages:
-    - experiment
+    - method
     - writing
 ---
 

@@ -259,9 +259,12 @@ Bundled research skills live under `.dsh/skills`:
 | --- | --- | --- |
 | `literature-search` | Search | Expand a human question into traceable queries. |
 | `paper-card` | Ideation, Method | Connect claims, methods, experiments, and limits. |
-| `dataset-audit` | Writing | Check provenance, access, licensing, and reproducibility. |
-| `statistics-audit` | Writing | Check units, replication, uncertainty, and comparisons. |
+| `dataset-audit` | Method, Writing | Check provenance, access, licensing, and reproducibility. |
+| `statistics-audit` | Method, Writing | Check units, replication, uncertainty, and comparisons. |
+| `experiment-design-audit` | Method | Audit baselines, metrics, ablations, seeds, and success criteria. |
 | `research-writing` | Writing | Build evidence-bounded outlines, claims, and citations. |
+| `claim-evidence-audit` | Writing | Classify claims as supported, needs-verification, or unsupported. |
+| `figure-table-plan` | Writing | Plan figures and tables, including the zero-install vector route. |
 
 To add a project Skill, open `/editor/:projectId/research/direction`, choose **添加 Skill**, and upload a directory containing one or more `SKILL.md` files. The upload stores only the selected Skill files under `.dsh/skills`; Skill instructions cannot bypass server-side gates or approvals.
 

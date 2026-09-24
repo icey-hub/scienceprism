@@ -5,7 +5,6 @@ whenToUse: Use during direction and search stages before collecting or comparing
 metadata:
   owner: scienceprism
   stages:
-    - direction
     - search
 ---
 

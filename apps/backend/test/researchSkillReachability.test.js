@@ -45,3 +45,22 @@ test('every bundled skill is reachable from a stage that runs a Harness Run', as
     );
   }
 });
+
+test('the bundled skill set is locked', async () => {
+  const catalog = await listResearchSkills({});
+  // Locked on purpose: adding or removing a bundled skill changes what every
+  // research stage is told, so it should be a deliberate edit of this list.
+  assert.deepEqual(
+    catalog.map((skill) => skill.name).sort(),
+    [
+      'claim-evidence-audit',
+      'dataset-audit',
+      'experiment-design-audit',
+      'figure-table-plan',
+      'literature-search',
+      'paper-card',
+      'research-writing',
+      'statistics-audit'
+    ]
+  );
+});

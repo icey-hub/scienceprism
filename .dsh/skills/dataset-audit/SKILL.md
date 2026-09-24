@@ -5,7 +5,7 @@ whenToUse: Use when turning an approved method into a dataset-backed experiment 
 metadata:
   owner: scienceprism
   stages:
-    - experiment
+    - method
     - writing
 ---
 

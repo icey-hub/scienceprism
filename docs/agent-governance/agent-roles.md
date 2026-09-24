@@ -21,7 +21,7 @@
 | `editor-chat-assistant` | Conversational writing help with no project mutation. | suggest-only | editor | none | none |
 | `project-agent` | Tool-using project editor: polish, compile debugging, citation insertion, arXiv search. | propose-patch | editor | `project.read`, `patch.propose` | none |
 | `paper-reviewer` | Read-only critique: peer review, consistency, missing citations, compile-log summary. | suggest-only | writing | `project.read` | `research-writing` |
-| `research-stage-assistant` | One structured producer per Research Stage; JSON output only. | suggest-only | direction, search, selection, replication, ideation, method, experiment, writing | `project.read` | `literature-search`, `paper-card`, `dataset-audit`, `statistics-audit`, `research-writing` |
+| `research-stage-assistant` | One structured producer per Research Stage; JSON output only. | suggest-only | search, ideation, method, writing | `project.read` | `literature-search`, `paper-card`, `dataset-audit`, `statistics-audit`, `experiment-design-audit`, `research-writing`, `claim-evidence-audit`, `figure-table-plan` |
 | `latex-conversion-engine` | Convert an uploaded image into LaTeX (equation, table, figure, algorithm, OCR). | propose-patch | editor | `project.read`, `patch.propose` | none |
 | `plot-code-generator` | Turn a LaTeX table into a rendered figure by generating plotting code. | execute | experiment | `project.read`, `patch.propose`, `experiment.execute` | `statistics-audit` |
 | `template-migration-agent` | Plan and perform a source-to-target LaTeX template migration. | propose-patch | editor | `project.read`, `patch.propose` | none |

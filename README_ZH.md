@@ -259,9 +259,12 @@ SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
 | --- | --- | --- |
 | `literature-search` | 检索 | 将人工问题扩展为可追溯查询。 |
 | `paper-card` | 创新、方法 | 连接论文论断、方法、实验和局限。 |
-| `dataset-audit` | 写作 | 检查数据来源、访问、许可和可复现性。 |
-| `statistics-audit` | 写作 | 检查实验单位、重复、误差和比较。 |
+| `dataset-audit` | 方法、写作 | 检查数据来源、访问、许可和可复现性。 |
+| `statistics-audit` | 方法、写作 | 检查实验单位、重复、误差和比较。 |
+| `experiment-design-audit` | 方法 | 审批前审查基线、指标、消融、随机种子和成功标准。 |
 | `research-writing` | 写作 | 生成受证据约束的结构、论断和引用。 |
+| `claim-evidence-audit` | 写作 | 把每条论断归类为有支撑／待核验／无支撑。 |
+| `figure-table-plan` | 写作 | 规划图表，含零安装矢量绘图路线与视觉复核。 |
 
 要添加自己的 Skill，打开 `/editor/:projectId/research/direction`，点击 **添加 Skill**，上传包含一个或多个 `SKILL.md` 的目录。上传只会把选中的 Skill 文件存放到 `.dsh/skills`，Skill 指令不能绕过服务端门禁或人工确认。
 

@@ -34,8 +34,8 @@ export const HARNESS_EXECUTED_STAGES = Object.freeze(['search', 'ideation', 'met
 export const DEFAULT_RESEARCH_SKILL_BINDINGS = Object.freeze({
   search: Object.freeze(['literature-search']),
   ideation: Object.freeze(['paper-card']),
-  method: Object.freeze(['paper-card']),
-  writing: Object.freeze(['dataset-audit', 'statistics-audit', 'research-writing'])
+  method: Object.freeze(['paper-card', 'dataset-audit', 'statistics-audit', 'experiment-design-audit']),
+  writing: Object.freeze(['dataset-audit', 'statistics-audit', 'research-writing', 'claim-evidence-audit', 'figure-table-plan'])
 });
 
 export const RESEARCH_SKILL_STAGE_ALIASES = Object.freeze({
