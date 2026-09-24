@@ -5,6 +5,7 @@ import {
   updateResearchWorkflowSkillBindings
 } from '../api/workflowAdapter';
 import { getEvidenceClaimMatrix, type ClaimEvidenceMatrix } from '../api/evidenceAdapter';
+import { getAgentRoles, type AgentRoleSummary } from '../api/client';
 import { listProjects, uploadFiles } from '../api/projectAdapter';
 import {
   cancelExperimentRun,
@@ -182,6 +183,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [claimMatrix, setClaimMatrix] = useState<ClaimEvidenceMatrix | null>(null);
+  const [stageRoles, setStageRoles] = useState<AgentRoleSummary[]>([]);
   const [experimentRun, setExperimentRun] = useState<ExperimentRun | null>(null);
   const skillInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -234,6 +236,16 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   useEffect(() => {
     fetch('/api/agent/runtime').then((response) => response.ok ? response.json() : null).then((value) => setHarnessState(value?.harnessConfigured === true ? 'ready' : 'unavailable')).catch(() => setHarnessState('unavailable'));
   }, []);
+  // Which roles may act at this stage, shown before a run starts. The role
+  // registry is keyed by the workflow vocabulary, so the UI stage id is
+  // translated the same way every other API call translates it.
+  useEffect(() => {
+    let cancelled = false;
+    getAgentRoles(toHarnessResearchStage(stage))
+      .then((result) => { if (!cancelled) setStageRoles(Array.isArray(result?.roles) ? result.roles : []); })
+      .catch(() => { if (!cancelled) setStageRoles([]); });
+    return () => { cancelled = true; };
+  }, [stage]);
   useEffect(() => {
     void refreshClaimMatrix().catch(() => setClaimMatrix(null));
   }, [refreshClaimMatrix, workflow.version]);
@@ -409,7 +421,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   if (loading) return <div className={`research-stage-loading${embedded ? ' is-embedded' : ''}`}>正在加载研究流程…</div>;
   const stageIndex = RESEARCH_STAGES.findIndex((item) => item.id === stage);
   return <>
-    <ResearchStageLayout projectId={projectId} projectName={projectName || `项目 ${projectId}`} stage={stage} embedded={embedded} stageStatuses={stageStatuses(workflow)} harnessState={harnessState} busy={busy} context={context} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} onBackToEditor={() => navigate(`/editor/${projectId}`)} onRefresh={() => void loadWorkflow()} onApprove={workflow.activeStage === stage ? approveStage : undefined} onPrevious={stageIndex > 0 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex - 1].id}`) : undefined} onNext={stageIndex < RESEARCH_STAGES.length - 1 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex + 1].id}`) : undefined}>
+    <ResearchStageLayout projectId={projectId} projectName={projectName || `项目 ${projectId}`} stage={stage} embedded={embedded} stageStatuses={stageStatuses(workflow)} harnessState={harnessState} roleSummaries={stageRoles.map((role) => ({ id: role.id, authority: role.authority, capabilities: role.capabilities, skills: role.skills }))} busy={busy} context={context} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} onBackToEditor={() => navigate(`/editor/${projectId}`)} onRefresh={() => void loadWorkflow()} onApprove={workflow.activeStage === stage ? approveStage : undefined} onPrevious={stageIndex > 0 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex - 1].id}`) : undefined} onNext={stageIndex < RESEARCH_STAGES.length - 1 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex + 1].id}`) : undefined}>
       {error && <div className="research-callout research-callout-warning" role="alert"><strong>操作未完成</strong><p>{error}</p><button className="research-button research-button-quiet" onClick={() => void loadWorkflow()} disabled={busy}>重新读取状态</button></div>}
       {notice && <div className="research-callout" role="status"><p>{notice}</p></div>}
       {!error && workflow.task?.status === 'failed' && <div className="research-callout research-callout-warning" role="alert"><strong>任务执行失败</strong><p>{workflow.task.error?.message || '请检查配置后重试。'}</p><button className="research-button research-button-quiet" onClick={() => navigate(`/project/${projectId}/tasks`)}>查看任务与重试</button></div>}

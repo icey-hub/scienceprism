@@ -16,6 +16,12 @@ export interface ResearchStageLayoutProps {
   embedded?: boolean;
   stageStatuses?: Partial<Record<ResearchStageId, ResearchStageStatus>>;
   harnessState?: 'ready' | 'checking' | 'unavailable';
+  roleSummaries?: {
+    id: string;
+    authority: string;
+    capabilities: string[];
+    skills: string[];
+  }[] | null;
   busy?: boolean;
   context?: ReactNode;
   children: ReactNode;
@@ -34,6 +40,7 @@ export function ResearchStageLayout({
   embedded = false,
   stageStatuses = {},
   harnessState = 'checking',
+  roleSummaries = null,
   busy = false,
   context,
   children,
@@ -105,6 +112,31 @@ export function ResearchStageLayout({
           </div>
           <ResearchStageNavigation activeStage={stage} stageStatuses={stageStatuses} onNavigate={onNavigate} />
           <p className="research-human-note"><b>H</b> 每个阶段都需要人工确认，Skill 不能越过审批。</p>
+          {roleSummaries && roleSummaries.length > 0 && (
+            <section className="research-role-summary" aria-label="本阶段运行角色">
+              <span className="research-overline">RUNNING ROLE</span>
+              {roleSummaries.map((role) => (
+                <div className="research-role-summary-item" key={role.id}>
+                  <strong>{role.id}</strong>
+                  <dl>
+                    <div>
+                      <dt>权限</dt>
+                      <dd>{role.authority}</dd>
+                    </div>
+                    <div>
+                      <dt>能力</dt>
+                      <dd>{role.capabilities.length ? role.capabilities.join(', ') : '无'}</dd>
+                    </div>
+                    <div>
+                      <dt>可用 Skill</dt>
+                      <dd>{role.skills.length ? role.skills.join(', ') : '无'}</dd>
+                    </div>
+                  </dl>
+                </div>
+              ))}
+              <p className="research-role-summary-note">角色只能收窄权限，不能扩大；审批仍由人工完成。</p>
+            </section>
+          )}
         </aside>
 
         {stageMain}

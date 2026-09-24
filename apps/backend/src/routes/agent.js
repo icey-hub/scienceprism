@@ -1,10 +1,28 @@
 import { callOpenAICompatible } from '../services/llmService.js';
 import { getAgentRuntimeStatus, runAgentRuntime } from '../services/agentRuntime.js';
+import { listRoles, roleCatalog } from '../services/agentRoles/index.js';
 import { getLang, t } from '../i18n/index.js';
 
 export function registerAgentRoutes(fastify) {
   fastify.get('/api/agent/runtime', async (req) => {
     return { ok: true, ...getAgentRuntimeStatus(req.query || {}) };
+  });
+
+  // Visibility before a run: which role acts for a stage, with what authority,
+  // which capabilities, and which skills. The registry has existed since
+  // iteration 018 but was only reachable from inside the backend.
+  fastify.get('/api/agent/roles', async (req) => {
+    const stage = typeof req.query?.stage === 'string' && req.query.stage.trim() ? req.query.stage.trim() : undefined;
+    const roles = listRoles(stage ? { stage } : {}).map((role) => ({
+      id: role.id,
+      purpose: role.purpose,
+      authority: role.authority,
+      capabilities: role.allowedCapabilities,
+      skills: role.allowedSkills,
+      forbiddenActions: role.forbiddenActions,
+      stageScope: role.stageScope
+    }));
+    return { ok: true, stage: stage || null, catalog: roleCatalog(), roles };
   });
 
   fastify.post('/api/agent/run', async (req) => {

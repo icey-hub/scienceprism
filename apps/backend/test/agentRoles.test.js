@@ -119,3 +119,38 @@ test('the role registry exposes consistent projections', () => {
     assert.ok(rendered.includes(`\`${role.id}\``), `rendered role table is missing ${role.id}`);
   }
 });
+
+test('the role registry is exposed for pre-run visibility', async () => {
+  const Fastify = (await import('fastify')).default;
+  const { registerAgentRoutes } = await import('../src/routes/agent.js');
+  const app = Fastify();
+  registerAgentRoutes(app);
+
+  const all = await app.inject({ method: 'GET', url: '/api/agent/roles' });
+  assert.equal(all.statusCode, 200);
+  assert.equal(all.json().ok, true);
+  assert.equal(all.json().roles.length, AGENT_ROLES.length);
+  assert.equal(all.json().catalog.total, AGENT_ROLES.length);
+
+  // A stage filter narrows to the roles that can act there.
+  const writing = await app.inject({ method: 'GET', url: '/api/agent/roles?stage=writing' });
+  assert.equal(writing.statusCode, 200);
+  const writingRoles = writing.json().roles;
+  assert.ok(writingRoles.length > 0 && writingRoles.length < AGENT_ROLES.length);
+  assert.ok(writingRoles.every((role) => role.stageScope.includes('writing')));
+
+  // The projection must carry what a person needs to judge a run before it
+  // starts: who acts, with what authority, and what it may touch.
+  const assistant = writingRoles.find((role) => role.id === 'research-stage-assistant');
+  assert.equal(assistant.authority, 'suggest-only');
+  assert.deepEqual(assistant.capabilities, ['project.read']);
+  assert.ok(assistant.skills.includes('claim-evidence-audit'));
+  assert.ok(assistant.forbiddenActions.length > 0);
+
+  // An unknown stage must not silently return every role.
+  const unknown = await app.inject({ method: 'GET', url: '/api/agent/roles?stage=not-a-stage' });
+  assert.equal(unknown.statusCode, 200);
+  assert.deepEqual(unknown.json().roles, []);
+
+  await app.close();
+});

@@ -330,6 +330,29 @@ export function getAgentRuntime() {
   );
 }
 
+/**
+ * The role that acts for a stage, with its authority, capabilities, and skills.
+ * Read before a run so a person can see what is about to act on their behalf.
+ */
+export interface AgentRoleSummary {
+  id: string;
+  purpose: string;
+  authority: 'suggest-only' | 'propose-patch' | 'execute' | 'interpret-results';
+  capabilities: string[];
+  skills: string[];
+  forbiddenActions: string[];
+  stageScope: ResearchStageId[];
+}
+
+export function getAgentRoles(stage?: ResearchStageId) {
+  return request<{
+    ok: boolean;
+    stage: ResearchStageId | null;
+    catalog: { total: number; entrypointCount: number };
+    roles: AgentRoleSummary[];
+  }>(`/api/agent/roles${stage ? `?stage=${encodeURIComponent(stage)}` : ''}`);
+}
+
 export interface HarnessRun {
   id: string;
   projectId: string;
@@ -754,6 +777,12 @@ export async function visionToLatex(payload: {
   return res.json() as Promise<{ ok: boolean; latex?: string; assetPath?: string; error?: string }>;
 }
 
+/**
+ * The workflow ("harness") stage vocabulary, which calls the innovation stage
+ * `ideation`. The UI stage vocabulary in app/research/researchStages.ts calls it
+ * `innovation` and bridges with toHarnessResearchStage; the two lists are
+ * otherwise identical, which is a duplication worth removing.
+ */
 export type ResearchStageId =
   | 'direction'
   | 'search'
