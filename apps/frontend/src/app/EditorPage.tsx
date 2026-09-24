@@ -885,7 +885,7 @@ export default function EditorPage() {
   const [diffFocus, setDiffFocus] = useState<PendingChange | null>(null);
   const [activeSidebar, setActiveSidebar] = useState<'files' | 'agent' | 'vision' | 'search' | 'websearch' | 'plot' | 'review' | 'collab' | 'research'>('files');
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 760);
-  const [researchContextOpen, setResearchContextOpen] = useState(true);
+  const [researchContextOpen, setResearchContextOpen] = useState(false);
   const [researchWorkspaceState, setResearchWorkspaceState] = useState<ResearchWorkspaceState | null>(null);
   const [columnSizes, setColumnSizes] = useState({ sidebar: 260, editor: 640, right: 420 });
   const [editorSplit, setEditorSplit] = useState(0.7);
@@ -1004,7 +1004,6 @@ export default function EditorPage() {
   useEffect(() => {
     if (researchMode) {
       setActiveSidebar('research');
-      setSidebarOpen(true);
       return;
     }
     setActiveSidebar((current) => current === 'research' ? 'files' : current);
@@ -3314,9 +3313,9 @@ export default function EditorPage() {
   );
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell workspace-shell${researchMode ? ' is-research' : ' is-writing'}`}>
       <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active={researchMode ? 'research' : 'writing'} />
-      <header className="top-bar">
+      {researchMode ? <header className="research-command-bar"><span>{t('研究工作区')}</span><div><button className="btn ghost" onClick={() => navigate(`/project/${projectId}/tasks`)}>{t('任务进度')}</button><button className="btn ghost" aria-pressed={researchContextOpen} onClick={() => setResearchContextOpen((open) => !open)}><PanelRight size={16} />{t('研究上下文')}</button></div></header> : <header className="top-bar">
         <div className="editor-titlebar">
           <button className="icon-btn" onClick={() => setSidebarOpen((prev) => !prev)} title={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')} aria-label={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')}>
             <PanelLeft size={17} />
@@ -3361,9 +3360,9 @@ export default function EditorPage() {
             </button>
           </div>
         </div>
-      </header>
+      </header>}
 
-      <div className="status-bar">
+      {!researchMode && <div className="status-bar">
         <div className="status-left">
           <div>{status}</div>
           <div className={`save-indicator ${isSaving ? 'saving' : isDirty ? 'dirty' : 'saved'} ${savePulse ? 'pulse' : ''}`}>
@@ -3374,7 +3373,9 @@ export default function EditorPage() {
         <div className="status-right">
           {t('Compile')}: {compileEngine} · {t('Engine')}: {engineName || t('未初始化')}
         </div>
-      </div>
+      </div>}
+
+      {researchMode && <div className="workspace-stage-strip"><ResearchStageNavigation activeStage={activeResearchStage} stageStatuses={researchWorkspaceState?.stageStatuses} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} /></div>}
 
       <main
         className={`workspace${researchMode ? ' research-mode' : ''}${researchMode && !researchContextOpen ? ' context-closed' : ''}`}
@@ -3386,7 +3387,7 @@ export default function EditorPage() {
           '--col-right': researchMode && !researchContextOpen ? '0px' : `${columnSizes.right}px`
         } as CSSProperties}
       >
-        {sidebarOpen && (
+        {!researchMode && sidebarOpen && (
           <aside className="panel side-panel">
             <div className="sidebar-tabs">
               <div className="tab-group">
@@ -4662,7 +4663,7 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
           </aside>
         )}
 
-        {sidebarOpen && (
+        {!researchMode && sidebarOpen && (
           <div
             className="drag-handle vertical sidebar-handle"
             onMouseDown={(e) => startColumnDrag('left', e)}

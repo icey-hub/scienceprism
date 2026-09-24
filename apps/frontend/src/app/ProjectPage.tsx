@@ -152,6 +152,7 @@ export default function ProjectPage() {
     if (action === 'create') setCreateOpen(true);
     if (action === 'import') setImportOpen(true);
     if (action === 'templates') setTemplateGalleryOpen(true);
+    if (action === 'settings') setSettingsOpen(true);
     if (action) setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams]);
 

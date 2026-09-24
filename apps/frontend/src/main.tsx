@@ -8,6 +8,7 @@ import i18n from './i18n';
 import './app/design-tokens.css';
 import './app/App.css';
 import './app/apple-ui.css';
+import './app/workspace-ui.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

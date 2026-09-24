@@ -164,14 +164,13 @@ function Library({ dashboard, projectId }: { dashboard: ProjectDashboard; projec
   const importCandidate = async (paper: Partial<PaperLibraryRecord>) => {
     try { await importProjectPaper(projectId, { ...paper, title: paper.title || 'Untitled paper' }); setStatus('论文已加入资料库'); await load(); } catch (err) { setStatus(String(err)); }
   };
-  const update = async (paper: PaperLibraryRecord, patch: Partial<PaperLibraryRecord>) => { try { await updateProjectPaper(projectId, paper.id, patch); await load(); } catch (err) { setStatus(String(err)); } };
+  const update = async (paper: PaperLibraryRecord, patch: Partial<PaperLibraryRecord>) => { try { await updateProjectPaper(projectId, paper.id, patch); await load(); setStatus('资料已保存'); return true; } catch (err) { setStatus(`保存失败：${String(err)}`); return false; } };
   const beginEdit = (paper: PaperLibraryRecord) => { setEditingId(paper.id); setNoteDraft(paper.notes); setAnnotationDraft(''); setTagDraft(''); };
   const saveEdit = async (paper: PaperLibraryRecord) => {
     const tags = tagDraft.trim() ? [...new Set([...paper.tags, ...tagDraft.split(',').map((item) => item.trim()).filter(Boolean)])] : paper.tags;
     const annotationTime = new Date().toISOString();
     const annotations = annotationDraft.trim() ? [...paper.annotations, { id: crypto.randomUUID(), text: annotationDraft.trim(), createdAt: annotationTime, updatedAt: annotationTime }] : paper.annotations;
-    await update(paper, { notes: noteDraft, tags, annotations });
-    setEditingId(null);
+    if (await update(paper, { notes: noteDraft, tags, annotations })) setEditingId(null);
   };
   return <>
     <div className="hub-page-heading"><div><span className="hub-kicker">PAPER LIBRARY</span><h2>论文资料库</h2><p>把检索候选、来源、阅读判断、笔记和 Evidence 放在同一份项目记录里。</p></div><div className="hub-heading-stat"><strong>{dashboard.library.count}</strong><span>篇已导入</span></div></div>
@@ -227,8 +226,8 @@ export default function ProjectDashboardPage() {
   const [error, setError] = useState('');
   const load = useCallback(async () => { setLoading(true); setError(''); try { const result = await getProjectDashboard(projectId); setDashboard(result.dashboard); } catch (err) { setError(err instanceof Error ? err.message : String(err)); } finally { setLoading(false); } }, [projectId]);
   useEffect(() => { load(); }, [load]);
-  if (loading && !dashboard) return <div className="project-hub-loading">正在读取项目状态…</div>;
-  if (error && !dashboard) return <div className="project-hub-loading hub-error">{error}</div>;
+  if (loading && !dashboard) return <Layout projectId={projectId} projectName="" view={view}><div className="project-hub-loading" role="status">正在读取项目状态…</div></Layout>;
+  if (error && !dashboard) return <Layout projectId={projectId} projectName="项目" view={view}><div className="project-hub-loading hub-error" role="alert">{error}<button className="hub-small-button" onClick={() => void load()}>重试</button></div></Layout>;
   if (!dashboard) return null;
   const content = !dashboard.initialized && view === 'overview'
     ? <SetupCard projectId={projectId} onDone={load} />

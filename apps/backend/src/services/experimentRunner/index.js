@@ -341,7 +341,7 @@ async function executeRun(projectId, runId, control) {
     current.metrics = metrics;
     current.artifacts = artifacts;
     current.error = executionError
-      ? { code: executionError.code, message: executionError.message, retryable: status === 'failed' }
+      ? { code: executionError.code, message: executionError.message, retryable: status === 'failed' && executionError.code !== 'EXPERIMENT_SANDBOX_UNAVAILABLE' }
       : status === 'failed'
         ? { code: 'EXPERIMENT_EXIT_NONZERO', message: `Experiment process exited with code ${result?.exitCode ?? 'unknown'}.`, retryable: true }
         : null;

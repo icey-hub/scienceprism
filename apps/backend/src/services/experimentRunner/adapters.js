@@ -31,12 +31,38 @@ function sandboxPathFilters(paths) {
   return [...filters];
 }
 
+const sandboxExecutable = '/usr/bin/sandbox-exec';
+let sandboxApplicability = null;
+
+// Existence of sandbox-exec does not mean it can apply a sandbox: under an outer
+// sandbox (containers, CI, agent harnesses) sandbox_apply is denied at runtime.
+// Probe once per process so the run fails with a diagnosable code instead of exit 71.
+function probeSandboxApplicability() {
+  if (!sandboxApplicability) {
+    sandboxApplicability = new Promise((resolve) => {
+      const probe = spawn(sandboxExecutable, ['-p', '(version 1)(allow default)', process.execPath, '-e', ''], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      probe.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      probe.once('error', (error) => resolve({ ok: false, reason: error.message }));
+      probe.once('close', (code) => resolve(code === 0 ? { ok: true } : { ok: false, reason: stderr.trim().split('\n')[0] || `sandbox-exec exited with code ${code}` }));
+    });
+  }
+  return sandboxApplicability;
+}
+
+function isSandboxApplyFailure(stderr) {
+  return /^sandbox-exec:|sandbox_apply/m.test(String(stderr || ''));
+}
+
 async function macSandboxCommand(workspaceRoot, entrypoint, args) {
-  const sandboxExecutable = '/usr/bin/sandbox-exec';
   try {
     await fs.access(sandboxExecutable);
   } catch {
     throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', 'macOS sandbox-exec is unavailable; the Experiment Run was not started.');
+  }
+  const applicability = await probeSandboxApplicability();
+  if (!applicability.ok) {
+    throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `macOS sandbox-exec cannot apply a sandbox in this environment (${applicability.reason}); the Experiment Run was not started.`);
   }
   const nodeRealPath = await fs.realpath(process.execPath);
   const workspaceRealPath = await fs.realpath(workspaceRoot);
@@ -118,6 +144,9 @@ export async function runNodeExperiment(manifest, { workspaceRoot, inputPath, si
     child.once('error', reject);
     child.once('close', (exitCode, closeSignal) => resolve({ exitCode, signal: closeSignal, stdout, stderr }));
   });
+  if (result.exitCode !== 0 && isSandboxApplyFailure(result.stderr)) {
+    throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `macOS sandbox-exec could not apply the run profile (${String(result.stderr).trim().split('\n')[0]}); the Experiment Run did not execute.`);
+  }
   return result;
 }
 

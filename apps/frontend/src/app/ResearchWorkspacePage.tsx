@@ -228,7 +228,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   useEffect(() => { void loadWorkflow(); }, [loadWorkflow]);
   useEffect(() => {
     if (!experimentRun || !['awaiting_approval', 'approved', 'running'].includes(experimentRun.status)) return undefined;
-    const timer = window.setInterval(() => { void refreshExperimentRun(); }, 1000);
+    const timer = window.setInterval(() => { void refreshExperimentRun().catch((requestError) => setError(`运行状态刷新失败：${getErrorMessage(requestError)}`)); }, 2000);
     return () => window.clearInterval(timer);
   }, [experimentRun, refreshExperimentRun]);
   useEffect(() => {
@@ -246,7 +246,12 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
     setBusy(true); setError(''); setNotice('');
     try {
       const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
-      const next = commitWorkflow(payload); setNotice(successMessage); return next;
+      const next = commitWorkflow(payload);
+      if (next.task?.status === 'failed') {
+        setError(next.task.error?.message || '任务执行失败，请检查配置后重试。');
+        return null;
+      }
+      setNotice(successMessage); return next;
     } catch (requestError) { setError(`操作失败：${getErrorMessage(requestError)}`); return null; }
     finally { setBusy(false); }
   }, [commitWorkflow, projectId, workflow.version]);
@@ -405,10 +410,12 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const stageIndex = RESEARCH_STAGES.findIndex((item) => item.id === stage);
   return <>
     <ResearchStageLayout projectId={projectId} projectName={projectName || `项目 ${projectId}`} stage={stage} embedded={embedded} stageStatuses={stageStatuses(workflow)} harnessState={harnessState} busy={busy} context={context} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} onBackToEditor={() => navigate(`/editor/${projectId}`)} onRefresh={() => void loadWorkflow()} onApprove={workflow.activeStage === stage ? approveStage : undefined} onPrevious={stageIndex > 0 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex - 1].id}`) : undefined} onNext={stageIndex < RESEARCH_STAGES.length - 1 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex + 1].id}`) : undefined}>
-      {error && <div className="research-callout research-callout-warning"><strong>操作未完成</strong><p>{error}</p></div>}
-      {notice && <div className="research-callout"><strong>已更新</strong><p>{notice}</p></div>}
+      {error && <div className="research-callout research-callout-warning" role="alert"><strong>操作未完成</strong><p>{error}</p><button className="research-button research-button-quiet" onClick={() => void loadWorkflow()} disabled={busy}>重新读取状态</button></div>}
+      {notice && <div className="research-callout" role="status"><p>{notice}</p></div>}
+      {!error && workflow.task?.status === 'failed' && <div className="research-callout research-callout-warning" role="alert"><strong>任务执行失败</strong><p>{workflow.task.error?.message || '请检查配置后重试。'}</p><button className="research-button research-button-quiet" onClick={() => navigate(`/project/${projectId}/tasks`)}>查看任务与重试</button></div>}
+      {workflow.sourceFailures?.length ? <div className="research-callout research-callout-warning" role="status"><strong>部分来源未能完成检索</strong><ul>{workflow.sourceFailures.map((failure, index) => <li key={index}>{failure.source}：{failure.message || '检索失败'}</li>)}</ul></div> : null}
       {renderStage()}
-      <button className="research-button research-button-quiet research-reset-button" disabled={busy} onClick={() => void resetWorkflow()} type="button">重置研究流程</button>
+      <details className="research-maintenance"><summary>研究流程管理</summary><p>重置会清空已保存的阶段数据，请谨慎操作。</p><button className="research-button research-button-quiet research-reset-button" disabled={busy} onClick={() => void resetWorkflow()} type="button">重置研究流程</button></details>
     </ResearchStageLayout>
     <input ref={skillInputRef} hidden multiple onChange={handleSkillFiles} type="file" {...({ webkitdirectory: '', directory: '' } as Record<string, unknown>)} />
   </>;
