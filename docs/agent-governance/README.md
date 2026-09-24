@@ -94,17 +94,13 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：Round 3 进行中（迭代 021–030）。**
+**阶段：Round 3 已完成（迭代 021–030）→ 进入 Round 4。**
 
-- **Round 3 进度**：021 ✅ 复杂矢量插画级绘图方案；022 ✅ **减**：删掉一半不可达的 skill 绑定 + 孤儿 skill；023 ✅ **验证**：绘图产物接可复现门禁 + 回填 R-12/R-13；024 ✅ **加**：产品侧 skill 补齐（5 → 8 个）+ 技能集锁；025 ✅ **减**：开发侧 playbook 落地 + `.dsh/skills` 隔离门禁；026 ✅ **验证**：门禁 exit 0、零依赖变更、越界复查通过；027 ✅ **加**：收口 C-07——实现人工确认的 Patch 应用路径（漂移 **5 → 4**）；028 ✅ **减**：删死代码（零引用导出 **9 → 2**，含整个 `deepseekHarnessService.js`）；029 ✅ **验证**：门禁 exit 0、漂移 4、越界复查通过；下一步 030（Round 3 收尾 + 对比文档）。
-- **剩余漂移 4 条**：C-04（actor 自报）、C-09（`assertNetworkHost` 未接进 Harness 路径）、C-10（legacy 适配器不接收 limits）、C-11（不确定性字段全为可选）。
-- **目标 ③ 已闭环**：产品侧 8 个 skill（全部绑到真正会跑 Harness 的 4 个阶段）+ 开发侧 2 份 playbook（`playbooks/adding-a-constraint.md`、`playbooks/verification-discipline.md`），并有隔离门禁防止两者混放。
-- **越界事故已闭环**：我因脚本路径写错，曾把 4 张图写到**工作区外**的 `/Users/icey/Desktop/project/prism-code/docs/`；根因已修（`REPO_ROOT` 层级），并在**取得用户明确授权后**删除该目录，复查无残留、父目录完好。
-- **skill 可达性已成为不变量**：3 项门禁测试锁住「声明可达阶段 == 代码实际调用」「绑定不得指向不跑 Harness 的阶段」「每个捆绑 skill 必须可达」。
-- **绘图结论**：主方案 = **手写 SVG**。它是本机约束下唯一同时满足「能画复杂插画 + 零安装 + 离线 + 中文直出 + 可 diff + 不越界写缓存」的方案。产物在 `docs/agent-governance/assets/diagrams/`，详见 `drawing-comparison.md`。
-- **剩余待办**：目标 ③ skill 补齐；目标 ⑤ `aidoc/` 落点策略；剩余 5 条漂移（C-04/C-07/C-09/C-10/C-11）。
-- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 22 拍）。
-
+- **Round 3 收尾**：对比文档 `rounds/round-03-comparison.md`；tag `round-03-complete`；分支 `feat/agent-governance-r3` 推 `scienceprism`。
+- **Round 3 关键指标**：后端测试 **78 → 90**；漂移 **5 → 4**（C-07 收口）；产品 skill **5 → 8** 且绑定阶段 **8 → 4（全部可达）**；开发侧 playbook **0 → 2**；复杂矢量插画产物 **0 → 4 张**；零引用死代码 **9 → 2**；**零依赖变更**。
+- **目标完成度**：① ✅ ｜ ② ✅ ｜ ③ ✅（产品 8 skill + 开发 2 playbook + 隔离门禁）｜ ④ ✅（复杂矢量插画，细胞结构图）｜ ⑤ ⚠️ 部分（工具已产出 1 篇到 `aidoc/`，产品侧落点策略未落地）。
+- **Round 4 首批目标**：剩余 4 条漂移（C-04/C-09/C-10/C-11）、`aidoc/` 落点策略（R-15）、角色在前端展示、失败重试回灌。
+- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 30 拍）。
 - 子 agent 机制实测：6 次派发 5 次失败，且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主**（U-15），派发前先查存活数（U-16）。
 
 ## 历史轮次（细节见各自对比文档）
@@ -113,6 +109,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 | --- | --- | --- | --- | --- |
 | Round 1（001–010） | `feat/agent-governance-r1` | `round-01-complete` | `rounds/round-01-comparison.md` | 测试 40（36 通过 / 4 失败）→ 51 全通过；工具首次产出文档 `aidoc/aidoc-research-document/research/writing-brief.md`；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0 |
 | Round 2（011–020） | `feat/agent-governance-r2` | `round-02-complete` | `rounds/round-02-comparison.md` | 测试 51 → 78；约束注册表落地且 16/16 有测试；漂移 9 → 5；角色 0 → 8 并接入 Runtime；高危绕过 1 fail-closed / 2 可拒绝 / 1 降级；零依赖变更 |
+| Round 3（021–030） | `feat/agent-governance-r3` | `round-03-complete` | `rounds/round-03-comparison.md` | 测试 78 → 90；复杂矢量插画落地（细胞结构图，零安装）；skill 5 → 8 且绑定 8 → 4 全可达；开发侧 playbook 0 → 2；C-07 收口（实现 Patch 应用路径），漂移 5 → 4；死代码 9 → 2；零依赖变更 |
 
 Round 1 的 PR 待你审：https://github.com/icey-hub/scienceprism/pull/new/feat/agent-governance-r1
 
