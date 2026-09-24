@@ -27,6 +27,16 @@ import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
+
+/**
+ * The statuses that mean a Harness Run has finished.
+ *
+ * Exported because observability asks the same question. Four call sites used to
+ * repeat the literal list across two modules, so adding a terminal status meant
+ * finding all of them; missing one would leave a finished Run looking active in
+ * the run centre, or make decideHarnessRun refuse a Run that had already ended.
+ */
+export const TERMINAL_HARNESS_RUN_STATUSES = Object.freeze(['completed', 'failed', 'cancelled']);
 // Sensitive directories are owned by capabilities.js, and every call site below
 // already checks isSensitivePath. This used to carry a second copy of the same
 // six names, which could only drift out of step with the real filter.
@@ -587,7 +597,7 @@ export async function cancelHarnessRun(projectId, runId) {
   const active = activeRuns.get(runId);
   if (!active) {
     return updateRun(projectId, runId, (current) => {
-      if (['completed', 'failed', 'cancelled'].includes(current.status)) return current;
+      if (TERMINAL_HARNESS_RUN_STATUSES.includes(current.status)) return current;
       current.status = 'cancelled';
       current.finishedAt = now();
       current.updatedAt = current.finishedAt;
@@ -609,7 +619,7 @@ export async function replayHarnessRun(projectId, runId, { request = {}, start =
 export async function decideHarnessRun(projectId, runId, { decision, actor = 'human', note = '' } = {}) {
   if (!['accept', 'reject'].includes(decision)) throw new HarnessRuntimeError(400, 'INVALID_HUMAN_DECISION', 'decision must be accept or reject.');
   return updateRun(projectId, runId, (run) => {
-    if (!['completed', 'failed', 'cancelled'].includes(run.status)) {
+    if (!TERMINAL_HARNESS_RUN_STATUSES.includes(run.status)) {
       throw new HarnessRuntimeError(409, 'HARNESS_RUN_NOT_DECIDABLE', 'Only a finished Harness Run can receive a human decision.');
     }
     run.humanDecision = { status: decision === 'accept' ? 'accepted' : 'rejected', actor: String(actor), note: String(note || ''), at: now() };

@@ -30,6 +30,9 @@ function normalizeTask(input, existing = {}) {
     metadata: { ...(existing.metadata || {}), ...(input.metadata || {}) },
     createdAt: existing.createdAt || at,
     startedAt: input.startedAt || existing.startedAt || (status === 'running' ? at : null),
+    // Deliberately its own list, not TERMINAL_HARNESS_RUN_STATUSES: this is the
+    // task vocabulary, which also contains rejected, and a finished task is not
+    // the same concept as a finished Harness Run. The strings coincide today.
     finishedAt: input.finishedAt || existing.finishedAt || (['completed', 'failed', 'cancelled'].includes(status) ? at : null),
     updatedAt: at
   };

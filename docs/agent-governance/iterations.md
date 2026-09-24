@@ -150,7 +150,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 045 | 减 | 删掉敏感目录表的第二份拷贝（该表若漂移会直接影响隔离安全） | ✅ |
 | 046 | 验证 | 验证 044–045：门禁 + 回归 + 边界自检 + 隔离行为实证 | ✅ |
 | 047 | 加 | **`project-constraints.md` 整表由注册表生成**（末个人工维护面消失，门禁比对整表而非仅 id 集合） | ✅ |
-| 048 | 减 | 待取证 | ⬜ |
+| 048 | 减 | “什么算已结束的 Run”从 **4 处调用点**收敛为 1 个常量（并判定 taskCenter 那处不该合并） | ✅ |
 | 049 | 验证 | 验证 047–048 | ⬜ |
 | 050 | 验证 | Round 5 收尾 + `rounds/round-05-comparison.md` + 推 scienceprism | ⬜ |
 
@@ -168,6 +168,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 045 | 减 | **删掉敏感目录表的第二份拷贝**。取证：`capabilities.js` 的 `SENSITIVE_DIRECTORIES` 与 `harnessRuntime/index.js` 的 `IGNORED_DIRS` 是**同一份 6 个目录名**（`.git` / `.scienceprism` / `.openprism` / `.agent_runs` / `.cache` / `node_modules`）。这组重复**比其他几组更危险**：它决定哪些目录不进入 Harness 工作区、不进入 Context Pack——两份一旦漂移，就会出现"被 `isSensitivePath` 拦住、却被另一处放行"的缝隙。**删除的安全性依据**：① `IGNORED_DIRS` 全仓只有 **2 个使用点**，**两处都已同时调用 `isSensitivePath`**；② 实测 `isSensitivePath` 对 6 个目录名的**裸名、子路径、目录内文件**三种形态全部返回 true。故删除是**行为等价**的 | `npm run quality` exit 0（**107 项**，106 → 107，**与删除前测试数一致**——证明是等价删除而非行为变更）；**跨文件重复字面量组 5 → 4**；新增 1 项门禁：① `harnessRuntime/index.js` **不得再出现 `IGNORED_DIRS`**（源码扫描）；② `isSensitivePath` 必须覆盖 6 个目录的三种形态；③ **普通项目文件（`main.tex`、`sections/method.tex`）不得被该过滤器误伤** |
 | 046 | 验证 | 验证 044–045 两拍：全量门禁 + 回归 + 工作区边界自检 + **隔离行为实证** | ① `npm run quality` **exit 0**（107 项 / 0 失败 / 前端 tsc / build）。② 约束注册表：**17 条、17/17 有测试、漂移 0**。③ **隔离行为实证**（不只看测试绿）：删除 `IGNORED_DIRS` 后直接调用 `isSensitivePath('.git')=true`、`isSensitivePath('.env')=true`、`isSensitivePath('main.tex')=false`；`isPathAllowed('main.tex', 默认策略)=true`、`isPathAllowed('.env', 默认策略)=false`——**敏感文件仍被拦、普通文件仍放行**。④ 边界：`package.json` / `package-lock.json` **零变更**；工作区外无目录；`/tmp` 无我的残留 |
 | 047 | 加 | **`project-constraints.md` 整表改为由注册表生成**——这是**最后一个人工维护的约束面**。取证：文档表格有 6 列（ID / Constraint / **Module** / **Validation location** / **Failure behaviour** / State），而注册表只有 5 个字段，**缺 Module 与 Failure behaviour**，所以此前只能用门禁比对 **id 集合**——行内的失败行为写错了也查不出来。处置：① 把文档现有数据**程序化提取**并注入注册表，为 17 条各补 `module` / `failure` / `validationLocation` 三个字段（`validationLocation` 保留原文散文，`enforcement` 仍是机器校验的指针）；② 新增 `renderConstraintTable()` 按文档自身的列渲染；③ 用渲染结果**重新生成**文档表格；④ 文档顶部写明"此表为生成物，请改注册表"；⑤ 门禁从"比对 id 集合"升级为**比对整张表**，并在注册表 well-formed 测试里要求三个新字段存在 | `npm run quality` exit 0（**108 项**，107 → 108，含前端 tsc 与 build）；**门禁实证**：手动往 C-01 行插入 `TAMPERED` → 门禁**变红**并报 `differs from the registry projection; regenerate it instead of editing it by hand`；还原 → **恢复绿**，无临时文件残留；实测"提交表格 == 渲染结果: **true**" |
+| 048 | 减 | **"什么算已结束的 Harness Run"从 4 处调用点收敛为 1 个常量**。取证：`['completed','failed','cancelled']` 在 **2 个模块的 4 个调用点**重复出现（`harnessRuntime` 的取消与人工决定各 1 处、`observability` 的时长计算与汇总过滤各 1 处）。语义是同一个："Run 是否已结束"。**漂移后果具体**：新增一个终止状态（如 `timed_out`）时必须找齐 4 处，漏掉一处就会让**已结束的 Run 在运行中心永远显示为进行中**，或让 `decideHarnessRun` **拒绝一个早已结束的 Run**。处置：导出 `TERMINAL_HARNESS_RUN_STATUSES`，4 处改为引用。**关键判断：第 5 处不该合并**——`taskCenter.js:33` 的同一字面量属于 **task 词汇**（`TASK_STATUSES` 还含 `queued`/`rejected`），"任务结束"与"Run 结束"**不是同一概念，只是字符串巧合**；强行合并会在两者语义分岔时埋雷，故保留并**加注释说明为何不合并** | `npm run quality` exit 0（**109 项**，108 → 109，含前端 tsc 与 build）；新增 1 项门禁：① 常量内容必须是这 3 个值；② **源码扫描** `harnessRuntime/index.js` 里该字面量**只能出现 1 次**（定义处）、`observability/index.js` **必须 0 次**；③ 断言 `taskCenter` 仍持有自己的 `TASK_STATUSES`（防止被"顺手合并"）。**诚实说明**：朴素扫描的"重复组数"仍是 4（定义处 + taskCenter 有意保留被算作一组），**真正的改善是调用点 4 → 1**，由门禁锁住 |
 
 ## 环境变化记录
 

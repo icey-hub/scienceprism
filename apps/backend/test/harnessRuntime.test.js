@@ -436,3 +436,29 @@ test('every adapter receives the Run limits, not only the DeepSeek SDK', async (
   assert.equal(captured.limits.timeoutMs, PROJECT_CONSTRAINT_LIMITS.timeoutMs);
   assert.equal(captured.limits.maxTokens, PROJECT_CONSTRAINT_LIMITS.maxTokens);
 });
+
+test('the terminal Harness Run statuses have one definition', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { TERMINAL_HARNESS_RUN_STATUSES } = await import('../src/services/harnessRuntime/index.js');
+
+  assert.deepEqual([...TERMINAL_HARNESS_RUN_STATUSES], ['completed', 'failed', 'cancelled']);
+
+  // Two modules used to repeat this literal list at four call sites, so adding a
+  // terminal status meant finding all of them. The run-lifecycle modules must
+  // now use the constant.
+  for (const file of ['harnessRuntime/index.js', 'observability/index.js']) {
+    const source = await readFile(new URL(`../src/services/${file}`, import.meta.url), 'utf8');
+    const literals = [...source.matchAll(/\['completed',\s*'failed',\s*'cancelled'\]/g)];
+    const expected = file === 'harnessRuntime/index.js' ? 1 : 0;
+    assert.equal(
+      literals.length,
+      expected,
+      `${file} repeats the terminal status list; use TERMINAL_HARNESS_RUN_STATUSES instead`
+    );
+  }
+
+  // taskCenter keeps its own list on purpose: it is the task vocabulary, which
+  // also contains rejected, and task terminality is not run terminality.
+  const taskCenter = await readFile(new URL('../src/services/projectHub/taskCenter.js', import.meta.url), 'utf8');
+  assert.match(taskCenter, /TASK_STATUSES/);
+});

@@ -1,6 +1,6 @@
 import { getClaimEvidenceMatrix } from '../evidenceLedger/index.js';
 import { listExperimentRuns } from '../experimentRunner/index.js';
-import { listHarnessRuns } from '../harnessRuntime/index.js';
+import { listHarnessRuns, TERMINAL_HARNESS_RUN_STATUSES } from '../harnessRuntime/index.js';
 import { getProjectFeatureFlags } from '../featureFlags.js';
 
 function timeValue(value) {
@@ -56,7 +56,7 @@ function summarizeExperimentRun(run) {
     task: run.planId,
     status: run.status,
     adapter: run.manifest?.command?.adapter || null,
-    durationMs: durationMs(run.execution?.startedAt || run.startedAt, run.execution?.finishedAt || (['completed', 'failed', 'cancelled'].includes(run.status) ? run.updatedAt : null)),
+    durationMs: durationMs(run.execution?.startedAt || run.startedAt, run.execution?.finishedAt || (TERMINAL_HARNESS_RUN_STATUSES.includes(run.status) ? run.updatedAt : null)),
     tokens: { input: 0, output: 0, total: 0 },
     tokenUsage: null,
     contextHash: null,
@@ -73,7 +73,7 @@ function average(values) {
 }
 
 function summarizeRuns(runs) {
-  const terminal = runs.filter((run) => ['completed', 'failed', 'cancelled'].includes(run.status));
+  const terminal = runs.filter((run) => TERMINAL_HARNESS_RUN_STATUSES.includes(run.status));
   const durations = terminal.map((run) => run.durationMs).filter((value) => value !== null);
   const tokens = terminal.reduce((sum, run) => ({
     input: sum.input + run.tokens.input,
