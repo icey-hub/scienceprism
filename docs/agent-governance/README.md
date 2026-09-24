@@ -94,18 +94,29 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：Round 1 已完成（迭代 001–010）→ 进入 Round 2。**
+**阶段：Round 2 已完成（迭代 011–020）→ 进入 Round 3。**
 
-- **Round 1 收尾**：对比文档 `rounds/round-01-comparison.md`；tag `round-01-complete`；分支 `feat/agent-governance-r1` 已推 `scienceprism`，PR 待你审：https://github.com/icey-hub/scienceprism/pull/new/feat/agent-governance-r1
-- **Round 1 关键指标**：后端测试 40（36 通过 / 4 失败）→ **51（全通过）**；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0；工具产出文档 0 → 1。
-- **交付物（工具真实产出）**：`aidoc/aidoc-research-document/research/writing-brief.md` + `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json`。
-- **Round 2 分支**：`feat/agent-governance-r2`（从 r1 尖端切出，D-4）。
-- **Round 2 进度**：011 ✅ 约束注册表；012 ✅ 约束可选开关；013 ✅ 收口漂移；014 ✅ 验证；015 ✅ 收口 4 处高危绕过；016 ✅ 验证；017 ✅ 角色注册表；018 ✅ 角色接入 Harness Runtime；019 ✅ **删 prompt 假约束**（改用角色在代码里强制，并打通 role 透传链）；下一步 020（Round 2 收尾 + 对比文档）。测试 51 → **78 项全绿**。
-- **目标 ② 已闭环**：8 角色 + 12 个真实入口符号 + 能力只收窄 + 未知角色 fail-closed + Run 审计记录。详见 `agent-roles.md`。
-- **剩余漂移 5 条**（需更大改动）：C-04（actor 自报，无法区分 AI 与人类）、C-07（无 Patch 应用接口）、C-09（`assertNetworkHost` 未接进 Harness 路径）、C-10（legacy 适配器不接收 limits）、C-11（不确定性字段全为可选）。
-- **约束审计结论**：16 条中 13 core / 3 standard；14 条有测试、2 条缺口（C-01、C-10，已锁）；**9 条文档与代码不一致**；**2 处疑似 AI 主观添加**（C-11 字段集、C-16 Feature Flag）。详见 `constraint-audit.md`。
-- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 10 拍）。
+- **Round 2 收尾**：对比文档 `rounds/round-02-comparison.md`；tag `round-02-complete`；分支 `feat/agent-governance-r2` 推 `scienceprism`。
+- **Round 2 关键指标**：后端测试 **51 → 78**；约束有测试 **14/16 → 16/16**；漂移 **9 → 5**；角色 **0 → 8**（+4 强制模块、12 真实入口）；高危绕过 1 处 fail-closed / 2 处可拒绝 / 1 处据实降级；**零依赖变更**。
+- **目标完成度**：① 约束注册表 + 收口高危绕过 ✅ ｜ ② 角色注册表 + 接入 Runtime ✅ ｜ ③ skill 补齐 ⬜ ｜ ④ 绘图方案 ⬜ ｜ ⑤ aidoc 落点 ⚠️ 部分。
+- **Round 3 首批目标**：③ skill 补齐（产品侧 3 个 + 开发侧 playbook）、④ 复杂矢量插画级绘图方案（细胞结构图基准）、剩余 5 条漂移收口。
+- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 20 拍）。
 - 子 agent 机制实测：6 次派发 5 次失败，且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主**（U-15），派发前先查存活数（U-16）。
+
+## 历史轮次（细节见各自对比文档）
+
+| 轮次 | 分支 | tag | 对比文档 | 关键结果 |
+| --- | --- | --- | --- | --- |
+| Round 1（001–010） | `feat/agent-governance-r1` | `round-01-complete` | `rounds/round-01-comparison.md` | 测试 40（36 通过 / 4 失败）→ 51 全通过；工具首次产出文档 `aidoc/aidoc-research-document/research/writing-brief.md`；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0 |
+| Round 2（011–020） | `feat/agent-governance-r2` | `round-02-complete` | `rounds/round-02-comparison.md` | 测试 51 → 78；约束注册表落地且 16/16 有测试；漂移 9 → 5；角色 0 → 8 并接入 Runtime；高危绕过 1 fail-closed / 2 可拒绝 / 1 降级；零依赖变更 |
+
+Round 1 的 PR 待你审：https://github.com/icey-hub/scienceprism/pull/new/feat/agent-governance-r1
+
+## 剩余待办（进入 Round 3）
+
+- **剩余 5 条漂移**：C-04（actor 自报，无法区分 AI 与人类）、C-07（**无 Patch 应用接口**）、C-09（`assertNetworkHost` 未接进 Harness 路径）、C-10（legacy 适配器不接收 limits）、C-11（不确定性字段全为可选）。
+- **约束审计结论**：16 条中 13 core / 3 standard；**2 处疑似 AI 主观添加**（C-11 字段集、C-16 Feature Flag）。详见 `constraint-audit.md`。
+- **目标 ③④⑤**：skill 补齐、复杂矢量插画绘图方案、`aidoc/` 落点策略。
 
 ## 恢复条件（满足才继续）
 
