@@ -127,6 +127,48 @@ test('HTTP routes expose the backend projection and query interfaces', async () 
   await app.close();
 });
 
+test('an approval decision must identify its actor', async () => {
+  const projectId = 'project-actor';
+  const projectRoot = path.join(dataDir, projectId);
+  await mkdir(projectRoot, { recursive: true });
+  await writeFile(path.join(projectRoot, 'project.json'), '{}\n');
+  const app = Fastify();
+  registerResearchWorkflowRoutes(app);
+
+  await app.inject({ method: 'POST', url: `/api/projects/${projectId}/research-workflow`, payload: { data: { topic: 'topic' }, idempotencyKey: 'actor-init' } });
+  const first = (await app.inject({ method: 'GET', url: `/api/projects/${projectId}/research-workflow` })).json().workflow;
+  await app.inject({ method: 'PATCH', url: `/api/projects/${projectId}/research-workflow`, payload: { stage: 'direction', data: { researchQuestion: 'question' }, expectedVersion: first.version, idempotencyKey: 'actor-update' } });
+  const current = (await app.inject({ method: 'GET', url: `/api/projects/${projectId}/research-workflow` })).json().workflow;
+
+  // C-04: there is no default actor, so an unidentified caller can no longer be
+  // recorded in the audit trail as a human decision nobody made.
+  const anonymous = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/research-workflow/approve`, payload: { stage: 'direction', expectedVersion: current.version, idempotencyKey: 'actor-anon' } });
+  assert.equal(anonymous.statusCode, 400);
+  assert.equal(anonymous.json().error.code, 'ACTOR_REQUIRED');
+
+  // The kind is validated, so an AI cannot be relabelled human by a typo.
+  const bogus = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/research-workflow/approve`, payload: { actor: 'Human Being', stage: 'direction', expectedVersion: current.version, idempotencyKey: 'actor-bogus' } });
+  assert.equal(bogus.statusCode, 400);
+  assert.equal(bogus.json().error.code, 'INVALID_ACTOR');
+
+  // A refused decision must not have advanced anything.
+  const afterRefusals = (await app.inject({ method: 'GET', url: `/api/projects/${projectId}/research-workflow` })).json().workflow;
+  assert.equal(afterRefusals.currentStage, 'direction');
+  assert.equal(afterRefusals.version, current.version);
+
+  // An explicit actor still works, and it is what the audit records.
+  const approved = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/research-workflow/approve`, payload: { actor: 'human', stage: 'direction', expectedVersion: current.version, idempotencyKey: 'actor-ok' } });
+  assert.equal(approved.statusCode, 200);
+  assert.equal(approved.json().workflow.currentStage, 'search');
+  assert.equal(approved.json().workflow.audit.at(-1).actor, 'human');
+
+  // The header is an accepted alternative to the body field.
+  const viaHeader = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/research-workflow/reset`, headers: { 'x-scienceprism-actor': 'human' }, payload: {} });
+  assert.equal(viaHeader.statusCode, 200);
+
+  await app.close();
+});
+
 test('an unknown Project is rejected instead of resolving to a shared root', async () => {
   await assert.rejects(
     () => updateResearchWorkflow('definitely-not-a-project', { stageId: 'direction', data: { researchQuestion: 'q' }, expectedVersion: 1 }),

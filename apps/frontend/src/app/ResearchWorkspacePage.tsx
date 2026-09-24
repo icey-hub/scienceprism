@@ -305,7 +305,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const approveStage = useCallback(async () => {
     setBusy(true); setError('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ stage, ...(stage === 'replication' ? { decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' } : {}), expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ actor: 'human', stage, ...(stage === 'replication' ? { decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' } : {}), expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
       const next = commitWorkflow(payload); setNotice(stage === 'replication' ? '已记录跳过论文复现。' : '当前阶段已确认。'); if (next.activeStage && next.activeStage !== stage) navigate(`/editor/${projectId}/research/${next.activeStage}`);
     } catch (requestError) { setError(`审批失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
@@ -313,7 +313,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
 
   const resetWorkflow = useCallback(async () => {
     if (!window.confirm('确定要重置本项目的研究流程吗？已保存的阶段数据可能会被清空。')) return; setBusy(true);
-    try { await workflowRequest(projectId, '/reset', { method: 'POST', body: JSON.stringify({ expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); await loadWorkflow(); navigate(`/editor/${projectId}/research/direction`); setNotice('研究流程已重置。'); }
+    try { await workflowRequest(projectId, '/reset', { method: 'POST', body: JSON.stringify({ actor: 'human', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); await loadWorkflow(); navigate(`/editor/${projectId}/research/direction`); setNotice('研究流程已重置。'); }
     catch (requestError) { setError(`重置失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
   }, [loadWorkflow, navigate, projectId, workflow.version]);
@@ -359,7 +359,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const saveReplication = useCallback(() => patchStage('replication', { replication: workflow.replication || {} }, '复现计划已保存。'), [patchStage, workflow.replication]);
   const skipReplication = useCallback(async () => {
     setBusy(true);
-    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ stage: 'replication', decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); const next = commitWorkflow(payload); setNotice('已记录跳过论文复现。'); if (next.activeStage) navigate(`/editor/${projectId}/research/${next.activeStage}`); }
+    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ actor: 'human', stage: 'replication', decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); const next = commitWorkflow(payload); setNotice('已记录跳过论文复现。'); if (next.activeStage) navigate(`/editor/${projectId}/research/${next.activeStage}`); }
     catch (requestError) { setError(`跳过复现失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
   }, [commitWorkflow, navigate, projectId, workflow.replication?.note, workflow.version]);

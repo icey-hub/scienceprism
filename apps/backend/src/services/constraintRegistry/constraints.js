@@ -54,10 +54,10 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     statement: 'AI output cannot approve a stage, select a paper, choose an innovation, authorize an experiment, or submit a final claim.',
     tier: 'core',
     scope: ['workflow', 'harness'],
-    enforcement: { module: 'services/researchWorkflow/commands.js', symbol: 'approveResearchWorkflow' },
-    testRef: { file: 'researchStageSlice.test.js', name: 'direction to writing Brief vertical slice keeps approvals, Evidence, and editor artifact' },
+    enforcement: { module: 'routes/researchWorkflow.js', symbol: 'requireActor' },
+    testRef: { file: 'researchWorkflow.test.js', name: 'an approval decision must identify its actor' },
     provenance: { source: 'adr', ref: 'ADR-0002' },
-    drift: 'The human-approval path is structural only: the actor is caller-supplied (body.actor || header || collabAuth?.sub || "human"), so nothing distinguishes an AI caller from a human.'
+    drift: null
   },
   {
     id: 'C-05',

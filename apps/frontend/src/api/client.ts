@@ -773,6 +773,12 @@ export interface ResearchStageState {
   updatedAt: string;
 }
 
+/**
+ * Who acted. The backend validates this set and refuses an unidentified actor
+ * on approval decisions (C-04), so it must never be defaulted on the client.
+ */
+export type ResearchActor = 'human' | 'ai' | 'system';
+
 export interface ResearchWorkflowState {
   version: number;
   projectId: string;
@@ -785,7 +791,7 @@ export interface ResearchWorkflowState {
     type: string;
     stage: ResearchStageId;
     at: string;
-    actor: 'human' | 'ai' | 'system';
+    actor: ResearchActor;
     details?: Record<string, unknown>;
   }>;
   updatedAt: string;
@@ -867,17 +873,19 @@ export function updateResearchWorkflow(projectId: string, payload: {
   });
 }
 
-export function approveResearchWorkflow(projectId: string, payload: { stage: ResearchStageId; note?: string }) {
+// C-04: approval and reset must name their actor. It is required here, not
+// defaulted, so a caller cannot inherit a "human" label it never claimed.
+export function approveResearchWorkflow(projectId: string, payload: { actor: ResearchActor; stage: ResearchStageId; note?: string }) {
   return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow/approve`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });
 }
 
-export function resetResearchWorkflow(projectId: string, stage?: ResearchStageId) {
+export function resetResearchWorkflow(projectId: string, actor: ResearchActor, stage?: ResearchStageId) {
   return request<{ ok: boolean; workflow?: ResearchWorkflowState; error?: string }>(`/api/projects/${projectId}/research-workflow/reset`, {
     method: 'POST',
-    body: JSON.stringify(stage ? { stage } : {})
+    body: JSON.stringify(stage ? { actor, stage } : { actor })
   });
 }
 

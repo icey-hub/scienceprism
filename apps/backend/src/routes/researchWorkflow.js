@@ -24,8 +24,34 @@ function bodyOf(req) {
   return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
 }
 
+const ACTOR_KINDS = new Set(['human', 'ai', 'system']);
+
+/**
+ * Returns the identified actor, or null when the request identifies nobody.
+ *
+ * It deliberately does NOT fall back to 'human'. That default meant an
+ * unidentified caller — including an AI driving the API — was recorded in the
+ * audit trail as a human decision nobody had actually made (C-04).
+ */
 function actorFromRequest(req, body = {}) {
-  return body.actor || req.headers?.['x-scienceprism-actor'] || req.headers?.['x-openprism-actor'] || req.collabAuth?.sub || 'human';
+  const raw = body.actor || req.headers?.['x-scienceprism-actor'] || req.headers?.['x-openprism-actor'] || req.collabAuth?.sub || null;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+/**
+ * C-04: a decision that only a human may make has to say who acted. The kind is
+ * validated so a caller cannot label an AI decision as human by typo.
+ *
+ * Exported because the constraint registry names it as C-04's enforcement seam.
+ */
+export function requireActor(actor) {
+  if (actor === null) {
+    throw new ResearchWorkflowError(400, 'ACTOR_REQUIRED', 'This decision must identify its actor: pass actor (human|ai|system) or the x-scienceprism-actor header.');
+  }
+  if (!ACTOR_KINDS.has(actor)) {
+    throw new ResearchWorkflowError(400, 'INVALID_ACTOR', 'Actor must be one of: human, ai, system.', { actor });
+  }
+  return actor;
 }
 
 function sendError(req, reply, error) {
@@ -85,23 +111,23 @@ export function registerResearchWorkflowRoutes(fastify) {
 
   fastify.post(`${BASE_PATH}/approve`, workflowRoute((req) => {
     const body = bodyOf(req);
-    return approveFromRequest(req.params.id, body, actorFromRequest(req, body));
+    return approveFromRequest(req.params.id, body, requireActor(actorFromRequest(req, body)));
   }));
   fastify.post(`${BASE_PATH}/reject`, workflowRoute((req) => {
     const body = { ...bodyOf(req), decision: 'reject' };
-    return approveFromRequest(req.params.id, body, actorFromRequest(req, body));
+    return approveFromRequest(req.params.id, body, requireActor(actorFromRequest(req, body)));
   }));
   fastify.post(`${BASE_PATH}/skip`, workflowRoute((req) => {
     const body = { ...bodyOf(req), decision: 'skip' };
-    return approveFromRequest(req.params.id, body, actorFromRequest(req, body));
+    return approveFromRequest(req.params.id, body, requireActor(actorFromRequest(req, body)));
   }));
   fastify.post(`${BASE_PATH}/recover`, workflowRoute((req) => {
     const body = bodyOf(req);
-    return recoverFromRequest(req.params.id, body, actorFromRequest(req, body));
+    return recoverFromRequest(req.params.id, body, requireActor(actorFromRequest(req, body)));
   }));
   fastify.post(`${BASE_PATH}/reset`, workflowRoute((req) => {
     const body = bodyOf(req);
-    return resetFromRequest(req.params.id, body, actorFromRequest(req, body));
+    return resetFromRequest(req.params.id, body, requireActor(actorFromRequest(req, body)));
   }));
 
   fastify.put(`${BASE_PATH}/direction`, workflowRoute((req) => {
