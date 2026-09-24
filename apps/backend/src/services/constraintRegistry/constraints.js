@@ -25,9 +25,9 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     tier: 'core',
     scope: ['workflow', 'storage'],
     enforcement: { module: 'services/projectService.js', symbol: 'getProjectRoot' },
-    testRef: null,
+    testRef: { file: 'researchWorkflow.test.js', name: 'an unknown Project is rejected instead of resolving to a shared root' },
     provenance: { source: 'adr', ref: 'ADR-0003' },
-    drift: 'The documented validation location names pathUtils.js:safeJoin, but every project-local store uses path.join; the real guard is assertProjectId plus getProjectRoot.'
+    drift: null
   },
   {
     id: 'C-02',
@@ -97,7 +97,7 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     enforcement: { module: 'services/researchWorkflow/application.js', symbol: 'runUiAction' },
     testRef: { file: 'experimentRunner.test.js', name: 'Experiment Run requires approval and an explicit execution capability' },
     provenance: { source: 'adr', ref: 'ADR-0004' },
-    drift: 'The document says execution is "disabled by default", but featureFlags.js defaults experimentExecution and advancedHarness to true; the real control is capability plus approval.'
+    drift: null
   },
   {
     id: 'C-09',
@@ -115,7 +115,7 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     tier: 'standard',
     scope: ['harness', 'limits'],
     enforcement: { module: 'services/harnessRuntime/index.js', symbol: 'createHarnessRun' },
-    testRef: null,
+    testRef: { file: 'harnessRuntime.test.js', name: 'Harness Run limits fall back to the shared constraint defaults' },
     provenance: { source: 'adr', ref: 'ADR-0006' },
     drift: 'The token budget is passed only to the DeepSeek SDK; the legacy adapter never receives limits and nothing enforces a cumulative budget.'
   },
@@ -137,7 +137,7 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     enforcement: { module: 'services/evidenceLedger/index.js', symbol: 'validateStageEvidence' },
     testRef: { file: 'evidenceLedger.test.js', name: 'research Harness rejects a writing output that cites no confirmed Evidence' },
     provenance: { source: 'adr', ref: 'ADR-0008' },
-    drift: 'The evidence gate lives in the Harness adapter, not in the writing stage readiness check, so a direct PATCH can satisfy readiness without it.'
+    drift: null
   },
   {
     id: 'C-13',
@@ -177,12 +177,12 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
     enforcement: { module: 'services/featureFlags.js', symbol: 'assertFeatureEnabled' },
     testRef: { file: 'phase10.test.js', name: 'feature flags can be opened or disabled by environment and project constraints' },
     provenance: { source: 'ai-subjective', ref: 'Feature flags appear in no ADR and are not mentioned in CONTEXT.md.' },
-    drift: 'advancedHarness is gated only when the adapter is deepseek; the legacy adapter is ungated, so "adapters" plural overstates it.'
+    drift: null
   }
 ]);
 
 /** Constraints that have no test yet. Locked so the gap cannot grow silently. */
-export const UNTESTED_CONSTRAINTS = Object.freeze(['C-01', 'C-10']);
+export const UNTESTED_CONSTRAINTS = Object.freeze([]);
 
 /** Constraints whose documentation disagrees with the code. */
 export const DRIFTED_CONSTRAINTS = Object.freeze(

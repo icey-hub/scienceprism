@@ -53,7 +53,7 @@
 | --- | --- | --- | --- |
 | 011 | 加 | 约束注册表骨架（零行为变更）+ 机器生成的审计文档 | ✅ |
 | 012 | 加 | 约束策略与可选开关（`.scienceprism/constraint-policy.json`，`core` 不可关） | ✅ |
-| 013 | 减 | 收口漂移：改代码补齐或改文档对齐（9 条，逐条给依据） | ⬜ |
+| 013 | 减 | 收口漂移：改代码补齐或改文档对齐（9 条 → 5 条） | ✅ |
 | 014 | 验证 | 验证 011–013 + 契约/文档一致性回归 | ⬜ |
 | 015 | 加 | 约束策略与可选开关（tier：`core` 不可关） | ⬜ |
 | 016 | 减 | 收口 4 处高危绕过（transfer / plot / vision / llm） | ⬜ |
@@ -68,6 +68,7 @@
 | --- | --- | --- | --- |
 | 011 | 加 | 新增 `services/constraintRegistry/`：16 条约束的机器可读注册表（tier / scope / `module:symbol` seam / testRef / provenance / drift），加 `listConstraints` / `getConstraint` / `constraintCatalog` / `renderConstraintCatalog` 投影。**零行为变更**：没有任何调用点，enforcement 只是引用既有 seam。同时产出 `docs/agent-governance/constraint-audit.md`（数据由注册表投影生成，非手抄） | `npm run quality` exit 0（56 项）；新增 5 项门禁测试：① 16 条格式合法且 id 唯一；② **每条 `module:symbol` 经动态 import 验证真实导出**；③ 每条 `testRef` 指向的测试文件里确实存在同名 `test(...)`；④ 注册表 id 集合与 `docs/project-constraints.md` 表格**完全一致**（多一条少一条都红）；⑤ 投影一致（分层求和、tested+untested=total、漂移清单一致）。审计结论：13 core / 3 standard / 14 有测试 / **9 条漂移** / **2 处 AI 主观添加**（C-11 字段集、C-16） |
 | 012 | 加 | **约束可选开关**（R-06 / D-5）：新增 `constraintRegistry/policy.js`。项目用 `.scienceprism/constraint-policy.json` 声明要关掉哪些约束；`normalizeConstraintPolicy` 只接受 `standard`/`experimental` 级，**`core` 级一律拒绝**并记 `CORE_CONSTRAINT_IMMUTABLE`，未知 id 记 `UNKNOWN_CONSTRAINT`；策略文件缺失 = 全部开启；`constraintPolicyProjection` 让被关掉的约束**仍然可见**而不是被隐藏 | `npm run quality` exit 0（59 项）；新增 3 项测试：① 关闭 `standard` 生效、关闭 `core` 被拒且保持开启、未知 id 被拒；② 无策略文件时 16 条全开；③ 存储的策略文件同时列 `C-08`(core) 与 `C-16`(standard) 时，只有 `C-16` 被关，`C-08` 仍在投影里显示为 enabled |
+| 013 | 减 | **收口 9 条漂移中的 4 条，并补掉 2 条测试缺口**。① **改代码**：C-12 —— 把主张-证据检查从 Harness adapter 移进 `getStageReadiness('writing')` 的 `validate` 钩子，**直接 PATCH 设 `ready:true` 不再能绕过证据门**；C-16 —— `advancedHarness` 从"只 gate deepseek"改为 gate **所有真实适配器**（仅测试用的 fake adapter 豁免），与文档的 "adapters" 复数一致。② **改文档**：C-01 的验证位置原本错引 `pathUtils.js:safeJoin`（四个项目存储实际用 `path.join`），改为真实守卫 `getProjectRoot` + `assertProjectId`；C-08 的「默认关闭」是假的（`featureFlags` 默认 true），改为「需要显式能力 + 人工审批，且可被 flag 关掉」。③ **补测试**：C-01 新增「未知 Project 被拒而非落到共享根」，C-10 新增「Run limits 回退到共享默认值」 | `npm run quality` exit 0（63 项，59 → 63）；注册表投影：**漂移 9 → 5**（剩余 C-04、C-07、C-09、C-10、C-11，均需更大改动）、**无测试 2 → 0（16/16 全有测试）**；新增 4 项测试，其中 C-12 的用例专门验证「`ready:true` + 空 `evidenceIds` → readiness 拒绝」、C-16 的用例验证「legacy 适配器在 flag 关闭时被 `FEATURE_FLAG_DISABLED` 拒绝，fake 仍可用」 |
 
 ## 环境变化记录
 

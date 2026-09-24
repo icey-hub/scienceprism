@@ -77,7 +77,18 @@ export const STAGE_CONTRACTS = Object.freeze({
   },
   writing: {
     required: ['writing'],
-    check: (data) => data.ready === true || nonEmptyObject(data.writing) || nonEmptyObject(data.evidence) || nonEmptyText(data.outline) || nonEmptyText(data.draft) || nonEmptyText(data.manuscript)
+    check: (data) => data.ready === true || nonEmptyObject(data.writing) || nonEmptyObject(data.evidence) || nonEmptyText(data.outline) || nonEmptyText(data.draft) || nonEmptyText(data.manuscript),
+    // C-12: a Paper Claim without Evidence must not clear the writing gate. The
+    // Harness adapter validates this too, but approval is the authoritative door,
+    // so a direct PATCH that only sets ready:true must not get through.
+    validate: (data) => {
+      const claims = Array.isArray(data.claims) ? data.claims : [];
+      if (claims.length === 0) return { ok: true, missing: [] };
+      const unsupported = claims.filter((claim) => !nonEmptyArray(claim?.evidenceIds));
+      return unsupported.length === 0
+        ? { ok: true, missing: [] }
+        : { ok: false, missing: ['claims[].evidenceIds'] };
+    }
   }
 });
 
@@ -113,6 +124,16 @@ export function getStageReadiness(workflow, stageId = workflow?.currentStage) {
     return { ready: false, reason: 'The latest stage task failed validation and must be retried or corrected.', missing: ['task.validation'] };
   }
   const ready = contract ? contract.check(stage.data || {}) : (STAGE_VALUE_ALIASES[stageId] || []).some((key) => valueIsPresent(stage.data?.[key]));
+  if (ready && typeof contract?.validate === 'function') {
+    const validated = contract.validate(stage.data || {});
+    if (!validated.ok) {
+      return {
+        ready: false,
+        reason: `Stage data does not satisfy the ${stageId} contract.`,
+        missing: validated.missing
+      };
+    }
+  }
   return ready
     ? { ready: true, missing: [] }
     : { ready: false, reason: `Stage requires ${definition.requirement}.`, missing: contract?.required || [definition.requirement] };

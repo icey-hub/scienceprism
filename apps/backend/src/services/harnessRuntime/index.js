@@ -434,7 +434,9 @@ export async function createHarnessRun(projectId, request = {}) {
     constraints
   );
   const adapter = normalizeAdapter(request.adapter || request.runtime || request.llmConfig?.runtime || getEnv('AGENT_RUNTIME'));
-  if (adapter === 'deepseek') await assertProjectFeatureEnabled(projectId, 'advancedHarness', { adapter });
+  // C-16 covers "advanced Harness adapters" plural. Only the in-process fake
+  // adapter that tests rely on is exempt; every real adapter is rollout-gated.
+  if (adapter !== 'fake') await assertProjectFeatureEnabled(projectId, 'advancedHarness', { adapter });
   const contextPack = await buildContextPack({
     projectId,
     projectRoot,

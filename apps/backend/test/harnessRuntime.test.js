@@ -23,6 +23,7 @@ const {
 const { buildContextPack, estimateTokens } = await import('../src/services/harnessRuntime/contextPackager.js');
 const { assertCapability, resolveCapabilityPolicy } = await import('../src/services/harnessRuntime/capabilities.js');
 const { buildInput, childEnvironment } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
+const { PROJECT_CONSTRAINT_LIMITS } = await import('../src/config/projectConstraintDefaults.js');
 
 async function createProject(id) {
   const root = path.join(dataDir, id);
@@ -234,4 +235,35 @@ test('DeepSeek Adapter prompt and child environment retain policy without leakin
   assert.equal(env.DEEPSEEK_API_KEY, 'provider-key');
   assert.equal(env.SCIENCEPRISM_TEST_SECRET, undefined);
   delete process.env.SCIENCEPRISM_TEST_SECRET;
+});
+
+test('Harness Run limits fall back to the shared constraint defaults', async () => {
+  const projectId = 'harness-limits-default';
+  await createProject(projectId);
+
+  const run = await createHarnessRun(projectId, { adapter: 'fake', task: 'limits' });
+
+  assert.equal(run.limits.timeoutMs, PROJECT_CONSTRAINT_LIMITS.timeoutMs);
+  assert.equal(run.limits.maxTokens, PROJECT_CONSTRAINT_LIMITS.maxTokens);
+  assert.equal(run.limits.maxConcurrent, PROJECT_CONSTRAINT_LIMITS.maxConcurrent);
+  assert.equal(run.limits.retryLimit, PROJECT_CONSTRAINT_LIMITS.retryLimit);
+});
+
+test('every real Harness adapter is rollout-gated, not only the DeepSeek one', async () => {
+  const projectId = 'harness-adapter-gate';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(
+    path.join(root, '.scienceprism', 'project-constraints.json'),
+    JSON.stringify({ featureFlags: { advancedHarness: false } })
+  );
+
+  await assert.rejects(
+    () => createHarnessRun(projectId, { adapter: 'legacy', task: 'gated' }),
+    (error) => error.code === 'FEATURE_FLAG_DISABLED'
+  );
+
+  // The in-process fake adapter stays available so the suite can run without the flag.
+  const exempt = await createHarnessRun(projectId, { adapter: 'fake', task: 'exempt' });
+  assert.equal(exempt.adapter, 'fake');
 });

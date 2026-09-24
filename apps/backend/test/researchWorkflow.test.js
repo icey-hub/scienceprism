@@ -126,3 +126,36 @@ test('HTTP routes expose the backend projection and query interfaces', async () 
   assert.ok(audit.json().events.some((event) => event.type === 'workflow.created'));
   await app.close();
 });
+
+test('an unknown Project is rejected instead of resolving to a shared root', async () => {
+  await assert.rejects(
+    () => updateResearchWorkflow('definitely-not-a-project', { stageId: 'direction', data: { researchQuestion: 'q' }, expectedVersion: 1 }),
+    (error) => error.code === 'PROJECT_NOT_FOUND'
+  );
+
+  const app = Fastify();
+  registerResearchWorkflowRoutes(app);
+  const response = await app.inject({ method: 'GET', url: '/api/projects/definitely-not-a-project/research-workflow' });
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.json().error.code, 'PROJECT_NOT_FOUND');
+  await app.close();
+});
+
+test('the writing gate rejects claims that carry no Evidence even when ready is set directly', () => {
+  const workflow = createWorkflowDocument('project-writing-evidence', { now: '2026-01-01T00:00:00.000Z' });
+  const stage = workflow.stages.find((item) => item.id === 'writing');
+
+  // A direct PATCH could previously satisfy the writing gate with ready:true
+  // alone, bypassing the Evidence check that only the Harness adapter performed.
+  stage.data = { ready: true, claims: [{ id: 'claim-1', text: 'Unsupported assertion.', evidenceIds: [] }] };
+  const blocked = getStageReadiness(workflow, 'writing');
+  assert.equal(blocked.ready, false);
+  assert.deepEqual(blocked.missing, ['claims[].evidenceIds']);
+
+  stage.data = { ready: true, claims: [{ id: 'claim-1', text: 'Supported assertion.', evidenceIds: ['paper-1'] }] };
+  assert.equal(getStageReadiness(workflow, 'writing').ready, true);
+
+  // A stage with no claims yet keeps its previous behaviour.
+  stage.data = { ready: true, claims: [] };
+  assert.equal(getStageReadiness(workflow, 'writing').ready, true);
+});
