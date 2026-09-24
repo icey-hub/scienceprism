@@ -119,7 +119,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 033 | 验证 | 验证 031–032：门禁 + 回归 + 边界自检 + **运行时直证两处修复生效** | ✅ |
 | 034 | 加 | 收口 C-10：Run 的 token 预算现在**传给每个适配器**（legacy 也生效） | ✅ |
 | 035 | 减 | 收口 C-04：**删掉 `actor` 的 `'human'` 缺省**，决策必须显式声明身份 → **漂移全部清零** | ✅ |
-| 036 | 验证 | 验证 034–035 | ⬜ |
+| 036 | 验证 | 验证 034–035：门禁 + 回归 + 边界自检 + **漂移归零确认** | ✅ |
 | 037 | 加 | **R-15**：科研工具产出统一写入 `aidoc/` 的落点策略 | ⬜ |
 | 038 | 减 | 待取证 | ⬜ |
 | 039 | 验证 | 验证 037–038 | ⬜ |
@@ -134,6 +134,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 033 | 验证 | 验证 031–032 两拍：全量门禁 + 回归 + 工作区边界自检 + **运行时直证** | ① `npm run quality` **exit 0**（92 项 / 0 失败 / tsc / build）。② **运行时直证两处修复**（不只看测试绿）：直接调用 `assertNetworkHost({granted:['research.search'],networkAllowlist:[]}, 'https://anything.example/')` → 抛 `NETWORK_DENIED`，确认 fail-open 已消除。③ 约束注册表：16 条 **16/16 有测试**、**漂移 2 条**（C-04/C-10）、**AI 主观添加 1 条**（C-16）。④ 边界：`package.json` / `package-lock.json` **零变更**；越界复查通过 |
 | 034 | 加 | **收口 C-10：Run 的 token 预算现在真的对 legacy 路径生效**。原漂移："token 预算只传给 DeepSeek SDK，legacy 适配器完全不接收 limits，等于无上限"。改动：① `harnessRuntime/index.js` 在调用 `adapter.run` 时新增 `limits: run.limits`（**每个适配器都拿到**，不再只有 SDK）；② `legacyAdapter` 接收并转发 `limits`；③ `agentService` 把模型构造抽成**可导出、可测**的 `buildToolAgentModel({ llmConfig, limits })`，在有预算时给 `ChatOpenAI` 传 `maxTokens`（无预算则用 provider 默认），`runToolAgent` 改用它并保留原有的 API key 早退检查。注册表 C-10 的 `enforcement` 改指该函数、`testRef` 指向新测试、**drift 归零**；`docs/project-constraints.md` 的 C-10 行写明"limits 传给每个适配器"与两条失败码 | `npm run quality` exit 0（94 项，92 → 94）；新增 2 项测试：① `buildToolAgentModel({limits:{maxTokens:1234}})` 的模型 `maxTokens === 1234`，无 limits 时为 `undefined`（用 provider 默认）；② **用迭代 028 特意保留的 `registerHarnessAdapter` 缝做探针**，影子掉 fake 适配器并捕获 `adapter.run` 的实参，断言 `limits.timeoutMs` 与 `limits.maxTokens` 都等于共享默认值，测试后把真适配器注册回去。注册表投影：**漂移 2 → 1**（只剩 C-04） |
 | 035 | 减 | **收口 C-04：删掉"没人认领就当成人类"的缺省值 → 漂移全部清零**。原漂移："人工审批路径只是结构性的——`actor` 由调用方自报（`body.actor \|\| header \|\| collabAuth?.sub \|\| 'human'`），无法区分 AI 与人类。"**真正的缺陷在最后那个 `'human'` 缺省**：任何未表明身份的调用方（包括 AI 驱动的 API 调用）都会被审计轨迹记成"人类决策"，而这**没有任何人做过**。处置：① `actorFromRequest` **不再回退到 `'human'`**，无人认领时返回 `null`；② 新增并导出 `requireActor`，对 5 个决策路由（approve/reject/skip/recover/reset）强制要求身份——缺失报 `400 ACTOR_REQUIRED`，取值不在 `human`/`ai`/`system` 内报 `400 INVALID_ACTOR`（**防止 AI 被"手滑"标成人类**）；③ 前端 3 处决策调用**显式声明 `actor: 'human'`**（UI 上确实是人类点击），`client.ts` 的 `approveResearchWorkflow`/`resetResearchWorkflow` 把 actor 提为**类型必填**并抽出 `ResearchActor` 类型，避免未来调用者踩坑。注册表 C-04 的 `enforcement` 改指 `routes/researchWorkflow.js:requireActor`、`testRef` 指向新测试、**drift 归零**；`docs/project-constraints.md` 的 C-04 行写明两个失败码与"无人类缺省值" | `npm run quality` exit 0（95 项，94 → 95，**含前端 tsc**——前端改动必须过类型检查）；新增 1 项路由级测试覆盖 5 种情形：无 actor → `400 ACTOR_REQUIRED`、非法 actor（`'Human Being'`）→ `400 INVALID_ACTOR`、**被拒的决策不得改变任何状态**（`currentStage` 与 `version` 都不变）、显式 `actor:'human'` → 200 且**审计记录的正是 `human`**、`x-scienceprism-actor` 头作为替代途径可用。**注册表投影：漂移 9 → 5 → 4 → 3 → 2 → 1 → 0，16 条约束全部无漂移** |
+| 036 | 验证 | 验证 034–035 两拍：全量门禁 + 回归 + 边界自检 + 漂移归零确认 | ① `npm run quality` **exit 0**（95 项 / 0 失败 / **前端 tsc** / build）。② **漂移归零确认**：约束注册表 16 条、**16/16 有测试、漂移 0**（Round 2 起点是 9 条）。③ **运行时直证 C-04**：`an approval decision must identify its actor` 单测通过（无 actor 必拒、非法 actor 必拒、被拒决策不改状态、显式 actor 被审计记录、header 途径可用）。④ 边界：`package.json` / `package-lock.json` **零变更**；越界复查通过 |
 
 ## 环境变化记录
 
