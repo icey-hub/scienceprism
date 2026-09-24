@@ -23,7 +23,7 @@
 - `docs/agent-roles.md`（新建）
 - `docs/adr/0011-*.md`（新建）
 
-**不得触碰**：`apps/backend/src/services/harnessRuntime/index.js` 及其他既有文件、`apps/backend/src/services/constraintRegistry/**`、`apps/backend/src/routes/**`、`apps/backend/src/services/experimentRunner/**`、`apps/backend/src/services/transferAgent/**`、`package.json`、`package-lock.json`、`AGENTS.md`、`docs/agent-governance/**`。
+**不得触碰**：`apps/backend/src/services/harnessRuntime/index.js` 及其他既有文件、`apps/backend/src/services/constraintRegistry/**`、`apps/backend/src/routes/**`、`apps/backend/src/services/experimentRunner/**`、`apps/backend/src/services/transferAgent/**`、`package.json`、`package-lock.json`、`AGENTS.md`、`aidoc/**`。
 接线到 Runtime（`index.js`）由 **Lead 在 I-08 执行**：你只提供 `roleResolver.js` 与「需要改哪一行」的精确说明。
 
 ## 4. 必读基线

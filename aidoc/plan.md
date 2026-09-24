@@ -44,7 +44,7 @@
 
 `.dsh/skills` 是**产品研究 skill 的源目录**，且只认带 `stages:` frontmatter 的 skill（`researchSkills.js:123` 静默丢弃不合规项）。
 - 产品侧：补 3 个研究 skill（`research-direction`、`claim-evidence-audit`、`figure-table-plan`）。
-- 开发侧：放 `docs/agent-governance/playbooks/`（零发现机制风险，D-3）。
+- 开发侧：放 `aidoc/playbooks/`（零发现机制风险，D-3）。
 
 ### 3.4 文档绘图（U-07 修正版）
 
@@ -64,7 +64,7 @@
 
 **参考图集（I-12 固定 4 张）**：① 模块依赖图 ② 时序/流程图 ③ **复杂插画：细胞结构图** ④ 对比图表。
 **评分 9 维**：渲染成功率、视觉质量、**复杂插画能力**、可编辑性、确定性、LaTeX 集成、离线可用、安装成本、CI 可验证性、中文支持。
-**产物**：并排提交 `docs/assets/diagrams/`，附截图证据。查看端零改动——GUI 的 Figure 面板已渲染项目树里的 `.svg`/`.pdf`（`FIGURE_EXTS`，`EditorPage.tsx:97`）。
+**产物**：并排提交 `aidoc/assets/diagrams/`，附截图证据。查看端零改动——GUI 的 Figure 面板已渲染项目树里的 `.svg`/`.pdf`（`FIGURE_EXTS`，`EditorPage.tsx:97`）。
 
 ## 4. Round 1 — `feat/agent-governance-r1`
 

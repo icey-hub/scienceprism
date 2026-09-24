@@ -3,14 +3,16 @@
 > **这是本目标（`goal-1475d1ce`）的唯一进度事实源。**
 > 新会话恢复时：先读本文件 → 再读仓库根 `AGENTS.md` → 然后按「恢复协议」继续。
 > 每次迭代收尾必须更新本文件的迭代表与「当前状态」。
+> agent 产出的一切文档都在 `aidoc/`；`docs/` 是项目自身文档，不要混。
 
 ## 迭代前检查清单（每次迭代必做）
 
 1. 读 `requirements.md`（需求有没有新增/变化）→ 读 `plan.md`（本次迭代的产出与验收）→ 读本文件「当前状态」。
 2. 若属子 agent 线，读 `subagents/<线>.md` 的独占写范围与硬约束，确认本次要改的文件都在授权范围内。
-3. 核对 git 现实：`git branch --show-current`、`git log --oneline -3`、`git status --short` 与看板记录一致；不一致先对齐再动手。
-4. 重跑基线：`node --test apps/backend/test/*.test.js`，以**实测**为准，不相信记录里的旧数字。
-5. 动手；收尾跑 `npm run quality`，更新本文件迭代表 + 「当前状态」，单独提交。
+3. **派子 agent 前先查存活数：≥2 就先等已有子 agent 结束再派（U-16）；≤1 才可派，且一次只派 1 个。**
+4. 核对 git 现实：`git branch --show-current`、`git log --oneline -3`、`git status --short` 与看板记录一致；不一致先对齐再动手。
+5. 重跑基线：`node --test apps/backend/test/*.test.js`，以**实测**为准，不相信记录里的旧数字。
+6. 动手；收尾跑 `npm run quality`，更新本文件迭代表 + 「当前状态」，单独提交。
 
 ## 停止条件
 
@@ -24,21 +26,26 @@
 | --- | --- | --- |
 | D-1 | 解除 `.gitignore` 对 `AGENTS.md` 的忽略并入库 | ✅ 已执行 |
 | D-2 | MCP：本轮放弃 | ✅ 采纳（无任何 MCP 胜出；配置还须写工作区外） |
-| D-3 | 开发侧 skill 放 `docs/agent-governance/playbooks/` | ✅ 采纳 |
+| D-3 | 开发侧 skill 放 `aidoc/playbooks/` | ✅ 采纳 |
 | D-4 | Round 2 从 r1 尖端切出 | ✅ 采纳 |
 | D-5 | 接受 `core` 级约束不可关（tier 模型） | ✅ 采纳 |
 | D-6 | Round 1 收口 4 处高危绕过 | ✅ 采纳（默认转 fail-closed） |
-| U-01…U-13 | 用户追加要求（子 agent 上限、写边界、必读文档、doc 文件夹、**未获指示不得执行**、**派发前查存活数**） | 见 `requirements.md` 第二节（单一事实源，不在此重复） |
+| U-01…U-16 | 用户追加要求（子 agent 上限与**等待规则**、写边界、必读文档、`aidoc/` 目录、**未获指示不得执行**） | 见 `requirements.md` 第二节（单一事实源，不在此重复） |
 
-## 子 agent 分工（上限 3，写范围互不重叠）
+## 子 agent 分工与派发规则
+
+写范围互不重叠：
 
 | 线 | 负责迭代 | 独占写范围 |
 | --- | --- | --- |
-| 约束线 | I-03 / I-04 / I-05 / I-06 | `apps/backend/src/services/constraintRegistry/**`、`apps/backend/test/constraintRegistry.test.js`、`docs/agent-governance/constraint-audit.md` |
-| 角色线 | I-07 / I-08 | `apps/backend/src/services/agentRoles/**`、`apps/backend/test/agentRoles.test.js`、`docs/agent-roles.md` |
-| 绘图线 | I-11 / I-12 / I-13 / I-14 | `tools/diagram/**`、`docs/assets/diagrams/**`、`docs/agent-governance/drawing-*.md`、`scripts/setup-diagram-toolchain.sh` |
+| 约束线 | I-03 / I-04 / I-05 / I-06 | `apps/backend/src/services/constraintRegistry/**`、`apps/backend/test/constraintRegistry.test.js`、`aidoc/constraint-audit.md` |
+| 角色线 | I-07 / I-08 | `apps/backend/src/services/agentRoles/**`、`apps/backend/test/agentRoles.test.js`、`aidoc/agent-roles.md` |
+| 绘图线 | I-11 / I-12 / I-13 / I-14 | `tools/diagram/**`、`aidoc/assets/diagrams/**`、`aidoc/drawing-*.md`、`scripts/setup-diagram-toolchain.sh` |
 
-Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/project-constraints.md`（生成物）、4 处高危绕过所在的路由、以及全部 git 生命周期操作（分支/提交/推送）。
+派发规则（U-13 / U-16，硬约束）：**先查存活数；≥2 就先等已有子 agent 结束；≤1 才可派，一次只派 1 个。**
+子 agent 不得执行 git 写操作。
+
+Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/project-constraints.md`（产品侧生成物，属项目文档）、4 处高危绕过所在的路由、以及全部 git 生命周期操作（分支/提交/推送）。
 
 ## Round 0 基线（实测，tag `round-00-baseline`）
 
@@ -59,8 +66,8 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 | # | 迭代 | 状态 | 证据 |
 | --- | --- | --- | --- |
-| I-01 | 基线提交 + tag + 分支 + 治理脚手架 | ✅ 完成 | commit `33a2b5b`、tag `round-00-baseline`、本文件、`AGENTS.md` |
-| I-02 | 修复 4 个红测试至 40/40 | 🔄 进行中 | 根因已定位：`experimentRunner/adapters.js:40 probeSandboxApplicability()` 在本机必失败（`sandbox-exec` exit 71）。修法与证据待补 |
+| I-01 | 基线提交 + tag + 分支 + 治理脚手架 | ✅ 完成 | commit `33a2b5b`、tag `round-00-baseline`、`AGENTS.md`、`aidoc/` 全套（需求/计划/看板/三份任务书） |
+| I-02 | 修复 4 个红测试至 40/40 | 🔄 进行中（**代码未落地**） | 根因：`experimentRunner/adapters.js:40 probeSandboxApplicability()` 在本机必失败（`sandbox-exec` exit 71）。已实证 Node 权限模型可作第二隔离策略 |
 | I-03 | 约束审计结论落文档 + 逐条复核 | ⬜ 未开始 | 取证已完成（16 条：9 条仅部分生效、2 条直接矛盾、2 处 AI 主观添加） |
 | I-04 | 约束注册表骨架（零行为变更） | ⬜ 未开始 | — |
 | I-05 | 约束策略与可选开关 + tier 分级 | ⬜ 未开始 | — |
@@ -68,7 +75,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 | I-07 | 角色注册表（8 角色） | ⬜ 未开始 | 取证已完成（8 角色分类法可直接验证落地） |
 | I-08 | 角色接入 Harness Runtime | ⬜ 未开始 | — |
 | I-09 | 产品 skill 补齐 3 个 | ⬜ 未开始 | — |
-| I-10 | Round 1 收尾 + `round-01-comparison.md` + 推 scienceprism | ⬜ 未开始 | — |
+| I-10 | Round 1 收尾 + `rounds/round-01-comparison.md` + 推 scienceprism | ⬜ 未开始 | — |
 
 ## Round 2 — `feat/agent-governance-r2`（从 r1 尖端切出）
 
@@ -83,32 +90,33 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 | I-17 | 前端约束建议面板 + 溯源显示 + i18n | ⬜ 未开始 |
 | I-18 | 端到端验收（对话→提案→批准→生效→拦截→禁用放行） | ⬜ 未开始 |
 | I-19 | 角色/约束可见性 + 文档同步 | ⬜ 未开始 |
-| I-20 | Round 2 收尾 + `round-02-comparison.md` | ⬜ 未开始 |
+| I-20 | Round 2 收尾 + `rounds/round-02-comparison.md` | ⬜ 未开始 |
 
 ## 当前状态
 
 **阶段：已暂停（用户指示）/ 尚未进入执行计划 / 未修改任何产品代码。**
 
-- 已完成：I-01（基线提交 `33a2b5b` + tag `round-00-baseline` + 分支 `feat/agent-governance-r1` + 治理脚手架 + 需求/计划/任务书）。
+- 已完成：I-01（基线提交 `33a2b5b` + tag `round-00-baseline` + 分支 `feat/agent-governance-r1` + 治理脚手架）。
+- 文档目录：agent 产出已全部迁到 **`aidoc/`**（`aidoc/README.md`、`plan.md`、`requirements.md`、`subagents/*`、`assets/diagrams/`）；`docs/` 保持项目自身文档不变。
 - 产品代码改动：**零**。可复现验证：`git diff --name-only round-00-baseline..HEAD -- apps/ packages/`（无输出）。
 - 会话内 goal：已不存在（`get_goal` 返回 null），无需暂停动作。
-- 子 agent 产出：**已按用户指示全部删除**（`apps/backend/src/services/agentRoles/`、`apps/backend/src/services/harnessRuntime/roleResolver.js`），后续重做。
-- 子 agent 机制实测：6 次派发 5 次失败（无总结、无产出），因此后续**以 Lead 串行为主，子 agent 仅在必要时试**（U-15）。
-- I-02 的修法已完成调研与实证（Node 权限模型可作第二隔离策略，且实测能拦住越权读 `/etc/hosts`、越权写、child_process 与网络；`sandbox-exec` 在本机 exit 71），但**代码尚未落地**。
+- 子 agent 产出：**已按用户指示全部删除**（`agentRoles/`、`roleResolver.js`、`agent-roles.md`、`ADR-0011`），后续重做。
+- 子 agent 机制实测：6 次派发 5 次失败（无总结、无产出），且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主，子 agent 仅在必要时试**（U-15）。
+- I-02 修法已实证但**代码未落地**：Node 权限模型可作第二隔离策略，实测能拦住越权读 `/etc/hosts`、越权写、`child_process` 与网络。
 
 ## 恢复条件（满足才继续）
 
 1. 用户明确说「开始执行」。
-2. 派子 agent 前先查存活数，**已有 2 个存活就不派**（U-13）。
+2. 派子 agent 前先查存活数：**≥2 就先等其结束**，≤1 才派且一次只派 1 个（U-16）。
 3. 从 I-02 开始：落地第二隔离策略 → 40 项测试全绿 → 更新本文件并单独提交。
 
 ## 恢复协议
 
 1. 读本文件的「当前状态」与迭代表，确认最后完成的迭代与 commit。
-2. 读仓库根 `AGENTS.md` 的写入边界与踩坑清单。
+2. 读仓库根 `AGENTS.md` 的必读清单、子 agent 派发规则、写入边界与踩坑清单。
 3. `git log --oneline -5` 与 `git status --short` 对照，确认工作树与记录一致；不一致就先对齐再动手。
 4. 重跑 `node --test apps/backend/test/*.test.js` 确认当前真实测试状态（不要相信记录里的旧数字）。
-5. 从「下一步最小动作」继续；每次迭代收尾更新本文件并单独提交。
+5. 从「恢复条件」继续；每次迭代收尾更新本文件并单独提交。
 
 ## 每轮对比文档
 

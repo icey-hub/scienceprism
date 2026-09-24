@@ -22,17 +22,17 @@
 ## 3. 独占写范围（只准写这些）
 
 - `tools/diagram/**`（新建）
-- `docs/assets/diagrams/**`（新建）
-- `docs/agent-governance/drawing-candidates.md`、`drawing-comparison.md`（新建）
+- `aidoc/assets/diagrams/**`（新建）
+- `aidoc/drawing-candidates.md`、`drawing-comparison.md`（新建）
 - `scripts/setup-diagram-toolchain.sh`（新建）
 
-**不得触碰** `apps/**`（任何产品代码）、`package.json`、`package-lock.json`、`AGENTS.md`、`docs/agent-governance/{README,plan,requirements}.md`、`docs/agent-governance/subagents/**`。
+**不得触碰** `apps/**`（任何产品代码）、`package.json`、`package-lock.json`、`AGENTS.md`、`aidoc/{README,plan,requirements}.md`、`aidoc/subagents/**`。
 需要新增依赖时，把**确切命令**写进报告，由 Lead 执行（Lead 独占 `package.json`）。
 
 ## 4. 必读基线
 
 - `AGENTS.md` 的写入边界（安装只落仓库内）
-- `docs/agent-governance/plan.md` 第 3.4 节（候选表与评分维度）
+- `aidoc/plan.md` 第 3.4 节（候选表与评分维度）
 - `apps/frontend/src/app/EditorPage.tsx:97`（`FIGURE_EXTS` 含 `.svg`/`.pdf`）与 `apps/backend/src/routes/projects.js:296`（blob 接口）——**只读，用于确认查看端零改动**
 - `docs/architecture-roadmap.md`（可作为真实架构图素材）
 
@@ -60,7 +60,7 @@
 | --- | --- | --- |
 | I-11 | `drawing-candidates.md` | 每个候选给出：仓库内安装命令、离线可用性、确定性、输出格式、**复杂插画能力**、中文支持、CI 可验证性、失败模式；未能核实的标注 UNVERIFIED |
 | I-12 | 4 张参考图源文件 + 安装脚本 | ① 模块依赖图 ② 时序图 ③ **细胞结构图** ④ 对比图表；脚本重复执行结果一致，且不写仓库外路径 |
-| I-13 | `drawing-comparison.md` + 并排产物 | 9 维打分（渲染成功率、视觉质量、**复杂插画能力**、可编辑性、确定性、LaTeX 集成、离线可用、安装成本、CI 可验证性、中文支持）；产物提交 `docs/assets/diagrams/`；附截图证据 |
+| I-13 | `drawing-comparison.md` + 并排产物 | 9 维打分（渲染成功率、视觉质量、**复杂插画能力**、可编辑性、确定性、LaTeX 集成、离线可用、安装成本、CI 可验证性、中文支持）；产物提交 `aidoc/assets/diagrams/`；附截图证据 |
 | I-14 | `doc-diagram` skill + CI 校验 | 源文件 → 产物可复现（重渲染 diff 为空）；中文不出现豆腐块（用 `read_image` 目视确认） |
 
 ## 8. 硬约束
@@ -79,7 +79,7 @@
 候选与得分：（表格）
 主方案与理由：
 新增依赖命令：（原文，Lead 执行）
-产物路径：（docs/assets/diagrams/...）
+产物路径：（aidoc/assets/diagrams/...）
 中文渲染证据：（read_image 结论）
 未解未知：
 ```
