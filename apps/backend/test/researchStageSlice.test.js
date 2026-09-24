@@ -113,3 +113,43 @@ test('failed stage task is persisted without changing the confirmed previous sta
   assert.equal(failed.stages.find((stage) => stage.id === 'direction').status, 'approved');
   assert.equal(failed.currentStage, 'search');
 });
+
+test('an unregistered source name from the model is reported and still searches the registered source', async () => {
+  const projectId = 'stage-six-unregistered-source';
+  await createProject(projectId);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(arxivXml(), { status: 200, headers: { 'content-type': 'application/atom+xml' } });
+  try {
+    let workflow = await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'How can retrieval stay grounded?' } });
+    workflow = await approve(projectId, 'direction');
+
+    // This is the shape a real model produced: venue descriptions instead of
+    // registered Source Adapter ids. Before the fix the stage reported
+    // validation.ok=true while silently searching nothing and returning 0 papers.
+    workflow = await runUiAction(projectId, {
+      action: 'search',
+      query: 'grounded retrieval',
+      adapter: 'fake',
+      fakeResponse: JSON.stringify({
+        stage: 'search_strategy',
+        researchQuestion: 'How can retrieval stay grounded?',
+        humanDirection: 'long-context retrieval',
+        aiAdditions: [],
+        queries: ['grounded retrieval'],
+        sources: ['arXiv (cs.CL, cs.IR) — preprint server, useful for recency'],
+        inclusionCriteria: ['retrieval'],
+        exclusionCriteria: [],
+        rationale: 'Use the research direction as the query seed.'
+      }),
+      policy: { venueLevel: 'Any', publicationType: 'Any', peerReviewed: false, requireCode: false }
+    }, 'human');
+
+    const search = stageData(workflow, 'search');
+    assert.deepEqual(search.sources, ['arxiv'], 'the registered source is used instead of the prose name');
+    assert.equal(search.unregisteredSources.length, 1);
+    assert.ok(search.sourceFailures.some((failure) => failure.code === 'SOURCE_NOT_REGISTERED'));
+    assert.equal(search.papers.length, 1, 'the fallback source still produced a paper');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

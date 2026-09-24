@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { getEnv } from '../../config/constants.js';
 import { applyQualityGate, listResearchSkills, resolveResearchSkillBindings, runResearchStage, validateResearchSkillBindings, normalizeQualityPolicy } from '../researchResearch/index.js';
 import { mergePaperCandidates, prioritizePaperCandidates, validatePaperMetadata } from '../researchResearch/paperCandidates.js';
-import { searchResearchSources } from '../researchSources/index.js';
+import { listResearchSourceAdapters, searchResearchSources } from '../researchSources/index.js';
 import { upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
 import { createStageTask } from './stageTask.js';
 import { writeWritingBriefArtifact } from './writingBriefArtifact.js';
@@ -113,23 +113,34 @@ export async function runUiAction(projectId, body, actor) {
     const direction = body.direction || {};
     const query = String(body.query || direction.question || '').trim();
     if (!query) throw new ResearchWorkflowError(400, 'MISSING_QUERY', 'A search query or research question is required.');
-    const strategy = await runResearchStage({ stage: 'search_strategy', projectId, input: { researchQuestion: direction.question || query, humanDirection: JSON.stringify(direction), seedQuery: query }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const registeredSources = listResearchSourceAdapters().map((adapter) => adapter.id);
+    const strategy = await runResearchStage({ stage: 'search_strategy', projectId, input: { researchQuestion: direction.question || query, humanDirection: JSON.stringify(direction), seedQuery: query, availableSources: registeredSources }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const queries = strategy.ok && strategy.output?.queries?.length ? [...new Set([query, ...strategy.output.queries.map(String)])].slice(0, 4) : [query];
-    const sources = strategy.ok && strategy.output?.sources?.length ? strategy.output.sources : (body.sources || ['arxiv']);
-    const sourceSearch = await searchResearchSources({ queries, sources, maxResults: body.maxResults });
+    // A model names sources in prose ("arXiv (cs.CL) - preprint server") unless it
+    // is told the registered ids, so keep only ids the Source Adapter seam can
+    // resolve and report the rest, instead of silently searching nothing.
+    const requestedSources = (strategy.ok && strategy.output?.sources?.length ? strategy.output.sources : (body.sources || registeredSources)).map((value) => String(value).trim().toLowerCase());
+    const sources = requestedSources.filter((id) => registeredSources.includes(id));
+    const unregisteredSources = requestedSources.filter((id) => !registeredSources.includes(id));
+    const effectiveSources = sources.length ? sources : registeredSources;
+    const sourceSearch = await searchResearchSources({ queries, sources: effectiveSources, maxResults: body.maxResults });
+    const sourceFailures = [
+      ...unregisteredSources.map((id) => ({ source: id, code: 'SOURCE_NOT_REGISTERED', message: `Requested source is not a registered Source Adapter. Registered sources: ${registeredSources.join(', ')}.` })),
+      ...sourceSearch.failures
+    ];
     const rawPapers = prioritizePaperCandidates(mergePaperCandidates(sourceSearch.batches.flatMap((batch) => batch.candidates)), { sourcePriorities: { arxiv: 10, ...(body.sourcePriorities || {}) } });
     const policy = requestPolicy(body.policy);
     const gated = applyQualityGate(rawPapers, policy);
     const task = createStageTask({
       stage: 'search',
-      input: { direction, query, requestedSources: sources, policy: body.policy || {} },
-      output: { strategy: strategy.ok ? strategy.output : null, papers: rawPapers, evaluations: gated.results, sourceFailures: sourceSearch.failures },
-      validation: taskValidation(strategy.validation, sourceSearch.failures.map((failure) => `Source ${failure.source} failed or is unavailable.`)),
+      input: { direction, query, requestedSources, effectiveSources, registeredSources, policy: body.policy || {} },
+      output: { strategy: strategy.ok ? strategy.output : null, papers: rawPapers, evaluations: gated.results, sourceFailures },
+      validation: taskValidation(strategy.validation, sourceFailures.map((failure) => `Source ${failure.source} failed or is unavailable.`)),
       harness: strategy,
       adapters: ['quality-gate', ...sourceSearch.batches.map((batch) => batch.source)],
       error: sourceSearch.batches.length || strategy.ok ? null : new Error('All configured research sources failed.')
     });
-    return updateStage(projectId, 'search', { query, queries, sources, papers: rawPapers, evaluations: gated.results, policy: body.policy || {}, lastRunAt: new Date().toISOString(), qualitySummary: gated.summary, sourceFailures: sourceSearch.failures, aiSearchStrategy: strategy.ok ? strategy.output : { ok: false, validation: strategy.validation }, task }, body, actor);
+    return updateStage(projectId, 'search', { query, queries, sources: effectiveSources, requestedSources, unregisteredSources, papers: rawPapers, evaluations: gated.results, policy: body.policy || {}, lastRunAt: new Date().toISOString(), qualitySummary: gated.summary, sourceFailures, aiSearchStrategy: strategy.ok ? strategy.output : { ok: false, validation: strategy.validation }, task }, body, actor);
   }
   if (action === 'select-papers') {
     const workflow = await getResearchWorkflow(projectId);
