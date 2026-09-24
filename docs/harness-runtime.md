@@ -37,8 +37,11 @@ the Project Constraints did not grant.
 }
 ```
 
-`project.write` and `experiment.execute` are intentionally absent from the
-default set. A Patch is only a proposal; this Runtime does not apply it.
+`experiment.execute` is intentionally absent from the default set, and there is
+no direct-write capability at all: a Patch is only a proposal and this Runtime
+never applies it. Writes are expressed as `patch.propose` plus an explicit human
+application step, so the grantable vocabulary holds only capabilities the
+Runtime can enforce.
 
 ## HTTP Interface
 

@@ -13,7 +13,7 @@ const { getProjectObservability, normalizeTokenUsage } = await import('../src/se
 const { registerObservabilityRoutes } = await import('../src/routes/observability.js');
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
 const { buildContextPack, contextManifest } = await import('../src/services/harnessRuntime/contextPackager.js');
-const { assertCapability, assertProjectPath, isPathAllowed, resolveCapabilityPolicy } = await import('../src/services/harnessRuntime/capabilities.js');
+const { assertCapability, assertProjectPath, isPathAllowed, resolveCapabilityPolicy, HARNESS_CAPABILITIES, DEFAULT_PROJECT_CAPABILITIES } = await import('../src/services/harnessRuntime/capabilities.js');
 const { evaluatePaperCandidate } = await import('../src/services/researchResearch/qualityGate.js');
 const { parseResearchStageOutput } = await import('../src/services/researchResearch/schemas.js');
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
@@ -216,4 +216,26 @@ test('workflow projection preserves the structured Experiment Plan contract', ()
   const projected = toFrontendWorkflow(workflow).experiment;
 
   assert.deepEqual(projected, stage.data);
+});
+
+test('the grantable capability vocabulary holds only enforceable capabilities', () => {
+  // Locked on purpose: adding or removing a capability changes the security
+  // surface, so it must be a deliberate edit of this assertion rather than a
+  // silent drift in the vocabulary.
+  assert.deepEqual([...HARNESS_CAPABILITIES].sort(), [
+    'experiment.execute',
+    'patch.propose',
+    'project.read',
+    'research.search'
+  ]);
+  assert.ok(!HARNESS_CAPABILITIES.includes('project.write'), 'project.write is grantable but never asserted anywhere');
+
+  for (const capability of DEFAULT_PROJECT_CAPABILITIES) {
+    assert.ok(HARNESS_CAPABILITIES.includes(capability), `default capability is missing from the vocabulary: ${capability}`);
+  }
+
+  // A stored grant for a capability outside the vocabulary is dropped rather
+  // than silently honoured, so removing a capability cannot widen access.
+  const policy = resolveCapabilityPolicy({ configured: ['project.read', 'project.write'] });
+  assert.deepEqual(policy.configured, ['project.read']);
 });

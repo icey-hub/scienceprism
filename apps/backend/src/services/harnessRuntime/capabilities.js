@@ -1,9 +1,12 @@
 import path from 'node:path';
 import { HarnessRuntimeError } from './errors.js';
 
+// The vocabulary of capabilities a Project can grant. It lists only what the
+// Runtime can actually assert: direct project writes are represented by
+// `patch.propose` plus an explicit human application step, so a `project.write`
+// capability was grantable but unenforceable and has been removed.
 export const HARNESS_CAPABILITIES = Object.freeze([
   'project.read',
-  'project.write',
   'research.search',
   'patch.propose',
   'experiment.execute'
