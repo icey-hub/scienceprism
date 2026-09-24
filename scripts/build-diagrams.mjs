@@ -18,7 +18,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+// This file lives at <repo>/scripts/, so the repo root is ONE level up. It was
+// two when the script sat at <repo>/tools/diagram/, and moving it without
+// adjusting this silently wrote the figures outside the workspace.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = path.join(REPO_ROOT, 'docs', 'agent-governance', 'assets', 'diagrams');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
@@ -281,12 +284,26 @@ function comparisonChart() {
 
 /* ---------------------------------------------------------------- pipeline */
 
-const FIGURES = {
+/**
+ * Exported so a test can regenerate the SVG in memory and compare it with the
+ * committed artifact. That is what stops the source and the checked-in figures
+ * from drifting apart.
+ */
+export const FIGURES = {
   'module-graph': moduleGraph,
   'sequence-flow': sequenceFlow,
   'cell-structure': cellStructure,
   'comparison-chart': comparisonChart
 };
+
+export const OUTPUT_DIR = OUT_DIR;
+
+/** Returns the SVG markup for one figure. */
+export function buildSvg(name) {
+  const build = FIGURES[name];
+  if (!build) throw new Error(`Unknown figure: ${name}`);
+  return build();
+}
 
 function rasterise(svgPath, pngPath, { width, height }) {
   return new Promise((resolve) => {
@@ -323,4 +340,7 @@ async function main() {
   }
 }
 
-await main();
+// Only run when executed directly; importing the module must have no side effects.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

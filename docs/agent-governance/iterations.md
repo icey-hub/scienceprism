@@ -81,8 +81,8 @@
 | # | 拍型 | 内容 | 状态 |
 | --- | --- | --- | --- |
 | 021 | 加 | **复杂矢量插画级绘图方案**（手写 SVG + Chrome 栅格化，4 张参考图） | ✅ |
-| 022 | 减 | 绘图产物接**可复现门禁**（重渲染与提交产物比对，防 SVG/PNG 脱节） | ⬜ |
-| 023 | 验证 | 验证 021–022 + 把结论回填到 R-12/R-13 验收 | ⬜ |
+| 022 | 减 | **删掉不可达的 skill 绑定与孤儿 skill `paper-screening`**（改标说明见下） | ✅ |
+| 023 | 验证 | 验证 021–022 + **绘图产物可复现门禁** + 把结论回填 R-12/R-13 | ✅ |
 | 024 | 加 | 产品侧 skill 补齐（`research-direction` / `claim-evidence-audit` / `figure-table-plan`） | ⬜ |
 | 025 | 减 | 开发侧 skill / playbook + 根目录隔离 | ⬜ |
 | 026 | 验证 | 验证 024–025 | ⬜ |
@@ -96,6 +96,13 @@
 | # | 拍型 | 变更摘要 | 验证证据 |
 | --- | --- | --- | --- |
 | 021 | 加 | **复杂矢量插画级绘图方案**（目标 ④，R-12/R-13）。新增 `scripts/build-diagrams.mjs`（零依赖 Node 脚本）：产出 4 张参考图 SVG，并用**本机已装的 Chrome headless** 栅格化为 PNG，全部落在 `docs/agent-governance/assets/diagrams/`。**基准按你的纠正设为细胞结构图**（不是线段方框）：细胞膜磷脂双分子层 + 核膜/核孔/核仁/染色质 + 3 个带嵴线粒体 + 粗面内质网/核糖体 + 高尔基体叠层 + 溶酶体 + 液泡 + 中心体 + 游离核糖体 + **12 个中文标注与引线**。产出 `drawing-comparison.md`（候选对比表含"是否经实际渲染验证"列、未验证项诚实清单、复现命令）。**过程中自查并修正两处**：① 我把探测文件写到了 `/tmp`（违反 U-02/U-03），已立即清理并复查无残留；② 生成器原放在被 gitignore 的 `tools/` 下会漏提交，已移到受跟踪的 `scripts/` | ① `node scripts/build-diagrams.mjs` 输出 4 张图全部 `rasterised=true`（SVG 3.6–19.4KB，PNG 29–321KB）。② **目视复核（`read_image`，不以 SVG 里有 `<text>` 为通过标准）**：中文无豆腐块、图形分层正确；发现并修掉"核仁/粗面内质网"标注重叠与中心体不明显两处后重渲染。③ `npm run quality` exit 0（78 项）。④ 诚实记录 5 项未验证：TikZ 版细胞图未渲染（需联网预热缓存）、matplotlib 版未渲染（需 venv）、Mermaid/D2/Graphviz 未安装、SVG→PDF 未做、CI 可复现门禁未做（留给 022） |
+| 022 | 减 | **删掉一半不可达的 skill 绑定 + 一个孤儿 skill**。取证：`application.js` 只对 **4 个契约阶段**调用 `runResearchStage`（`search_strategy`/`innovation_ideas`/`method_proposals`/`writing`），归一化后是 `search`/`ideation`/`method`/`writing`；而 `DEFAULT_RESEARCH_SKILL_BINDINGS` 声明了 **8 个阶段**的绑定，其中 `direction`/`selection`/`replication`/`experiment` **永远不会被加载**。删除项：① 4 个死绑定键；② **`.dsh/skills/paper-screening/` 整个 skill**——它只绑在 `selection` 上，而筛选由确定性服务端质量门（C-06）决定、根本不跑 Harness，所以永远加载不到，且与代码已强制的门禁重复；③ `roles.js` 的 `allowedSkills` 与 3 处文档（`docs/research-skills.md`、`README.md`、`README_ZH.md`）同步。同时导出 `HARNESS_EXECUTED_STAGES` 与 `RESEARCH_SKILL_STAGE_ALIASES`，让门禁测试用模块自己的映射而不是重新推导 | `npm run quality` exit 0（81 项，78 → 81）；新增 `researchSkillReachability.test.js` **3 项不变量**：① 声明的可达阶段集合必须仍与 `application.js` 里 `runResearchStage` 的实际调用一致（新增/移除阶段会红）；② 任何绑定键都不得指向不跑 Harness 的阶段；③ **每个捆绑 skill 都必须能从某个会跑 Harness 的阶段到达**（`paper-screening` 会因此变红，从而强制删除）。`grep -rn paper-screening` 全仓仅剩 `docs/research-skills.md` 里那条**说明删除原因**的记录 |
+| 023 | 验证 | 验证 021–022 + 把绘图产物接成**可复现门禁** + 回填 R-12/R-13 验收。① `scripts/build-diagrams.mjs` 改为导出 `FIGURES` / `buildSvg` / `OUTPUT_DIR`，且**只在直接执行时才跑 main**（导入无副作用）。② 新增 `diagramAssets.test.js` 3 项：**提交的 SVG 必须与生成器逐字节一致**、每张图有 PNG 且尺寸与 SVG 声明一致（PNG 不做逐字节比对——headless Chrome 版本差异会导致假红，已在注释里说明理由）、参考图集固定为 4 张。③ R-10/R-11/R-12/R-13 状态回填 | ① `npm run quality` **exit 0**（84 项，81 → 84）。② **门禁有效性实证**（不以"它绿了"为通过）：往 `module-graph.svg` 追加一行注释 → 门禁**变红**并报 `no longer matches the generator`；重跑生成器还原 → **恢复绿**。③ 生成器仍可独立执行（无副作用导入已验证） |
+| 023b | 修复 | **发现并修复一处我自己造成的越界写入**。把生成器从 `tools/diagram/` 移到 `scripts/` 时，`REPO_ROOT` 仍是 `../..`（对 `scripts/` 而言多了一级），于是脚本一直把图写到 **`/Users/icey/Desktop/project/prism-code/docs/…`（工作区外）**。更糟的是**门禁测试也跟着读那个错目录**，所以第一次"制造漂移"实验**假绿**——测试比对的是工作区外那份被重新生成的干净文件 | ① 已把 `REPO_ROOT` 改为 `..` 并在注释里写明这段历史；`OUTPUT_DIR` 现为 `<repo>/docs/agent-governance/assets/diagrams`（工区内）。② 重新执行"制造漂移 → 应变红 → 还原 → 应变绿"实验，**这次门禁正确变红**，证明修复到位。③ 越界目录 `/Users/icey/Desktop/project/prism-code/docs/` 创建于本会话 16:09（父目录 `prism-code/` 原本就存在），**内容全部是我生成的 4 张图**；按 U-02/U-03 我不得在工作区外删除，**已上报用户等待明确许可**，未自行删除 |
+
+### 改标说明（诚实记录）
+
+Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执行时我在目标 ③ 方向先取证，发现**一半 skill 绑定是死配置 + 一个 skill 永远加载不到**——这是比绘图门禁更实的冗余，且属"减"拍的正当目标，因此把 022 改为删死配置，把绘图产物门禁并入 023（验证拍，那里天然适合加校验）。
 
 ## 环境变化记录
 

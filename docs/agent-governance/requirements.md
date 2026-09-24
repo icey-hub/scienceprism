@@ -16,10 +16,10 @@
 | R-07 | agent 的角色设定不明确，要明确 | 待做（I-07 / I-08） |
 | R-08 | 要设置一个 goal | ✅ 已建 `goal-1475d1ce` |
 | R-09 | 第一次提交先提交一个新分支 | ✅ `feat/agent-governance-r1` |
-| R-10 | 迭代 10 次后，又开一个新分支 | 待做（Round 2 = `feat/agent-governance-r2`） |
-| R-11 | 每 10 次迭代要留一个文档给用户对比 | 待做（`rounds/round-01-comparison.md`、`round-02-comparison.md`） |
-| R-12 | 文档绘图能力不行，要调研 skill 或 MCP 方案画好图 | 待做（I-11 / I-13 / I-14） |
-| R-13 | 画图方案也要对比 | 待做（I-13，9 维打分 + 产物并排） |
+| R-10 | 迭代 10 次后，又开一个新分支 | ✅ 已完成（Round 1 = `feat/agent-governance-r1`，Round 2 = `feat/agent-governance-r2`，Round 3 = `feat/agent-governance-r3`） |
+| R-11 | 每 10 次迭代要留一个文档给用户对比 | ✅ 已完成（`rounds/round-01-comparison.md`、`round-02-comparison.md`；Round 3 的待 030 拍产出） |
+| R-12 | 文档绘图能力不行，要调研 skill 或 MCP 方案画好图 | ✅ **已完成**（迭代 021）：结论 = **手写 SVG**；零安装、离线、中文直出、可 diff、不越界写缓存。产物 `docs/agent-governance/assets/diagrams/`（4 张，含细胞结构图），方案见 `drawing-comparison.md` |
+| R-13 | 画图方案也要对比 | ✅ **已完成**（迭代 021）：候选对比表含「是否经实际渲染验证」列，未验证项单独列明；细胞结构图为基准。MCP 路线经取证关闭（配置须写工作区外） |
 | R-14 | 先列详细计划，先不执行 | ✅ 已完成（`plan.md`） |
 | R-15 | **科研工具产出的文档要写入 `aidoc/` 目录**（不是 agent 治理文档） | 待做，待排入迭代（建议并入 I-19 或单列） |
 
