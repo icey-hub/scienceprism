@@ -87,19 +87,20 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：尚未进入执行计划 / 未修改任何产品代码。**
+**阶段：已暂停（用户指示）/ 尚未进入执行计划 / 未修改任何产品代码。**
 
-- 已完成：I-01（基线提交 + tag + 分支 + 治理脚手架 + 需求/计划/任务书）。
-- 产品代码改动：**零**（`apps/`、`packages/` 相对 `round-00-baseline` 无变化，可复现验证：`git diff --name-only round-00-baseline..HEAD -- apps/ packages/`）。
-- I-02 的修法已完成调研与实证（Node 权限模型可作为第二隔离策略；`sandbox-exec` 在本机 exit 71），但**代码尚未落地**。
-- 子 agent：角色线存活中并已创建 `apps/backend/src/services/agentRoles/`；审计线存活中（仅产出文档）。按 U-13，存活数已达 2，**不再派发新子 agent**。
-- 待用户明确指示后，才可开始改代码（U-12）。
+- 已完成：I-01（基线提交 `33a2b5b` + tag `round-00-baseline` + 分支 `feat/agent-governance-r1` + 治理脚手架 + 需求/计划/任务书）。
+- 产品代码改动：**零**。可复现验证：`git diff --name-only round-00-baseline..HEAD -- apps/ packages/`（无输出）。
+- 会话内 goal：已不存在（`get_goal` 返回 null），无需暂停动作。
+- 子 agent 产出：**已按用户指示全部删除**（`apps/backend/src/services/agentRoles/`、`apps/backend/src/services/harnessRuntime/roleResolver.js`），后续重做。
+- 子 agent 机制实测：6 次派发 5 次失败（无总结、无产出），因此后续**以 Lead 串行为主，子 agent 仅在必要时试**（U-15）。
+- I-02 的修法已完成调研与实证（Node 权限模型可作第二隔离策略，且实测能拦住越权读 `/etc/hosts`、越权写、child_process 与网络；`sandbox-exec` 在本机 exit 71），但**代码尚未落地**。
 
-## 下一步（需用户明确指示才执行）
+## 恢复条件（满足才继续）
 
-1. 由用户确认「开始执行」。
-2. 确认存活子 agent 数 ≤1 后再派发（U-13）。
-3. I-02：落地第二隔离策略并让 40 项测试全绿。
+1. 用户明确说「开始执行」。
+2. 派子 agent 前先查存活数，**已有 2 个存活就不派**（U-13）。
+3. 从 I-02 开始：落地第二隔离策略 → 40 项测试全绿 → 更新本文件并单独提交。
 
 ## 恢复协议
 
