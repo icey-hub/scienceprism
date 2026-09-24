@@ -140,12 +140,6 @@ export function capabilityForToolName(name) {
   return null;
 }
 
-export function assertToolCapability(policy, toolName) {
-  const capability = capabilityForToolName(toolName);
-  if (capability) assertCapability(policy, capability);
-  return capability;
-}
-
 export function assertNetworkHost(policy, url) {
   assertCapability(policy, 'research.search');
   let host;

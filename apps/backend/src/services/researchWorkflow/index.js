@@ -42,7 +42,3 @@ export {
   updateResearchSkillBindings,
   toFrontendWorkflow
 };
-
-export const createResearchWorkflow = initializeResearchWorkflow;
-export const readResearchWorkflow = getResearchWorkflow;
-export const patchResearchWorkflow = updateResearchWorkflow;

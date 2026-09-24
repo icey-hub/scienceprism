@@ -718,6 +718,11 @@ export async function runHarnessRequest(request = {}) {
   };
 }
 
+/**
+ * Intentionally unused today, and deliberately kept: it is the only way to add a
+ * Harness Adapter (or swap one in a test) without editing this module. The three
+ * shipped adapters register themselves below.
+ */
 export function registerHarnessAdapter(adapter) {
   if (!adapter || typeof adapter.id !== 'string' || typeof adapter.run !== 'function') throw new TypeError('A Harness Adapter must provide id and run().');
   adapters.set(adapter.id, adapter);

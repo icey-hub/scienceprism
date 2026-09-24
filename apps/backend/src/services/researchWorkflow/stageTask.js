@@ -55,19 +55,3 @@ export function markStageTaskDecision(task, { decision, actor = 'human', note = 
     updatedAt: at
   };
 }
-
-export function stageTaskProjection(task) {
-  if (!task) return null;
-  return {
-    id: task.id,
-    stage: task.stage,
-    status: task.status,
-    validation: task.validation,
-    harness: task.harness,
-    adapters: task.adapters,
-    humanDecision: task.humanDecision,
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-    error: task.error
-  };
-}

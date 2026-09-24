@@ -503,7 +503,3 @@ export async function compareExperimentRuns(projectId, runIds = []) {
   });
   return { runIds: runs.map((run) => run.id), runs: runs.map((run) => ({ id: run.id, codeVersion: run.manifest.code.version, dataset: run.manifest.dataset, seed: run.manifest.seed, createdAt: run.createdAt })), metrics, generatedAt: now() };
 }
-
-export function activeExperimentRunCount(projectId) {
-  return [...activeRuns.values()].filter((item) => item.projectId === projectId).length;
-}

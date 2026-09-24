@@ -3,6 +3,11 @@ import { assertSourceAdapter, normalizeSourceCandidate, ResearchSourceError, sea
 
 const adapters = new Map([[arxivSourceAdapter.id, arxivSourceAdapter]]);
 
+/**
+ * Intentionally unused today, and deliberately kept: the roadmap commits to a
+ * Source Adapter Seam for future OpenAlex / Semantic Scholar / Crossref
+ * adapters. It is the only way to add a source without editing the map above.
+ */
 export function registerResearchSourceAdapter(adapter) {
   const valid = assertSourceAdapter(adapter);
   adapters.set(valid.id, valid);
