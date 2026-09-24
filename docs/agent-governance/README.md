@@ -96,7 +96,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 **阶段：Round 3 进行中（迭代 021–030）。**
 
-- **Round 3 进度**：021 ✅ 复杂矢量插画级绘图方案；022 ✅ **减**：删掉一半不可达的 skill 绑定 + 孤儿 skill；023 ✅ **验证**：绘图产物接可复现门禁 + 回填 R-12/R-13；024 ✅ **加**：产品侧 skill 补齐（5 → 8 个）+ 技能集锁；025 ✅ **减**：开发侧 playbook 落地 + `.dsh/skills` 隔离门禁；下一步 026（验证 024–025）。
+- **Round 3 进度**：021 ✅ 复杂矢量插画级绘图方案；022 ✅ **减**：删掉一半不可达的 skill 绑定 + 孤儿 skill；023 ✅ **验证**：绘图产物接可复现门禁 + 回填 R-12/R-13；024 ✅ **加**：产品侧 skill 补齐（5 → 8 个）+ 技能集锁；025 ✅ **减**：开发侧 playbook 落地 + `.dsh/skills` 隔离门禁；026 ✅ **验证**：门禁 exit 0、零依赖变更、越界复查通过；下一步 027（剩余漂移收口）。
 - **目标 ③ 已闭环**：产品侧 8 个 skill（全部绑到真正会跑 Harness 的 4 个阶段）+ 开发侧 2 份 playbook（`playbooks/adding-a-constraint.md`、`playbooks/verification-discipline.md`），并有隔离门禁防止两者混放。
 - **越界事故已闭环**：我因脚本路径写错，曾把 4 张图写到**工作区外**的 `/Users/icey/Desktop/project/prism-code/docs/`；根因已修（`REPO_ROOT` 层级），并在**取得用户明确授权后**删除该目录，复查无残留、父目录完好。
 - **skill 可达性已成为不变量**：3 项门禁测试锁住「声明可达阶段 == 代码实际调用」「绑定不得指向不跑 Harness 的阶段」「每个捆绑 skill 必须可达」。
