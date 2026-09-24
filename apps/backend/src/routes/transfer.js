@@ -8,6 +8,8 @@ import { resolveMineruConfig } from '../services/mineruService.js';
 import { readTemplateManifest } from '../services/templateService.js';
 import { DATA_DIR, TEMPLATE_DIR } from '../config/constants.js';
 import { ensureDir, readJson, writeJson, copyDir } from '../utils/fsUtils.js';
+import { applyProjectConstraintPolicy, hasCapability, resolveCapabilityPolicy } from '../services/harnessRuntime/capabilities.js';
+import { getProjectConstraints } from '../services/projectHub/dashboard.js';
 
 // In-memory job store: jobId → { graph, state, status, progressLog }
 const jobs = new Map();
@@ -32,6 +34,20 @@ export function registerTransferRoutes(fastify) {
 
     if (!sourceProjectId || !sourceMainFile || !targetTemplateId || !targetMainFile) {
       return reply.code(400).send({ error: 'Missing required fields.' });
+    }
+
+    // The migration pipeline writes .tex files and runs a LaTeX engine. It used to
+    // check no Project Constraint at all, so it is now deniable like every other
+    // writer: patch.propose is granted by default, so the default flow is
+    // unchanged, but a Project can revoke it. Authorisation is checked before the
+    // template lookup so a denied caller learns nothing about the template set.
+    const constraints = await getProjectConstraints(sourceProjectId);
+    const policy = applyProjectConstraintPolicy(resolveCapabilityPolicy({ configured: constraints.capabilities }), constraints);
+    if (!hasCapability(policy, 'patch.propose')) {
+      return reply.code(403).send({
+        ok: false,
+        error: { code: 'CAPABILITY_DENIED', message: 'Template transfer writes project files and requires the patch.propose capability.' }
+      });
     }
 
     // Validate template exists

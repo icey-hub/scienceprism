@@ -4,12 +4,39 @@ import { ensureDir } from '../utils/fsUtils.js';
 import { getProjectRoot } from '../services/projectService.js';
 import { resolveLLMConfig, callOpenAICompatible } from '../services/llmService.js';
 import { runPythonPlot } from '../services/plotService.js';
+import { applyProjectConstraintPolicy, hasCapability, resolveCapabilityPolicy } from '../services/harnessRuntime/capabilities.js';
+import { getProjectFeatureFlags } from '../services/featureFlags.js';
+import { getProjectConstraints } from '../services/projectHub/dashboard.js';
 
 export function registerPlotRoutes(fastify) {
   fastify.post('/api/plot/from-table', async (req) => {
     const { projectId, tableLatex, chartType, title, prompt, filename, llmConfig, retries } = req.body || {};
     if (!projectId) return { ok: false, error: 'Missing projectId.' };
     if (!tableLatex) return { ok: false, error: 'Missing tableLatex.' };
+
+    // This route asks a model to write Python and then executes it, which is code
+    // execution. It therefore goes through the same admission control as a
+    // controlled Experiment Run: the Project must grant experiment.execute and
+    // the execution flag must be on. Before this it ran model-authored code with
+    // no gate at all, while the Experiment Runner required two human decisions.
+    const constraints = await getProjectConstraints(projectId);
+    const policy = applyProjectConstraintPolicy(resolveCapabilityPolicy({ configured: constraints.capabilities }), constraints);
+    if (!hasCapability(policy, 'experiment.execute')) {
+      return {
+        ok: false,
+        code: 'CAPABILITY_DENIED',
+        error: 'Generating and executing plot code requires the project capability experiment.execute.'
+      };
+    }
+    const flags = await getProjectFeatureFlags(projectId);
+    if (flags.experimentExecution !== true) {
+      return {
+        ok: false,
+        code: 'FEATURE_FLAG_DISABLED',
+        error: 'Plot code execution is disabled by the experimentExecution feature flag.'
+      };
+    }
+
     const projectRoot = await getProjectRoot(projectId);
     const safeNameBase = sanitizeUploadPath(filename || `plot_${Date.now()}.png`) || `plot_${Date.now()}.png`;
     const ext = path.extname(safeNameBase);

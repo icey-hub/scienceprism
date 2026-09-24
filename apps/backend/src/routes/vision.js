@@ -4,6 +4,8 @@ import { safeJoin, sanitizeUploadPath } from '../utils/pathUtils.js';
 import { ensureDir } from '../utils/fsUtils.js';
 import { resolveLLMConfig, callOpenAICompatible } from '../services/llmService.js';
 import { getProjectRoot } from '../services/projectService.js';
+import { applyProjectConstraintPolicy, hasCapability, resolveCapabilityPolicy } from '../services/harnessRuntime/capabilities.js';
+import { getProjectConstraints } from '../services/projectHub/dashboard.js';
 
 export function registerVisionRoutes(fastify) {
   fastify.post('/api/vision/latex', async (req) => {
@@ -45,6 +47,15 @@ export function registerVisionRoutes(fastify) {
 
     let assetPath = '';
     if (projectId) {
+      // The uploaded image is stored inside the Project. It is the researcher's own
+      // file rather than a model-authored change, so the risk is low, but the write
+      // still has to be deniable: patch.propose is granted by default, so the
+      // default flow is unchanged and a Project can revoke it.
+      const constraints = await getProjectConstraints(projectId);
+      const policy = applyProjectConstraintPolicy(resolveCapabilityPolicy({ configured: constraints.capabilities }), constraints);
+      if (!hasCapability(policy, 'patch.propose')) {
+        return { ok: false, code: 'CAPABILITY_DENIED', error: 'Storing a converted image in the project requires the patch.propose capability.' };
+      }
       try {
         const projectRoot = await getProjectRoot(projectId);
         const safeName = sanitizeUploadPath(imageName) || `image_${Date.now()}.png`;
