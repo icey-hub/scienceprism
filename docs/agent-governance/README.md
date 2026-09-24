@@ -100,7 +100,8 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 - **Round 1 关键指标**：后端测试 40（36 通过 / 4 失败）→ **51（全通过）**；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0；工具产出文档 0 → 1。
 - **交付物（工具真实产出）**：`aidoc/aidoc-research-document/research/writing-brief.md` + `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json`。
 - **Round 2 分支**：`feat/agent-governance-r2`（从 r1 尖端切出，D-4）。
-- **Round 2 首批目标**：约束注册表（可执行 / 可开关 / 可审计 / 可测试）、收口 4 处高危绕过、角色注册表、复杂矢量插画绘图方案。
+- **Round 2 进度**：011 ✅ 约束注册表骨架 + 审计文档（56 项测试通过）；下一步 012（`project-constraints.md` 改为注册表生成）。
+- **约束审计结论**：16 条中 13 core / 3 standard；14 条有测试、2 条缺口（C-01、C-10，已锁）；**9 条文档与代码不一致**；**2 处疑似 AI 主观添加**（C-11 字段集、C-16 Feature Flag）。详见 `constraint-audit.md`。
 - 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 10 拍）。
 - 子 agent 机制实测：6 次派发 5 次失败，且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主**（U-15），派发前先查存活数（U-16）。
 

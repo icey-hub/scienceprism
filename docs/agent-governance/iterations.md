@@ -47,6 +47,27 @@
 - 关键指标：后端测试 40（36 通过 / 4 失败）→ **51（全通过）**；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0。
 - 遗留进 Round 2：约束注册表、4 处高危绕过、角色注册表、`assertNetworkHost` 接线、失败重试回灌、复杂矢量插画绘图方案、`aidoc/` 落点策略。
 
+## Round 2 节奏映射（迭代 011–020）
+
+| # | 拍型 | 内容 | 状态 |
+| --- | --- | --- | --- |
+| 011 | 加 | 约束注册表骨架（零行为变更）+ 机器生成的审计文档 | ✅ |
+| 012 | 加 | `docs/project-constraints.md` 改为**由注册表生成** + 一致性门禁 | ⬜ |
+| 013 | 减 | 收口漂移：改代码补齐或改文档对齐（9 条，逐条给依据） | ⬜ |
+| 014 | 验证 | 验证 011–013 + 契约/文档一致性回归 | ⬜ |
+| 015 | 加 | 约束策略与可选开关（tier：`core` 不可关） | ⬜ |
+| 016 | 减 | 收口 4 处高危绕过（transfer / plot / vision / llm） | ⬜ |
+| 017 | 验证 | 验证 015–016 + 负向测试（禁用即不生效、越权即被拒） | ⬜ |
+| 018 | 加 | 角色注册表（8 角色） | ⬜ |
+| 019 | 减 | 删 prompt 假约束与三个竞争人格 | ⬜ |
+| 020 | 验证 | Round 2 收尾 + `rounds/round-02-comparison.md` + 推 scienceprism | ⬜ |
+
+## Round 2 逐拍记录
+
+| # | 拍型 | 变更摘要 | 验证证据 |
+| --- | --- | --- | --- |
+| 011 | 加 | 新增 `services/constraintRegistry/`：16 条约束的机器可读注册表（tier / scope / `module:symbol` seam / testRef / provenance / drift），加 `listConstraints` / `getConstraint` / `constraintCatalog` / `renderConstraintCatalog` 投影。**零行为变更**：没有任何调用点，enforcement 只是引用既有 seam。同时产出 `docs/agent-governance/constraint-audit.md`（数据由注册表投影生成，非手抄） | `npm run quality` exit 0（56 项）；新增 5 项门禁测试：① 16 条格式合法且 id 唯一；② **每条 `module:symbol` 经动态 import 验证真实导出**；③ 每条 `testRef` 指向的测试文件里确实存在同名 `test(...)`；④ 注册表 id 集合与 `docs/project-constraints.md` 表格**完全一致**（多一条少一条都红）；⑤ 投影一致（分层求和、tested+untested=total、漂移清单一致）。审计结论：13 core / 3 standard / 14 有测试 / **9 条漂移** / **2 处 AI 主观添加**（C-11 字段集、C-16） |
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。
