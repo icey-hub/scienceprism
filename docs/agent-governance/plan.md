@@ -34,7 +34,7 @@
 
 ### 3.2 角色注册表
 
-`apps/backend/src/services/agentRoles/` + `aidoc/agent-roles.md`：
+`apps/backend/src/services/agentRoles/` + `docs/agent-governance/agent-roles.md`：
 `{ id, purpose, stageScope, allowedCapabilities, allowedSkills, outputContract, authority, handoff, forbiddenActions }`
 
 已取证得到的 8 角色分类法（待验证落地）：`editor-chat-assistant`、`project-agent`、`paper-reviewer`、`research-stage-assistant`、`latex-conversion-engine`、`plot-code-generator`、`template-migration-agent`、`experiment-interpreter`。
@@ -44,7 +44,7 @@
 
 `.dsh/skills` 是**产品研究 skill 的源目录**，且只认带 `stages:` frontmatter 的 skill（`researchSkills.js:123` 静默丢弃不合规项）。
 - 产品侧：补 3 个研究 skill（`research-direction`、`claim-evidence-audit`、`figure-table-plan`）。
-- 开发侧：放 `aidoc/playbooks/`（零发现机制风险，D-3）。
+- 开发侧：放 `docs/agent-governance/playbooks/`（零发现机制风险，D-3）。
 
 ### 3.4 文档绘图（U-07 修正版）
 
@@ -64,7 +64,7 @@
 
 **参考图集（I-12 固定 4 张）**：① 模块依赖图 ② 时序/流程图 ③ **复杂插画：细胞结构图** ④ 对比图表。
 **评分 9 维**：渲染成功率、视觉质量、**复杂插画能力**、可编辑性、确定性、LaTeX 集成、离线可用、安装成本、CI 可验证性、中文支持。
-**产物**：并排提交 `aidoc/assets/diagrams/`，附截图证据。查看端零改动——GUI 的 Figure 面板已渲染项目树里的 `.svg`/`.pdf`（`FIGURE_EXTS`，`EditorPage.tsx:97`）。
+**产物**：并排提交 `docs/agent-governance/assets/diagrams/`，附截图证据。查看端零改动——GUI 的 Figure 面板已渲染项目树里的 `.svg`/`.pdf`（`FIGURE_EXTS`，`EditorPage.tsx:97`）。
 
 ## 4. Round 1 — `feat/agent-governance-r1`
 
@@ -123,3 +123,4 @@
 
 - 2026-09-24：初版（Round 1 + Round 2）。
 - 2026-09-24：按 U-07 修正绘图目标为**复杂矢量插画级**，重做 I-11…I-14 的基准与候选集；按 U-02/U-03 将全部安装与缓存重定向进仓库，MCP 路线关闭。
+- 2026-09-24：按 U-10 / U-17 澄清目录约定——`aidoc/` 是**科研工具产出文档的落地目录**，agent 治理文档留在 `docs/agent-governance/`；新增需求 R-15（工具产出写入 `aidoc/`），待排入迭代（建议并入 I-19 或单列）。

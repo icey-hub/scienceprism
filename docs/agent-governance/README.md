@@ -3,7 +3,7 @@
 > **这是本目标（`goal-1475d1ce`）的唯一进度事实源。**
 > 新会话恢复时：先读本文件 → 再读仓库根 `AGENTS.md` → 然后按「恢复协议」继续。
 > 每次迭代收尾必须更新本文件的迭代表与「当前状态」。
-> agent 产出的一切文档都在 `aidoc/`；`docs/` 是项目自身文档，不要混。
+> agent 产出的一切文档都在 `docs/agent-governance/`；`docs/` 是项目自身文档，不要混。
 
 ## 迭代前检查清单（每次迭代必做）
 
@@ -26,11 +26,11 @@
 | --- | --- | --- |
 | D-1 | 解除 `.gitignore` 对 `AGENTS.md` 的忽略并入库 | ✅ 已执行 |
 | D-2 | MCP：本轮放弃 | ✅ 采纳（无任何 MCP 胜出；配置还须写工作区外） |
-| D-3 | 开发侧 skill 放 `aidoc/playbooks/` | ✅ 采纳 |
+| D-3 | 开发侧 skill 放 `docs/agent-governance/playbooks/` | ✅ 采纳 |
 | D-4 | Round 2 从 r1 尖端切出 | ✅ 采纳 |
 | D-5 | 接受 `core` 级约束不可关（tier 模型） | ✅ 采纳 |
 | D-6 | Round 1 收口 4 处高危绕过 | ✅ 采纳（默认转 fail-closed） |
-| U-01…U-16 | 用户追加要求（子 agent 上限与**等待规则**、写边界、必读文档、`aidoc/` 目录、**未获指示不得执行**） | 见 `requirements.md` 第二节（单一事实源，不在此重复） |
+| U-01…U-16 | 用户追加要求（子 agent 上限与**等待规则**、写边界、必读文档、`docs/agent-governance/` 目录、**未获指示不得执行**） | 见 `requirements.md` 第二节（单一事实源，不在此重复） |
 
 ## 子 agent 分工与派发规则
 
@@ -38,9 +38,9 @@
 
 | 线 | 负责迭代 | 独占写范围 |
 | --- | --- | --- |
-| 约束线 | I-03 / I-04 / I-05 / I-06 | `apps/backend/src/services/constraintRegistry/**`、`apps/backend/test/constraintRegistry.test.js`、`aidoc/constraint-audit.md` |
-| 角色线 | I-07 / I-08 | `apps/backend/src/services/agentRoles/**`、`apps/backend/test/agentRoles.test.js`、`aidoc/agent-roles.md` |
-| 绘图线 | I-11 / I-12 / I-13 / I-14 | `tools/diagram/**`、`aidoc/assets/diagrams/**`、`aidoc/drawing-*.md`、`scripts/setup-diagram-toolchain.sh` |
+| 约束线 | I-03 / I-04 / I-05 / I-06 | `apps/backend/src/services/constraintRegistry/**`、`apps/backend/test/constraintRegistry.test.js`、`docs/agent-governance/constraint-audit.md` |
+| 角色线 | I-07 / I-08 | `apps/backend/src/services/agentRoles/**`、`apps/backend/test/agentRoles.test.js`、`docs/agent-governance/agent-roles.md` |
+| 绘图线 | I-11 / I-12 / I-13 / I-14 | `tools/diagram/**`、`docs/agent-governance/assets/diagrams/**`、`docs/agent-governance/drawing-*.md`、`scripts/setup-diagram-toolchain.sh` |
 
 派发规则（U-13 / U-16，硬约束）：**先查存活数；≥2 就先等已有子 agent 结束；≤1 才可派，一次只派 1 个。**
 子 agent 不得执行 git 写操作。
@@ -66,7 +66,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 | # | 迭代 | 状态 | 证据 |
 | --- | --- | --- | --- |
-| I-01 | 基线提交 + tag + 分支 + 治理脚手架 | ✅ 完成 | commit `33a2b5b`、tag `round-00-baseline`、`AGENTS.md`、`aidoc/` 全套（需求/计划/看板/三份任务书） |
+| I-01 | 基线提交 + tag + 分支 + 治理脚手架 | ✅ 完成 | commit `33a2b5b`、tag `round-00-baseline`、`AGENTS.md`、`docs/agent-governance/` 全套（需求/计划/看板/三份任务书） |
 | I-02 | 修复 4 个红测试至 40/40 | 🔄 进行中（**代码未落地**） | 根因：`experimentRunner/adapters.js:40 probeSandboxApplicability()` 在本机必失败（`sandbox-exec` exit 71）。已实证 Node 权限模型可作第二隔离策略 |
 | I-03 | 约束审计结论落文档 + 逐条复核 | ⬜ 未开始 | 取证已完成（16 条：9 条仅部分生效、2 条直接矛盾、2 处 AI 主观添加） |
 | I-04 | 约束注册表骨架（零行为变更） | ⬜ 未开始 | — |
@@ -97,7 +97,7 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 **阶段：已暂停（用户指示）/ 尚未进入执行计划 / 未修改任何产品代码。**
 
 - 已完成：I-01（基线提交 `33a2b5b` + tag `round-00-baseline` + 分支 `feat/agent-governance-r1` + 治理脚手架）。
-- 文档目录：agent 产出已全部迁到 **`aidoc/`**（`aidoc/README.md`、`plan.md`、`requirements.md`、`subagents/*`、`assets/diagrams/`）；`docs/` 保持项目自身文档不变。
+- 文档目录：agent 治理文档在 **`docs/agent-governance/`**（本看板、`plan.md`、`requirements.md`、`subagents/*`）；**`aidoc/` 专用于科研工具产出的文档**（U-10 / U-17 / R-15），当前尚未创建。
 - 产品代码改动：**零**。可复现验证：`git diff --name-only round-00-baseline..HEAD -- apps/ packages/`（无输出）。
 - 会话内 goal：已不存在（`get_goal` 返回 null），无需暂停动作。
 - 子 agent 产出：**已按用户指示全部删除**（`agentRoles/`、`roleResolver.js`、`agent-roles.md`、`ADR-0011`），后续重做。

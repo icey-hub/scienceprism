@@ -21,12 +21,12 @@
 
 - `apps/backend/src/services/constraintRegistry/**`（新建）
 - `apps/backend/test/constraintRegistry.test.js`（新建）
-- `aidoc/constraint-audit.md`（新建）
+- `docs/agent-governance/constraint-audit.md`（新建）
 - `docs/adr/0010-*.md`（新建）
 - `docs/project-constraints.md`（改为生成物）
 - I-06 收口：`apps/backend/src/routes/{transfer,vision,plot,llm}.js`、`apps/backend/src/services/transferAgent/**`
 
-**不得触碰**：`apps/backend/src/services/harnessRuntime/**`、`apps/backend/src/services/agentRoles/**`、`apps/backend/src/services/experimentRunner/**`、`package.json`、`package-lock.json`、`.gitignore`、`AGENTS.md`、`aidoc/{README,plan,requirements}.md`、`aidoc/subagents/**`、`tools/**`、`aidoc/assets/**`。
+**不得触碰**：`apps/backend/src/services/harnessRuntime/**`、`apps/backend/src/services/agentRoles/**`、`apps/backend/src/services/experimentRunner/**`、`package.json`、`package-lock.json`、`.gitignore`、`AGENTS.md`、`docs/agent-governance/{README,plan,requirements}.md`、`docs/agent-governance/subagents/**`、`tools/**`、`docs/agent-governance/assets/**`。
 需要改上述任一文件时：**停下来报告 Lead**，不要自己改。
 
 ## 4. 必读基线
@@ -68,7 +68,7 @@
 - 读写/删除**仅限本仓库内**；安装只落仓库内（`npm_config_cache=./.npm-cache`、`./.venv`、`./tools/`、`./.cache/`）；禁止 `brew`、全局 npm/pip。
 - **不要执行任何 git 写操作**（不 add / commit / branch / push）。git 生命周期由 Lead 独占。
 - 需要新增依赖时，把确切命令写进报告，由 Lead 执行。
-- 不要写 `AGENTS.md`、`aidoc/README.md`、`plan.md`、`requirements.md`。
+- 不要写 `AGENTS.md`、`docs/agent-governance/README.md`、`plan.md`、`requirements.md`。
 
 ## 9. 报告格式（回给 Lead）
 

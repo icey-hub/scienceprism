@@ -6,15 +6,15 @@
 
 动手改任何文件之前，按顺序读完：
 
-1. `aidoc/requirements.md` — 需求（用户原始需求 + 追加要求）
-2. `aidoc/plan.md` — 执行计划、设计与非目标
-3. `aidoc/README.md` — 当前进度、下一步最小动作、恢复协议
+1. `docs/agent-governance/requirements.md` — 需求（用户原始需求 + 追加要求）
+2. `docs/agent-governance/plan.md` — 执行计划、设计与非目标
+3. `docs/agent-governance/README.md` — 当前进度、下一步最小动作、恢复协议
 4. 若本次迭代属于某条子 agent 线，读对应任务书：
-   `aidoc/subagents/constraint-line.md`（I-03…I-06）、
-   `aidoc/subagents/role-line.md`（I-07…I-08）、
-   `aidoc/subagents/drawing-line.md`（I-11…I-14）
+   `docs/agent-governance/subagents/constraint-line.md`（I-03…I-06）、
+   `docs/agent-governance/subagents/role-line.md`（I-07…I-08）、
+   `docs/agent-governance/subagents/drawing-line.md`（I-11…I-14）
 
-**迭代收尾**：更新 `aidoc/README.md` 的迭代表与「当前状态」，并单独提交；不更新看板的迭代不算完成。
+**迭代收尾**：更新 `docs/agent-governance/README.md` 的迭代表与「当前状态」，并单独提交；不更新看板的迭代不算完成。
 
 ## 子 agent 派发规则（硬约束）
 
@@ -51,8 +51,9 @@
 
 ## 文档目录约定
 
-- **agent 产出的一切文档放 `aidoc/`**：需求、计划、看板、任务书、审计、对比文档、绘图产物。
-- `docs/` 是项目自身文档（ADR、roadmap、约束清单、契约），agent 不往里塞新产出。
+- `aidoc/` — **科研工具（SciencePrism）产出的文档落地目录**：工具生成的手稿、写作 Brief、报告、图表等。**不是** agent 治理文档的目录。
+- `docs/agent-governance/` — agent 的治理文档：需求、计划、看板、任务书、审计、对比文档。
+- `docs/` — 项目自身文档（ADR、roadmap、约束清单、契约）。
 
 ## 写入边界（硬约束）
 
