@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createTwoFilesPatch } from 'diff';
 import { getEnv } from '../../config/constants.js';
+import { PROJECT_CONSTRAINT_LIMITS } from '../../config/projectConstraintDefaults.js';
 import { safeJoin } from '../../utils/pathUtils.js';
 import {
   applyProjectConstraintPolicy,
@@ -22,10 +23,6 @@ import { copyBundledResearchSkills, isBundledSkillPath, restrictWorkspaceResearc
 import { buildContextPack, contextManifest } from './contextPackager.js';
 import { assertProjectFeatureEnabled } from '../featureFlags.js';
 
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-const DEFAULT_MAX_TOKENS = 49152;
-const DEFAULT_RETRY_LIMIT = 1;
-const DEFAULT_MAX_CONCURRENT = 1;
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
 const IGNORED_DIRS = new Set([
@@ -181,10 +178,10 @@ function numberOr(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = 
 function buildLimits(request, policy) {
   const constraints = policy.constraints || {};
   return {
-    timeoutMs: numberOr(request.limits?.timeoutMs, numberOr(constraints.timeoutMs, DEFAULT_TIMEOUT_MS, { min: 100, max: 24 * 60 * 60 * 1000 }), { min: 100, max: 24 * 60 * 60 * 1000 }),
-    maxTokens: numberOr(request.limits?.maxTokens, numberOr(constraints.maxTokens, DEFAULT_MAX_TOKENS, { min: 1, max: 1_000_000 }), { min: 1, max: 1_000_000 }),
-    maxConcurrent: numberOr(request.limits?.maxConcurrent, numberOr(constraints.maxConcurrent, DEFAULT_MAX_CONCURRENT, { min: 1, max: 32 }), { min: 1, max: 32 }),
-    retryLimit: numberOr(request.limits?.retryLimit, numberOr(constraints.retryLimit, DEFAULT_RETRY_LIMIT, { min: 0, max: 10 }), { min: 0, max: 10 })
+    timeoutMs: numberOr(request.limits?.timeoutMs, numberOr(constraints.timeoutMs, PROJECT_CONSTRAINT_LIMITS.timeoutMs, { min: 100, max: 24 * 60 * 60 * 1000 }), { min: 100, max: 24 * 60 * 60 * 1000 }),
+    maxTokens: numberOr(request.limits?.maxTokens, numberOr(constraints.maxTokens, PROJECT_CONSTRAINT_LIMITS.maxTokens, { min: 1, max: 1_000_000 }), { min: 1, max: 1_000_000 }),
+    maxConcurrent: numberOr(request.limits?.maxConcurrent, numberOr(constraints.maxConcurrent, PROJECT_CONSTRAINT_LIMITS.maxConcurrent, { min: 1, max: 32 }), { min: 1, max: 32 }),
+    retryLimit: numberOr(request.limits?.retryLimit, numberOr(constraints.retryLimit, PROJECT_CONSTRAINT_LIMITS.retryLimit, { min: 0, max: 10 }), { min: 0, max: 10 })
   };
 }
 

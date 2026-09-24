@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../../llmService.js';
 import { getEnv } from '../../../config/constants.js';
+import { PROJECT_CONSTRAINT_LIMITS } from '../../../config/projectConstraintDefaults.js';
 import { HarnessRuntimeError } from '../errors.js';
 import { capabilityPrompt } from '../capabilities.js';
 
@@ -122,7 +123,7 @@ export const deepseekHarnessAdapter = Object.freeze({
       dshHome,
       provider: getEnv('HARNESS_PROVIDER') || 'deepseek-official',
       model: resolved.model || process.env.DEEPSEEK_MODEL || 'deepseek-flash',
-      maxTokens: Number(request.limits?.maxTokens || getEnv('HARNESS_MAX_TOKENS') || 49152),
+      maxTokens: Number(request.limits?.maxTokens || getEnv('HARNESS_MAX_TOKENS') || PROJECT_CONSTRAINT_LIMITS.maxTokens),
       env,
       requestTimeoutMs: timeoutMs,
       initializeTimeoutMs: Math.min(timeoutMs, 30_000)

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import Fastify from 'fastify';
 
@@ -288,4 +289,37 @@ test('stage contract fields carry types, and the prompt states strictness', () =
   assert.equal(rejected.ok, false);
   assert.ok(rejected.errors.some((error) => error.code === 'invalid_type'));
   assert.ok(rejected.errors.some((error) => error.code === 'unrecognized_keys'));
+});
+
+test('project constraint defaults have a single source of truth', async () => {
+  const { PROJECT_CONSTRAINT_DEFAULTS } = await import('../src/config/projectConstraintDefaults.js');
+
+  assert.deepEqual(PROJECT_CONSTRAINT_DEFAULTS.capabilities, DEFAULT_PROJECT_CAPABILITIES);
+  assert.equal(PROJECT_CONSTRAINT_DEFAULTS.maxTokens, 49152);
+  assert.equal(PROJECT_CONSTRAINT_DEFAULTS.timeoutMs, 10 * 60 * 1000);
+  assert.equal(PROJECT_CONSTRAINT_DEFAULTS.maxConcurrent, 1);
+  assert.equal(PROJECT_CONSTRAINT_DEFAULTS.retryLimit, 1);
+  assert.equal(PROJECT_CONSTRAINT_DEFAULTS.contextTokenBudget, 12000);
+  assert.deepEqual(Object.keys(PROJECT_CONSTRAINT_DEFAULTS).sort(), [
+    'allowedPaths', 'capabilities', 'contextTokenBudget', 'fallback',
+    'maxConcurrent', 'maxTokens', 'networkAllowlist', 'retryLimit', 'timeoutMs'
+  ]);
+
+  // Re-duplication guard. The values above used to be restated in four modules,
+  // so the convergence only holds if a later edit cannot quietly add a fifth.
+  const srcRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
+  const entries = await readdir(srcRoot, { recursive: true, withFileTypes: true });
+  const offenders = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+    const absolute = path.join(entry.parentPath ?? entry.path, entry.name);
+    const relative = path.relative(srcRoot, absolute);
+    if (relative === path.join('config', 'projectConstraintDefaults.js')) continue;
+    const text = await readFile(absolute, 'utf8');
+    if (/\b49152\b/.test(text)) offenders.push(`${relative}: restates maxTokens`);
+    if (/\bDEFAULT_TIMEOUT_MS\b|\bDEFAULT_MAX_TOKENS\b|\bDEFAULT_MAX_CONCURRENT\b|\bDEFAULT_RETRY_LIMIT\b/.test(text)) {
+      offenders.push(`${relative}: declares a local constraint default`);
+    }
+  }
+  assert.deepEqual(offenders, [], 'constraint default limits must live only in config/projectConstraintDefaults.js');
 });

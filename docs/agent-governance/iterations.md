@@ -16,7 +16,7 @@
 | 005 | 加 | 阶段契约**从 zod schema 派生**（类型 / 字符模式 / 严格性 / 语义注记） | ✅ |
 | 006 | 加 | 源名归一化到注册适配器 + 真实模型驱动脚本 | ✅ |
 | 007 | 验证 | **真实模型跑通全流程，工具产出 `aidoc/` 文档** | ✅ |
-| 008 | 减 | 收敛 `project-constraints.json` 的 4 处重复默认值 + 第 5 个读写点 | ⬜ |
+| 008 | 减 | 收敛 `project-constraints.json` 的重复默认值（5 处 → 1 处） | ✅ |
 | 009 | 减 | 删 prompt 假约束与装饰性重复（`paper_screening` 角色、无溯源兜底草稿） | ⬜ |
 | 010 | 验证 | Round 1 收尾 + `rounds/round-01-comparison.md` + 推 scienceprism | ⬜ |
 
@@ -35,6 +35,7 @@
 | 005 | 加 | **阶段契约从 zod schema 派生**。旧契约只给字段名（`queries[]`），模型据此返回对象数组 + 多余字段 → `.strict()` 全拒。现在派生：字段类型、正则模式（`id` 必须无空格）、严格性规则、以及各阶段**引用语义注记**（如 `recommendation` 必须是 `proposals[].id` 之一）。同时 `contextPackager` 不再重复存整份契约（prompt 已含），避免同一文本重复计入 token 预算 | `node --test` 48 项通过；`npm run quality` exit 0；新增契约漂移锁测试、提示词类型/严格性断言、真实模型失败形状回归用例 |
 | 006 | 加 | **源名归一化**。搜索阶段曾在 `validation.ok=true` 的情况下静默搜到 0 篇：模型把 `sources` 填成场地描述（`arXiv (cs.CL) — preprint server`），每个都命中不了 Source Adapter 注册表。现在 input 广播 `availableSources`，模型给的源名与注册 id 求交，未注册的记为 `SOURCE_NOT_REGISTERED`，全部落空时回退到注册集 | `node --test` 48 项通过；新增回归用例使用真实模型返回的散文形状，断言回退后仍能搜到论文；随后真实管线从 **0 篇 → 39 篇通过质量门** |
 | 007 | 验证 | **真实模型端到端跑通**：`scripts/produce-research-document.mjs` 用项目自身服务层串行执行 方向 → 检索 → 选择 → 跳过复现 → 创新点 → 方法 → 实验计划 → 写作交接 | 4 次串行模型调用（严格单发，遵守 U-20），约 90 秒；产出 `aidoc/aidoc-research-document/research/writing-brief.md`（8581 字符、6 条带 Evidence ID 的 claim、9 节大纲、12 条局限）；同时产出 `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json` 审计记录。文档**主动声明**所引 3 篇论文并非 RAG 主题，把贡献定位为提案而非已验证结果 |
+| 008 | 减 | **约束默认值 5 处 → 1 处**。新增 `config/projectConstraintDefaults.js` 作为唯一来源；`harnessRuntime/index.js` 的 4 个本地常量、`projectHub/dashboard.js` 的 `DEFAULT_CONSTRAINTS`、`deepseekAdapter.js` 的 `49152` 字面量全部改为引用它。安全依据：三处数值完全相同（`49152/600000/1/1`），合并后行为不变；`DEFAULT_CONSTRAINTS` 与 `CONSTRAINT_FILE` 的导出经 grep 确认**全仓库零消费**，故一并删除。顺带发现并处理第 5 处重复（`deepseekAdapter`） | `npm run quality` exit 0（49 项）；`grep -rn "49152\|600000" apps/backend/src` 只剩 defaults 模块；`grep DEFAULT_TIMEOUT_MS…` 产品代码已无本地常量；新增**防重复门禁测试**：扫描 `src` 树，任何文件重述 `49152` 或再声明本地约束默认常量即失败 |
 
 ## 环境变化记录
 

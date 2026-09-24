@@ -5,23 +5,14 @@ import { getClaimEvidenceMatrix } from '../evidenceLedger/index.js';
 import { getPendingResearchApprovals, getResearchWorkflow, toFrontendWorkflow } from '../researchWorkflow/index.js';
 import { initializeResearchWorkflow } from '../researchWorkflow/index.js';
 import { listHarnessRuns } from '../harnessRuntime/index.js';
-import { applyProjectConstraintPolicy, DEFAULT_PROJECT_CAPABILITIES } from '../harnessRuntime/capabilities.js';
+import { applyProjectConstraintPolicy } from '../harnessRuntime/capabilities.js';
+import { PROJECT_CONSTRAINT_DEFAULTS } from '../../config/projectConstraintDefaults.js';
 import { getPaperLibrarySummary } from './paperLibrary.js';
 import { getTaskSummary } from './taskCenter.js';
 import { readHubJson, writeHubJson } from './repository.js';
 
 const CONSTRAINT_FILE = 'project-constraints.json';
-const DEFAULT_CONSTRAINTS = Object.freeze({
-  capabilities: [...DEFAULT_PROJECT_CAPABILITIES],
-  allowedPaths: [],
-  networkAllowlist: [],
-  maxTokens: 49152,
-  timeoutMs: 600000,
-  maxConcurrent: 1,
-  retryLimit: 1,
-  contextTokenBudget: 12000,
-  fallback: true
-});
+const DEFAULT_CONSTRAINTS = PROJECT_CONSTRAINT_DEFAULTS;
 
 function now() { return new Date().toISOString(); }
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
@@ -148,6 +139,4 @@ export async function getProjectDashboard(projectId) {
     generatedAt: now()
   };
 }
-
-export { CONSTRAINT_FILE, DEFAULT_CONSTRAINTS };
 
