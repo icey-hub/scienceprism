@@ -5,30 +5,38 @@
 > 硬要求：「减」拍必须真实删除东西，并说明为什么安全；只增不减不算通过。
 > **提交约定**：每条 commit 的标题带 `iter-NNN`，可用 `git log --grep iter-NNN` 定位。
 
-## 节奏映射（Round 1，迭代 001–010）
+## 节奏映射（Round 1）
 
 | # | 拍型 | 内容 | 状态 |
 | --- | --- | --- | --- |
 | 001 | 加 | 基线提交 + tag + 分支 + 治理脚手架（需求/计划/看板/任务书） | ✅ |
 | 002 | 加 | 第二隔离策略（Node 权限模型）+ 策略选择 + 隔离方式记录 | ✅ |
-| 003 | 减 | 清虚高与死 seam：`project.write` 声明、`assertNetworkHost` 未接线 | ✅ |
-| 004 | 验证 | 验证 002–003：全量测试 + 边界自检 + 记录 | ✅ |
-| 005 | 加 | 约束注册表骨架（零行为变更）+ 审计文档 | ⬜ |
-| 006 | 减 | 收敛 `project-constraints.json` 的 4 处重复默认值 + 第 5 个读写点 | ⬜ |
-| 007 | 验证 | 验证 005–006 + 文档一致性门禁 | ⬜ |
-| 008 | 加 | 约束策略与可选开关（tier：core 不可关） | ⬜ |
+| 003 | 减 | 删除无断言的 `project.write` 能力（词表 5 → 4） | ✅ |
+| 004 | 验证 | 验证 002–003：全量门禁 + 回归对比 + 边界自检（含越界自查） | ✅ |
+| 005 | 加 | 阶段契约**从 zod schema 派生**（类型 / 字符模式 / 严格性 / 语义注记） | ✅ |
+| 006 | 加 | 源名归一化到注册适配器 + 真实模型驱动脚本 | ✅ |
+| 007 | 验证 | **真实模型跑通全流程，工具产出 `aidoc/` 文档** | ✅ |
+| 008 | 减 | 收敛 `project-constraints.json` 的 4 处重复默认值 + 第 5 个读写点 | ⬜ |
 | 009 | 减 | 删 prompt 假约束与装饰性重复（`paper_screening` 角色、无溯源兜底草稿） | ⬜ |
 | 010 | 验证 | Round 1 收尾 + `rounds/round-01-comparison.md` + 推 scienceprism | ⬜ |
+
+### 计划重排说明（诚实记录）
+
+原计划 005 = 约束注册表骨架。实际执行时，**真实模型跑不通写作管线**——这是 R-01「agent 工作流还不完善」的活样本，且直接阻塞 U-21（迭代要留下工具产出的文档）。因此把 005/006 换成契约与源解析修复，约束注册表顺延到 Round 2 前段。理由：先让工具真的能产出文档，治理改造才有可验证的对象。
 
 ## 逐拍记录
 
 | # | 拍型 | 变更摘要 | 验证证据 |
 | --- | --- | --- | --- |
 | 001 | 加 | 基线提交、tag `round-00-baseline`、分支 `feat/agent-governance-r1`、治理脚手架 | `git diff round-00-baseline..HEAD -- apps/ packages/` 无输出（零产品代码改动） |
-| 002 | 加 | `adapters.js`：新增 Node 权限模型回退（`nodePermissionCommand`）、纯函数 `chooseIsolationStrategy`、`isOsSandboxApplicable`；`index.js`：Run 记录 `execution.isolation` | `npm run quality` → 44 项测试通过 / 0 失败、tsc 通过、vite build 通过、exit 0。新增 4 项测试：隔离记录、策略选择表（5 组）、回退策略真实越权拒绝（读 `/etc/hosts` → `ERR_ACCESS_DENIED`；工作区内写入成功）、OS 沙箱可用性报告 |
-| 003 | 减 | **删除 `project.write`**（`HARNESS_CAPABILITIES` 5 → 4 项）。安全依据：全仓库零断言，授予它不产生任何行为；写入在设计中只能经 `patch.propose` + 人工应用表达。同时修正 `docs/harness-runtime.md` 把两者并列的误导表述。**未删** `assertNetworkHost`：复核发现它确实在 `agentService.js:122,156` 被调用，属「Harness 路径未接线」的**加**项，不是死代码 | `node --test` → 45 项通过 / 0 失败；`npm run quality` exit 0；新增词表锁测试（含「存储的未知能力授权会被丢弃而非静默生效」负向断言）；`grep project.write apps/backend/src` 仅剩注释 |
-| 004 | 验证 | 验证 002–003：全量质量门禁 + 回归对比 + 工作区边界自检 | ① `npm run quality` **exit 0**（45 项测试 / 0 失败 / tsc 通过 / vite build 通过）。② 回归对比：后端测试 **40 → 45**（+4 隔离相关、+1 词表锁）；能力词表 **5 → 4**；产品代码改动仅 3 个文件（`adapters.js`、`experimentRunner/index.js`、`capabilities.js`）。③ 边界自检：`package.json` / `package-lock.json` **零变更**（未装任何依赖）；工作区内安装产物仅 `.npm-cache`(1.5M) / `tools/`(空) / `.cache/`(空)，全部在仓库内且已 gitignore。④ **越界自查（发现问题并已修复）**：早期探测阶段我在 `/tmp` 写过 `baseline_tests.txt`、`baseline_typecheck.txt` 与 `exp_sim.*` 临时目录——那违反了 U-02/U-03；已全部删除并复查无残留。此后所有写入均限工作区内 |
+| 002 | 加 | `adapters.js`：Node 权限模型回退（`nodePermissionCommand`）、纯函数 `chooseIsolationStrategy`、`isOsSandboxApplicable`；`index.js`：Run 记录 `execution.isolation` | `npm run quality` exit 0（44 项）；新增 4 项测试：隔离记录、策略选择表（5 组）、回退策略真实越权拒绝（读 `/etc/hosts` → `ERR_ACCESS_DENIED`；工作区内写入成功）、OS 沙箱可用性报告 |
+| 003 | 减 | **删除 `project.write`**（`HARNESS_CAPABILITIES` 5 → 4）。安全依据：全仓库零断言，授予它不产生任何行为；写入只能经 `patch.propose` + 人工应用表达。同时修正 `docs/harness-runtime.md` 的误导表述。**未删** `assertNetworkHost`：复核发现它在 `agentService.js:122,156` 确被调用，属「Harness 路径未接线」的**加**项 | `node --test` 45 项通过；`npm run quality` exit 0；新增词表锁测试（含「存储的未知能力授权会被丢弃而非静默生效」负向断言） |
+| 004 | 验证 | 验证 002–003：全量门禁 + 回归对比 + 工作区边界自检 | ① `npm run quality` exit 0（45 项 / 0 失败 / tsc / build）。② 回归：后端测试 40 → 45；能力词表 5 → 4；产品代码仅 3 文件。③ 边界：`package.json`/`package-lock.json` 零变更；工区内产物仅 `.npm-cache`/`tools`/`.cache`（均已 gitignore）。④ **越界自查**：早期探测在 `/tmp` 写过文件，违反 U-02/U-03，已全部删除并复查无残留 |
+| 005 | 加 | **阶段契约从 zod schema 派生**。旧契约只给字段名（`queries[]`），模型据此返回对象数组 + 多余字段 → `.strict()` 全拒。现在派生：字段类型、正则模式（`id` 必须无空格）、严格性规则、以及各阶段**引用语义注记**（如 `recommendation` 必须是 `proposals[].id` 之一）。同时 `contextPackager` 不再重复存整份契约（prompt 已含），避免同一文本重复计入 token 预算 | `node --test` 48 项通过；`npm run quality` exit 0；新增契约漂移锁测试、提示词类型/严格性断言、真实模型失败形状回归用例 |
+| 006 | 加 | **源名归一化**。搜索阶段曾在 `validation.ok=true` 的情况下静默搜到 0 篇：模型把 `sources` 填成场地描述（`arXiv (cs.CL) — preprint server`），每个都命中不了 Source Adapter 注册表。现在 input 广播 `availableSources`，模型给的源名与注册 id 求交，未注册的记为 `SOURCE_NOT_REGISTERED`，全部落空时回退到注册集 | `node --test` 48 项通过；新增回归用例使用真实模型返回的散文形状，断言回退后仍能搜到论文；随后真实管线从 **0 篇 → 39 篇通过质量门** |
+| 007 | 验证 | **真实模型端到端跑通**：`scripts/produce-research-document.mjs` 用项目自身服务层串行执行 方向 → 检索 → 选择 → 跳过复现 → 创新点 → 方法 → 实验计划 → 写作交接 | 4 次串行模型调用（严格单发，遵守 U-20），约 90 秒；产出 `aidoc/aidoc-research-document/research/writing-brief.md`（8581 字符、6 条带 Evidence ID 的 claim、9 节大纲、12 条局限）；同时产出 `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json` 审计记录。文档**主动声明**所引 3 篇论文并非 RAG 主题，把贡献定位为提案而非已验证结果 |
 
 ## 环境变化记录
 
-- 本轮会话的文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），因此基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并把实际使用的隔离方式记录下来。
+- 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。
+- 本机 LLM 网关 `127.0.0.1:7864` 与 DSH 会话**共享并发**（U-20）；模型选用免费的 `global:deepseek-v4.1-flash`（**不用** `-sg` 变体）。该模型是推理模型，max_tokens 给小了会返回空内容。
