@@ -147,7 +147,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 042 | 减 | 消除前端 `ResearchStageId` 双词汇（**两处独立字面量列表 → 单一共享定义**） | ✅ |
 | 043 | 验证 | 验证 041–042：门禁 + 回归 + 边界自检（含 /tmp）+ 词汇单一来源确认 | ✅ |
 | 044 | 加 | **失败重试回灌**：契约校验失败时把错误回喂模型重试一次（严格串行、有界、可审计） | ✅ |
-| 045 | 减 | 待取证 | ⬜ |
+| 045 | 减 | 删掉敏感目录表的第二份拷贝（该表若漂移会直接影响隔离安全） | ✅ |
 | 046 | 验证 | 验证 044–045 | ⬜ |
 | 047 | 加 | `docs/project-constraints.md` 整表由注册表生成 | ⬜ |
 | 048 | 减 | 待取证 | ⬜ |
@@ -164,6 +164,8 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 043 | 验证 | 验证 041–042 两拍：全量门禁 + 回归 + 工作区边界自检（含 /tmp）+ 词汇单一来源确认 | ① `npm run quality` **exit 0**（103 项 / 0 失败 / 前端 tsc / build）。② **词汇单一来源确认**：前端仅 **1 个文件**定义两个阶段类型（原为 2 个文件各自的字面量列表）。③ **角色路由在 harness 词汇下仍可用**：`?stage=ideation` 返回 `research-stage-assistant`（200）。④ 边界：`package.json` / `package-lock.json` **零变更**；**工作区外无目录**；**/tmp 无我的残留**（041 拍的 `/tmp/q.txt` 已清除且复查） |
 
 | 044 | 加 | **失败重试回灌（校验错误回喂模型）**。此前模型输出一旦不合契约就**直接失败**，模型永远不知道被拒的原因——真实跑通过程中这类失败出现过多次（字段名不全、sources 填成场馆名、id 含非法字符）。处置：① `buildResearchHarnessPrompt` 新增 `repair` 参数，把上次被拒原因写进 prompt；② 新增 `validationRepairInstructions(validation)` 把校验错误**逐条引用**回喂（最多 10 条），并重申"不要臆造 Evidence id"；③ `runResearchHarnessStage` 抽出单次尝试，失败后**重试一次**，返回 `attempts` 记录每次的 ok / runId / errorCodes；④ 新增 `MAX_VALIDATION_ATTEMPTS = 2`。**三条边界**：**只重试校验失败**（传输失败属 Run limit 职责，不在此重试）、**严格串行**（U-20：重试是 await 的，绝不与首次并发）、**有界**（最多 2 次尝试，不会循环） | `npm run quality` exit 0（**106 项**，103 → 106，含前端 tsc 与 build）；新增 3 项测试：① **先错后对**——第一次缺字段被拒、第二次按修复指令补全 → 接受，且**第二个 prompt 必须包含 "Your previous reply was rejected" 与被拒字段名**，`attempts` 两次记录为 [false, true]；② **连错两次**——只调用 **2 次**（不是 3 次）且 `attempts` 两次均为 false；③ **传输失败不重试**——`ok:false` 的 Run 只调用 **1 次**。C-05 文档行同步写明"一次修复尝试 + attempts 记录" |
+
+| 045 | 减 | **删掉敏感目录表的第二份拷贝**。取证：`capabilities.js` 的 `SENSITIVE_DIRECTORIES` 与 `harnessRuntime/index.js` 的 `IGNORED_DIRS` 是**同一份 6 个目录名**（`.git` / `.scienceprism` / `.openprism` / `.agent_runs` / `.cache` / `node_modules`）。这组重复**比其他几组更危险**：它决定哪些目录不进入 Harness 工作区、不进入 Context Pack——两份一旦漂移，就会出现"被 `isSensitivePath` 拦住、却被另一处放行"的缝隙。**删除的安全性依据**：① `IGNORED_DIRS` 全仓只有 **2 个使用点**，**两处都已同时调用 `isSensitivePath`**；② 实测 `isSensitivePath` 对 6 个目录名的**裸名、子路径、目录内文件**三种形态全部返回 true。故删除是**行为等价**的 | `npm run quality` exit 0（**107 项**，106 → 107，**与删除前测试数一致**——证明是等价删除而非行为变更）；**跨文件重复字面量组 5 → 4**；新增 1 项门禁：① `harnessRuntime/index.js` **不得再出现 `IGNORED_DIRS`**（源码扫描）；② `isSensitivePath` 必须覆盖 6 个目录的三种形态；③ **普通项目文件（`main.tex`、`sections/method.tex`）不得被该过滤器误伤** |
 
 ## 环境变化记录
 

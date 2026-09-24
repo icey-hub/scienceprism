@@ -27,14 +27,9 @@ import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
-const IGNORED_DIRS = new Set([
-  '.git',
-  '.scienceprism',
-  '.openprism',
-  '.agent_runs',
-  '.cache',
-  'node_modules'
-]);
+// Sensitive directories are owned by capabilities.js, and every call site below
+// already checks isSensitivePath. This used to carry a second copy of the same
+// six names, which could only drift out of step with the real filter.
 const IGNORED_FILES = new Set(['project.json', '.compile']);
 const adapters = new Map([
   ['deepseek', deepseekHarnessAdapter],
@@ -95,7 +90,7 @@ async function collectFiles(root, relative = '') {
   const entries = await fs.readdir(current, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (IGNORED_FILES.has(entry.name) || IGNORED_DIRS.has(entry.name) || isSensitivePath(entry.name)) continue;
+    if (IGNORED_FILES.has(entry.name) || isSensitivePath(entry.name)) continue;
     const child = path.join(relative, entry.name);
     if (entry.isDirectory()) files.push(...await collectFiles(root, child));
     else if (entry.isFile()) files.push(toPosix(child));
@@ -119,7 +114,7 @@ async function copyWorkspace(sourceRoot, targetRoot, policy = {}) {
       const relative = toPosix(path.relative(sourceRoot, source));
       if (!relative) return true;
       const name = path.basename(source);
-      if (IGNORED_DIRS.has(name) || IGNORED_FILES.has(name) || isSensitivePath(relative)) return false;
+      if (IGNORED_FILES.has(name) || isSensitivePath(relative)) return false;
       if (!hasPathScope) return true;
       return isPathAllowed(relative, policy) || allowedPaths.some((allowedPath) => allowedPath.startsWith(`${relative}/`));
     }

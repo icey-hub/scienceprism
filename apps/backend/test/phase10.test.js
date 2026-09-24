@@ -455,3 +455,25 @@ test('a failed Run is not retried as a contract repair', async () => {
   assert.equal(calls, 1, 'a transport failure belongs to the Run limit, not to contract repair');
   assert.equal(result.ok, false);
 });
+
+test('sensitive directories have one owner and the filter covers all of them', async () => {
+  const { isSensitivePath } = await import('../src/services/harnessRuntime/capabilities.js');
+  const runtimeSource = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'services', 'harnessRuntime', 'index.js'), 'utf8');
+
+  // index.js used to carry a second copy of this list right next to a call to
+  // isSensitivePath, so the two could only drift out of step.
+  assert.ok(
+    !/IGNORED_DIRS/.test(runtimeSource),
+    'the runtime must not keep its own copy of the sensitive directory list'
+  );
+
+  for (const dir of ['.git', '.scienceprism', '.openprism', '.agent_runs', '.cache', 'node_modules']) {
+    assert.equal(isSensitivePath(dir), true, `${dir} must be filtered`);
+    assert.equal(isSensitivePath(`nested/${dir}`), true, `nested ${dir} must be filtered`);
+    assert.equal(isSensitivePath(`nested/${dir}/file.txt`), true, `files inside ${dir} must be filtered`);
+  }
+
+  // Ordinary project files must not be caught by the same filter.
+  assert.equal(isSensitivePath('sections/method.tex'), false);
+  assert.equal(isSensitivePath('main.tex'), false);
+});
