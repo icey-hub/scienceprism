@@ -1,7 +1,20 @@
 # AGENTS.md — 本仓库的 agent 工作约定
 
-迭代看板与进度：`docs/agent-governance/README.md` — **开工前先读，每次迭代收尾后更新**。
 领域词汇：`CONTEXT.md`。既有架构计划：`docs/architecture-roadmap.md`（阶段 1–10 已完成）。
+
+## 每次迭代前的必读（硬性）
+
+动手改任何文件之前，按顺序读完：
+
+1. `docs/agent-governance/requirements.md` — 需求（用户原始需求 + 追加要求）
+2. `docs/agent-governance/plan.md` — 执行计划、设计与非目标
+3. `docs/agent-governance/README.md` — 当前进度、下一步最小动作、恢复协议
+4. 若本次迭代属于某条子 agent 线，读对应任务书：
+   `docs/agent-governance/subagents/constraint-line.md`（I-03…I-06）、
+   `subagents/role-line.md`（I-07…I-08）、
+   `subagents/drawing-line.md`（I-11…I-14）
+
+**迭代收尾**：更新 `README.md` 的迭代表与「当前状态」，并单独提交；不更新看板的迭代不算完成。
 
 ## 目标（goal-1475d1ce）
 

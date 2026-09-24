@@ -4,6 +4,14 @@
 > 新会话恢复时：先读本文件 → 再读仓库根 `AGENTS.md` → 然后按「恢复协议」继续。
 > 每次迭代收尾必须更新本文件的迭代表与「当前状态」。
 
+## 迭代前检查清单（每次迭代必做）
+
+1. 读 `requirements.md`（需求有没有新增/变化）→ 读 `plan.md`（本次迭代的产出与验收）→ 读本文件「当前状态」。
+2. 若属子 agent 线，读 `subagents/<线>.md` 的独占写范围与硬约束，确认本次要改的文件都在授权范围内。
+3. 核对 git 现实：`git branch --show-current`、`git log --oneline -3`、`git status --short` 与看板记录一致；不一致先对齐再动手。
+4. 重跑基线：`node --test apps/backend/test/*.test.js`，以**实测**为准，不相信记录里的旧数字。
+5. 动手；收尾跑 `npm run quality`，更新本文件迭代表 + 「当前状态」，单独提交。
+
 ## 停止条件
 
 `done` = Round 1（I-01…I-10）与 Round 2（I-11…I-20）全部完成，且每轮各有：
