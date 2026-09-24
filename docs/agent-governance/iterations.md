@@ -116,7 +116,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | --- | --- | --- | --- |
 | 031 | 加 | **收口 C-09**：网络 allowlist 由 fail-open 改为 fail-closed（代码与文档一致） | ✅ |
 | 032 | 减 | 收口 C-11：不确定性收敛为**一条强制通道**（`unsupportedClaims` 必须点名 claim id） | ✅ |
-| 033 | 验证 | 验证 031–032 | ⬜ |
+| 033 | 验证 | 验证 031–032：门禁 + 回归 + 边界自检 + **运行时直证两处修复生效** | ✅ |
 | 034 | 加 | 收口 C-10：把 limits 透传给 legacy 适配器 | ⬜ |
 | 035 | 减 | 收口 C-04：actor 来源校验（区分 AI 与人类） | ⬜ |
 | 036 | 验证 | 验证 034–035 | ⬜ |
@@ -131,6 +131,7 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | --- | --- | --- | --- |
 | 031 | 加 | **收口 C-09，并发现一个真实的 fail-open**。原注册表把 C-09 记为"Harness 路径不查网络白名单"，但逐条读代码后**该说法会误导**：① legacy 适配器**根本不发工具事件**（只发 `adapter/started`/`assistant/message`/`turn/end`），所以工具事件缝只看到 deepseek 的事件；② deepseek 对 `research.search` **在启动前就 fail-closed**（`CAPABILITY_POLICY_UNENFORCEABLE`）；③ 唯一能联网的是 `agentService` 的两个 arXiv 工具，它们**先 `assertCapability` 再 `assertNetworkHost`** 才 `fetch`。**但顺着这条线查出一个真问题**：`assertNetworkHost` 在 `networkAllowlist` **为空时放行任意主机**（`if (allowlist.length && ...)`），而 `capabilityPrompt` 明确告诉模型 "Allowed network hosts: **none**" —— **代码 fail-open、文档说 fail-closed**。已改为 `if (!allowlist.includes(host))` 拒绝，并加注释写明这段历史；注册表 C-09 的 `enforcement` 改指 `assertNetworkHost`、`testRef` 指向新测试、**drift 归零**；`docs/project-constraints.md` 的 C-09 行写明"网络双重 fail-closed" | `npm run quality` exit 0（91 项，90 → 91）；新增 1 项测试覆盖 5 种情形：白名单内主机放行、白名单外拒绝、**空白名单拒绝任意主机**、缺 `research.search` 能力拒绝、非法 URL 拒绝；改动前确认**无任何测试依赖旧的 fail-open 行为**（`grep networkAllowlist apps/backend/test` 只有一处非空白名单用法）；注册表投影：**漂移 4 → 3**（剩 C-04/C-10/C-11） |
 | 032 | 减 | **收口 C-11，并纠正一处"代码比文档更严"**。原注册表记为"不确定性字段全为可选、无代码要求"，但读代码后发现**方向反了**：`validateStageEvidence` 对**任何**非 supported 的 claim 一律报错——**即使模型已按契约把该 claim 写进 `unsupportedClaims`**。而 stage prompt 明确说"If support is missing, add the item to `unsupportedClaims` and keep the claim explicitly unverified"——**代码把契约允许的行为也拒了**。处置：把 `unsupportedClaims` 变成**唯一强制通道**——证据矩阵判定不 supported 的 claim，**只要被点名就接受**（不确定性显式化，正是 C-11 要的），**未点名则报 `UNSUPPORTED_CLAIM`/`EVIDENCE_REQUIRES_VERIFICATION`**；`caveats`/`limitations`/`missingMetadata` 保留为可选提示。配套：① `mentionsId` 用 id 字符集做边界，**`claim-1` 不会被 `claim-10` 冒充**；② writing_brief 契约新增一条说明，要求点名 claim id；③ C-11 从 `standard` 升为 **`core`**（它是 roadmap 明列的"总体不变量"之一），provenance 从 `ai-subjective` 改为 `adr`（ADR-0008 + roadmap 不变量），并注明**原字段集确为 AI 添加、现降为可选提示** | `npm run quality` exit 0（92 项，91 → 92）；新增 1 项测试覆盖 3 种情形：**点名则接受**、未点名则拒、**用 `claim-10` 冒充 `claim-1` 仍被拒**；改动前确认既有测试只覆盖"未声明"路径（`evidenceLedger.test.js:115`），不依赖被纠正的过严行为；注册表投影：**漂移 3 → 2**（剩 C-04/C-10）、**AI 主观添加 2 → 1**（只剩 C-16）、core 13 → 14 |
+| 033 | 验证 | 验证 031–032 两拍：全量门禁 + 回归 + 工作区边界自检 + **运行时直证** | ① `npm run quality` **exit 0**（92 项 / 0 失败 / tsc / build）。② **运行时直证两处修复**（不只看测试绿）：直接调用 `assertNetworkHost({granted:['research.search'],networkAllowlist:[]}, 'https://anything.example/')` → 抛 `NETWORK_DENIED`，确认 fail-open 已消除。③ 约束注册表：16 条 **16/16 有测试**、**漂移 2 条**（C-04/C-10）、**AI 主观添加 1 条**（C-16）。④ 边界：`package.json` / `package-lock.json` **零变更**；越界复查通过 |
 
 ## 环境变化记录
 
