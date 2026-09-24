@@ -36,6 +36,11 @@ test('every registered constraint is well formed', () => {
     assert.ok(constraint.statement.length > 20, `${constraint.id}: statement is too short to be a constraint`);
     assert.ok(CONSTRAINT_TIERS.includes(constraint.tier), `${constraint.id}: unknown tier ${constraint.tier}`);
     assert.ok(Array.isArray(constraint.scope) && constraint.scope.length > 0, `${constraint.id}: scope is required`);
+    // These three feed the generated table in docs/project-constraints.md, so a
+    // missing one would silently produce an incomplete row.
+    assert.ok(typeof constraint.module === 'string' && constraint.module.length > 0, `${constraint.id}: module is required`);
+    assert.ok(typeof constraint.validationLocation === 'string' && constraint.validationLocation.length > 0, `${constraint.id}: validationLocation is required`);
+    assert.ok(typeof constraint.failure === 'string' && constraint.failure.length > 10, `${constraint.id}: failure behaviour is required`);
     assert.ok(['adr', 'context', 'ai-subjective'].includes(constraint.provenance.source), `${constraint.id}: unknown provenance`);
     assert.ok(constraint.provenance.ref, `${constraint.id}: provenance must cite a decision or say why there is none`);
     assert.ok(
@@ -89,6 +94,23 @@ test('the registry covers exactly the constraints the project documents', async 
     CONSTRAINT_REGISTRY.map((constraint) => constraint.id).sort(),
     [...new Set(documentedIds)].sort(),
     'a constraint documented in docs/project-constraints.md is missing from the registry, or vice versa'
+  );
+});
+
+test('docs/project-constraints.md is generated from the registry', async () => {
+  const { renderConstraintTable } = await import('../src/services/constraintRegistry/index.js');
+  const documented = await readFile(path.join(repoRoot, 'docs', 'project-constraints.md'), 'utf8');
+  const lines = documented.split('\n');
+  const start = lines.findIndex((line) => line.startsWith('| ID | Constraint |'));
+  assert.ok(start >= 0, 'the constraint table is missing from docs/project-constraints.md');
+  const end = lines.findIndex((line, index) => index > start && !line.startsWith('|'));
+
+  // Comparing the whole table, not just the id set, is what stops a row from
+  // describing a failure behaviour the code no longer has.
+  assert.equal(
+    lines.slice(start, end).join('\n'),
+    renderConstraintTable(),
+    'the committed table differs from the registry projection; regenerate it instead of editing it by hand'
   );
 });
 

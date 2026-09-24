@@ -44,9 +44,29 @@ export function constraintCatalog() {
 }
 
 /**
- * Renders the catalogue as Markdown. `docs/project-constraints.md` is the
- * human-facing copy of this table, and a later beat makes that file generated
- * from here so the two cannot drift.
+ * Renders the human-facing table for `docs/project-constraints.md`, in that
+ * document's own columns.
+ *
+ * That table used to be hand-written, with a gate comparing only the id sets, so
+ * a row could describe a failure behaviour the code no longer had. It is now
+ * generated from here and a gate fails when the committed file differs.
+ */
+export function renderConstraintTable() {
+  const header = [
+    '| ID | Constraint | Module | Validation location | Failure behaviour | State |',
+    '| --- | --- | --- | --- | --- | --- |'
+  ];
+  const rows = CONSTRAINT_REGISTRY.map((constraint) => {
+    const state = constraint.drift ? 'Drift' : 'Current';
+    return `| ${constraint.id} | ${constraint.statement} | ${constraint.module} | ${constraint.validationLocation} | ${constraint.failure} | ${state} |`;
+  });
+  return [...header, ...rows].join('\n');
+}
+
+/**
+ * Renders the machine-facing catalogue: tier, enforcement seam, test, provenance
+ * and drift. Used by the audit, not by docs/project-constraints.md, which is
+ * generated from renderConstraintTable().
  */
 export function renderConstraintCatalog() {
   const header = [
