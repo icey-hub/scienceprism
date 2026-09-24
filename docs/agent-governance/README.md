@@ -1,0 +1,103 @@
+# Agent Governance — 迭代看板
+
+> **这是本目标（`goal-1475d1ce`）的唯一进度事实源。**
+> 新会话恢复时：先读本文件 → 再读仓库根 `AGENTS.md` → 然后按「恢复协议」继续。
+> 每次迭代收尾必须更新本文件的迭代表与「当前状态」。
+
+## 停止条件
+
+`done` = Round 1（I-01…I-10）与 Round 2（I-11…I-20）全部完成，且每轮各有：
+对比文档、`npm run quality` 全绿、分支已推 `scienceprism`、PR 留待人工审。
+其余状态：`blocked`（缺依赖/权限/信息）、`needs-verification`（实现有但证据不足）、`scope-exceeded`（继续会越过非目标）。
+
+## 决策记录（用户已确认）
+
+| ID | 决策 | 结果 |
+| --- | --- | --- |
+| D-1 | 解除 `.gitignore` 对 `AGENTS.md` 的忽略并入库 | ✅ 已执行 |
+| D-2 | MCP：本轮放弃 | ✅ 采纳（无任何 MCP 胜出；配置还须写工作区外） |
+| D-3 | 开发侧 skill 放 `docs/agent-governance/playbooks/` | ✅ 采纳 |
+| D-4 | Round 2 从 r1 尖端切出 | ✅ 采纳 |
+| D-5 | 接受 `core` 级约束不可关（tier 模型） | ✅ 采纳 |
+| D-6 | Round 1 收口 4 处高危绕过 | ✅ 采纳（默认转 fail-closed） |
+| U-1 | 执行本 goal 要开 3 个子 agent | 已记录，见「子 agent 分工」 |
+| U-2 | 每轮写 `AGENTS.md` + 迭代 README，防目标偏移 | ✅ 已执行 |
+| U-3 | 绘图目标是**复杂矢量插画级**（细胞结构图），不是线段加方框 | 已记录，I-13 基准据此重做 |
+
+## 子 agent 分工（上限 3，写范围互不重叠）
+
+| 线 | 负责迭代 | 独占写范围 |
+| --- | --- | --- |
+| 约束线 | I-03 / I-04 / I-05 / I-06 | `apps/backend/src/services/constraintRegistry/**`、`apps/backend/test/constraintRegistry.test.js`、`docs/agent-governance/constraint-audit.md` |
+| 角色线 | I-07 / I-08 | `apps/backend/src/services/agentRoles/**`、`apps/backend/test/agentRoles.test.js`、`docs/agent-roles.md` |
+| 绘图线 | I-11 / I-12 / I-13 / I-14 | `tools/diagram/**`、`docs/assets/diagrams/**`、`docs/agent-governance/drawing-*.md`、`scripts/setup-diagram-toolchain.sh` |
+
+Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/project-constraints.md`（生成物）、4 处高危绕过所在的路由、以及全部 git 生命周期操作（分支/提交/推送）。
+
+## Round 0 基线（实测，tag `round-00-baseline`）
+
+| 指标 | 值 |
+| --- | --- |
+| 后端测试 | 40 项：**36 通过 / 4 失败**（全在 `experimentRunner.test.js`） |
+| 前端类型检查 | 通过 |
+| 约束条数 | 16（C-01…C-16） |
+| 产品 skill | 6 |
+| ADR / docs | 9 / 11 |
+| 后端源码 | 12,065 行 / 16 路由 / 11 服务模块 |
+| 前端源码 | 10,601 行 / 42 文件 |
+| 显式角色定义 | 0 |
+| 约束开关 | 不存在 |
+| 文档绘图 | 无 diagram 依赖；无 SVG 资产 |
+
+## Round 1 — `feat/agent-governance-r1`
+
+| # | 迭代 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| I-01 | 基线提交 + tag + 分支 + 治理脚手架 | ✅ 完成 | commit `33a2b5b`、tag `round-00-baseline`、本文件、`AGENTS.md` |
+| I-02 | 修复 4 个红测试至 40/40 | 🔄 进行中 | 根因已定位：`experimentRunner/adapters.js:40 probeSandboxApplicability()` 在本机必失败（`sandbox-exec` exit 71）。修法与证据待补 |
+| I-03 | 约束审计结论落文档 + 逐条复核 | ⬜ 未开始 | 取证已完成（16 条：9 条仅部分生效、2 条直接矛盾、2 处 AI 主观添加） |
+| I-04 | 约束注册表骨架（零行为变更） | ⬜ 未开始 | — |
+| I-05 | 约束策略与可选开关 + tier 分级 | ⬜ 未开始 | — |
+| I-06 | 4 处高危绕过收口 + 约束测试门禁 | ⬜ 未开始 | — |
+| I-07 | 角色注册表（8 角色） | ⬜ 未开始 | 取证已完成（8 角色分类法可直接验证落地） |
+| I-08 | 角色接入 Harness Runtime | ⬜ 未开始 | — |
+| I-09 | 产品 skill 补齐 3 个 | ⬜ 未开始 | — |
+| I-10 | Round 1 收尾 + `round-01-comparison.md` + 推 scienceprism | ⬜ 未开始 | — |
+
+## Round 2 — `feat/agent-governance-r2`（从 r1 尖端切出）
+
+| # | 迭代 | 状态 |
+| --- | --- | --- |
+| I-11 | 绘图候选取证（含复杂插画能力维度） | ⬜ 未开始 |
+| I-12 | 参考图集（架构图 / 时序图 / **细胞结构图** / 对比图表）+ 渲染脚本 | ⬜ 未开始 |
+| I-13 | 绘图对比实验（9 维打分，产物并排提交） | ⬜ 未开始 |
+| I-14 | 选定主方案 + 封装 `doc-diagram` skill + CI 可复现校验 | ⬜ 未开始 |
+| I-15 | 约束建议 API（结构化提案，不执行代码） | ⬜ 未开始 |
+| I-16 | 约束代码生成器（提案 → 真实代码 + 测试，待确认 Patch） | ⬜ 未开始 |
+| I-17 | 前端约束建议面板 + 溯源显示 + i18n | ⬜ 未开始 |
+| I-18 | 端到端验收（对话→提案→批准→生效→拦截→禁用放行） | ⬜ 未开始 |
+| I-19 | 角色/约束可见性 + 文档同步 | ⬜ 未开始 |
+| I-20 | Round 2 收尾 + `round-02-comparison.md` | ⬜ 未开始 |
+
+## 当前状态
+
+- 分支：`feat/agent-governance-r1`（基线 `33a2b5b`）
+- 下一步最小动作：完成 I-02 —— 让 `experimentRunner` 的 4 个测试在**无可用 OS 沙箱**的机器上仍然可验证，且不削弱生产路径的 fail-closed 行为。
+- 阻塞：无。
+
+## 恢复协议
+
+1. 读本文件的「当前状态」与迭代表，确认最后完成的迭代与 commit。
+2. 读仓库根 `AGENTS.md` 的写入边界与踩坑清单。
+3. `git log --oneline -5` 与 `git status --short` 对照，确认工作树与记录一致；不一致就先对齐再动手。
+4. 重跑 `node --test apps/backend/test/*.test.js` 确认当前真实测试状态（不要相信记录里的旧数字）。
+5. 从「下一步最小动作」继续；每次迭代收尾更新本文件并单独提交。
+
+## 每轮对比文档
+
+| 轮次 | 文档 | 对比对象 |
+| --- | --- | --- |
+| Round 1 | `rounds/round-01-comparison.md` | round-00 基线 vs round-01 |
+| Round 2 | `rounds/round-02-comparison.md` | round-01 vs round-02 |
+
+对比文档固定结构：① 上轮指标快照 ② 本轮 10 次迭代清单（变更 / 验证证据 / commit hash）③ 前后指标对比表 ④ 可视化对比图 ⑤ 决策与遗留 ⑥ 可复现命令。
