@@ -73,7 +73,7 @@ export const AGENT_ROLES = Object.freeze([
     stageScope: ['direction', 'search', 'selection', 'replication', 'ideation', 'method', 'experiment', 'writing'],
     authority: 'suggest-only',
     allowedCapabilities: ['project.read'],
-    allowedSkills: ['literature-search', 'paper-screening', 'paper-card', 'dataset-audit', 'statistics-audit', 'research-writing'],
+    allowedSkills: ['literature-search', 'paper-card', 'dataset-audit', 'statistics-audit', 'research-writing'],
     outputContract: 'json:research-stage-contract',
     handoff: 'The stage task reaches awaiting_approval; only a human Approval advances it.',
     forbiddenActions: ['proposing patches', 'executing experiments', 'using the network', 'declaring a Paper Candidate or Experiment Result verified', 'granting Approval', 'advancing a stage'],

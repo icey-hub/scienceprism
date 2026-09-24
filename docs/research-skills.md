@@ -1,17 +1,28 @@
 # Research Skills
 
-SciencePrism bundles six DeepSeek Harness skills under `.dsh/skills`. They are
-automatically copied into the isolated Harness workspace for research-stage
-runs, so a normal run can discover them through the Harness `skill` tool.
+SciencePrism bundles five DeepSeek Harness skills under `.dsh/skills`. A skill is
+copied into the isolated Harness workspace and loaded when its bound stage
+actually runs a Harness Run.
+
+Only four workflow stages run a Harness Run at present — `search`, `ideation`,
+`method` and `writing` — so a skill bound to any other stage could never be
+loaded. Bindings for stages without a Harness Run are therefore not declared; see
+`HARNESS_EXECUTED_STAGES` in
+`apps/backend/src/services/researchResearch/researchSkills.js`, which a test keeps
+in step with the invocations in `researchWorkflow/application.js`.
 
 | Skill | Workflow stages | Purpose |
 | --- | --- | --- |
-| `literature-search` | Direction, Search | Expand the human question into traceable queries and sources. |
-| `paper-screening` | Selection | Explain quality evidence without overriding the server quality gate. |
-| `paper-card` | Replication, Ideation, Method | Connect paper claims, methods, experiments, and limitations. |
-| `dataset-audit` | Experiment, Writing | Check dataset provenance, access, licensing, and reproducibility. |
-| `statistics-audit` | Experiment, Writing | Check experimental units, replication, uncertainty, and comparisons. |
+| `literature-search` | Search | Expand the human question into traceable queries and sources. |
+| `paper-card` | Ideation, Method | Connect paper claims, methods, experiments, and limitations. |
+| `dataset-audit` | Writing | Check dataset provenance, access, licensing, and reproducibility. |
+| `statistics-audit` | Writing | Check experimental units, replication, uncertainty, and comparisons. |
 | `research-writing` | Writing | Build evidence-bounded claims, outline, citations, and limitations. |
+
+> `paper-screening` was removed in iteration 022. It was bound only to the
+> selection stage, which never runs a Harness Run because paper selection is
+> decided by the deterministic server-side quality gate (C-06). It could never be
+> loaded, and it duplicated a gate that code already enforces.
 
 ## Adding a project-specific skill
 
