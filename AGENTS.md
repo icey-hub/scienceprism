@@ -13,8 +13,16 @@
    `docs/agent-governance/subagents/constraint-line.md`（I-03…I-06）、
    `docs/agent-governance/subagents/role-line.md`（I-07…I-08）、
    `docs/agent-governance/subagents/drawing-line.md`（I-11…I-14）
+5. 改约束或做验证时，读对应 playbook：
+   `docs/agent-governance/playbooks/adding-a-constraint.md`（把规则写进代码的完整流程）、
+   `docs/agent-governance/playbooks/verification-discipline.md`（门禁必须证明会红、边界自检、目视复核）
 
-**迭代收尾**：更新 `docs/agent-governance/README.md` 的迭代表与「当前状态」，并单独提交；不更新看板的迭代不算完成。
+**迭代收尾**：更新 `docs/agent-governance/README.md` 的迭代表与「当前状态」，并单独更新 `iterations.md`；不更新看板的迭代不算完成。
+
+## Skill 与 playbook 的根目录分离（硬约束）
+
+- `.dsh/skills/` — **只放产品研究 skill**。它会被复制进 Harness 工作区，且加载器**只认带 `stages:` frontmatter 的 skill，不合规项被静默丢弃**。门禁 `researchSkillReachability.test.js` 会断言该目录下每个子目录都是有效产品 skill。
+- `docs/agent-governance/playbooks/` — **开发侧 playbook**（本仓库怎么改、怎么验证）。放错到 `.dsh/skills` 会被静默忽略。
 
 ## 子 agent 派发规则（硬约束）
 
@@ -25,7 +33,7 @@
 - 子 agent 不得执行 git 写操作；分支、提交、推送由 Lead 独占。
 - 子 agent 的写范围必须互不重叠，并在任务书里写明「不得触碰」清单。
 
-## 目标（goal-1475d1ce）
+## 目标（goal-16c676ec）
 
 把 agent 工作流从「规则写在 prompt 里」改造成「规则写在代码里」：
 
@@ -45,7 +53,7 @@
 
 - **1 迭代 = 1 个已提交且已验证的纵向切片**：改动 + 可执行验证证据 + 1 条 commit。
 - 每 **10 迭代 = 1 个 round**：新分支 + 一份前后对比文档。
-- Round 1 = `feat/agent-governance-r1`（I-01…I-10）；Round 2 = `feat/agent-governance-r2`（I-11…I-20）。
+- Round 1 = `feat/agent-governance-r1`（迭代 001–010）；Round 2 = `feat/agent-governance-r2`（011–020）；Round 3 = `feat/agent-governance-r3`（021–030）。
 - 每次迭代收尾 `npm run quality` 必须全绿；不绿就不提交。
 - 每轮结束推送 `scienceprism` 并留 PR 给人工审，**不自动合并**。
 
