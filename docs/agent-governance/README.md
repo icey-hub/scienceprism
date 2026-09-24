@@ -94,16 +94,15 @@ Lead 独占：`package.json`、`.gitignore`、`AGENTS.md`、本文件、`docs/pr
 
 ## 当前状态
 
-**阶段：执行中（U-18 已授权）。迭代预算 200 轮，按「加 / 减 / 验证」三拍循环（U-19）。**
+**阶段：Round 1 已完成（迭代 001–010）→ 进入 Round 2。**
 
-- 迭代日志：`iterations.md`（每拍一行，含验证证据；commit 标题带 `iter-NNN`）。
-- 当前进度：**迭代 010（验证）** —— Round 1 收尾 + `rounds/round-01-comparison.md` + 推 scienceprism。
-- 已完成：001（基线 + 治理脚手架）、002（Node 权限模型第二隔离策略）、003（**减**：删无断言的 `project.write`）、004（**验证**：门禁 exit 0 + 边界自检）、005（**加**：阶段契约从 zod schema 派生）、006（**加**：源名归一化）、007（**验证**：真实模型跑通全流程，工具产出 `aidoc/` 文档）、008（**减**：约束默认值 5 处 → 1 处 + 防重复门禁）、009（**减**：删无溯源兜底草稿 + 死契约 `paper_screening`）。
+- **Round 1 收尾**：对比文档 `rounds/round-01-comparison.md`；tag `round-01-complete`；分支 `feat/agent-governance-r1` 已推 `scienceprism`，PR 待你审：https://github.com/icey-hub/scienceprism/pull/new/feat/agent-governance-r1
+- **Round 1 关键指标**：后端测试 40（36 通过 / 4 失败）→ **51（全通过）**；能力词表 5 → 4；阶段契约 8 → 7；约束默认值来源 5 → 1；无溯源兜底草稿 2 → 0；工具产出文档 0 → 1。
 - **交付物（工具真实产出）**：`aidoc/aidoc-research-document/research/writing-brief.md` + `.scienceprism/{research-workflow,evidence-ledger,harness-runs}.json`。
-- 计划重排：原 005 = 约束注册表，因真实模型跑不通写作管线（R-01 活样本，且阻塞 U-21）而改为契约/源解析修复；约束注册表顺延（见 `iterations.md` 的「计划重排说明」）。
-- 文档目录：agent 治理文档在 **`docs/agent-governance/`**；**`aidoc/` 专用于科研工具产出的文档**（R-15），当前尚未创建。
-- 会话内 goal：`goal-16c676ec`（armed，200 轮）。
-- 子 agent 机制实测：6 次派发 5 次失败（无总结、无产出），且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主，子 agent 仅在必要时试**（U-15），派发前先查存活数（U-16）。
+- **Round 2 分支**：`feat/agent-governance-r2`（从 r1 尖端切出，D-4）。
+- **Round 2 首批目标**：约束注册表（可执行 / 可开关 / 可审计 / 可测试）、收口 4 处高危绕过、角色注册表、复杂矢量插画绘图方案。
+- 会话内 goal：`goal-16c676ec`（armed，200 轮预算，已用 10 拍）。
+- 子 agent 机制实测：6 次派发 5 次失败，且存活者无法从 Lead 侧终止；因此**以 Lead 串行为主**（U-15），派发前先查存活数（U-16）。
 
 ## 恢复条件（满足才继续）
 
