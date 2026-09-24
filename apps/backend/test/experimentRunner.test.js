@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,6 +19,7 @@ const {
   retryExperimentRun,
   startExperimentRun
 } = await import('../src/services/experimentRunner/index.js');
+const { chooseIsolationStrategy, isOsSandboxApplicable, nodePermissionCommand } = await import('../src/services/experimentRunner/adapters.js');
 const { getEvidenceLedger } = await import('../src/services/evidenceLedger/index.js');
 const { listTasks } = await import('../src/services/projectHub/taskCenter.js');
 const { registerExperimentRunRoutes } = await import('../src/routes/experimentRuns.js');
@@ -170,4 +172,82 @@ test('running Experiments can be cancelled, retried, and interpreted only from t
   const interpreted = await recordExperimentInterpretation(projectId, result.id, { summary: 'Accuracy was recorded by the controlled process.', sourceArtifactIds: [result.artifacts[0].id], metricFindings: [{ metric: 'accuracy', observation: 'A numeric value was persisted.' }] }, { actor: 'human' });
   assert.equal(interpreted.metrics[0].value, 0.88);
   assert.equal(interpreted.interpretation.sourceArtifactIds.length, 1);
+});
+
+test('Experiment Runner reports whether an OS sandbox is applicable', async () => {
+  const applicability = await isOsSandboxApplicable();
+  assert.equal(typeof applicability.ok, 'boolean');
+  if (!applicability.ok) assert.equal(typeof applicability.reason, 'string');
+});
+
+test('isolation strategy selection prefers the OS sandbox and falls back to the permission model', () => {
+  assert.equal(
+    chooseIsolationStrategy({ platform: 'darwin', osSandboxApplicable: true, nodePermissionSupported: true }),
+    'macos-sandbox-exec'
+  );
+  assert.equal(
+    chooseIsolationStrategy({ platform: 'darwin', osSandboxApplicable: false, nodePermissionSupported: true }),
+    'node-permission'
+  );
+  assert.equal(
+    chooseIsolationStrategy({ platform: 'linux', osSandboxApplicable: false, nodePermissionSupported: true }),
+    'node-permission'
+  );
+  assert.equal(
+    chooseIsolationStrategy({ platform: 'darwin', osSandboxApplicable: false, nodePermissionSupported: false }),
+    null
+  );
+  assert.equal(
+    chooseIsolationStrategy({ platform: 'linux', osSandboxApplicable: false, nodePermissionSupported: false }),
+    null
+  );
+});
+
+test('a completed Experiment Run records which isolation strategy executed it', async () => {
+  const projectId = 'experiment-isolation-record';
+  await createProject(projectId);
+  const created = await createExperimentRun(projectId, { plan: plan(0.77) });
+  await decideExperimentRun(projectId, created.id, { decision: 'approve' });
+  const completed = await startExperimentRun(projectId, created.id, { wait: true });
+
+  assert.equal(completed.status, 'completed');
+  assert.ok(
+    ['macos-sandbox-exec', 'node-permission'].includes(completed.execution.isolation),
+    `unexpected isolation strategy: ${String(completed.execution.isolation)}`
+  );
+});
+
+test('the Node permission model fallback permits workspace writes and denies host reads', async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-isolation-'));
+
+  async function runWithFallback(entrypoint) {
+    const command = await nodePermissionCommand(workspace, entrypoint, []);
+    assert.equal(command.isolation, 'node-permission');
+    assert.ok(command.args.includes('--permission'));
+    assert.ok(command.args.some((argument) => argument.startsWith('--allow-fs-read=')));
+    assert.ok(command.args.some((argument) => argument.startsWith('--allow-fs-write=')));
+    return new Promise((resolve, reject) => {
+      const child = spawn(command.executable, command.args, { cwd: workspace, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      child.once('error', reject);
+      child.once('close', (exitCode) => resolve({ exitCode, stdout, stderr }));
+    });
+  }
+
+  const writer = path.join(workspace, 'write.mjs');
+  await writeFile(writer, "import { mkdir, writeFile } from 'node:fs/promises';\nawait mkdir('results', { recursive: true });\nawait writeFile('results/ok.txt', 'ok');\nconsole.log('WROTE_OK');\n");
+  const wrote = await runWithFallback(writer);
+  assert.equal(wrote.exitCode, 0, wrote.stderr);
+  assert.match(wrote.stdout, /WROTE_OK/);
+  assert.equal(await readFile(path.join(workspace, 'results', 'ok.txt'), 'utf8'), 'ok');
+
+  const reader = path.join(workspace, 'read.mjs');
+  await writeFile(reader, "import { readFile } from 'node:fs/promises';\nawait readFile('/etc/hosts', 'utf8');\nconsole.log('HOST_READ_ALLOWED');\n");
+  const denied = await runWithFallback(reader);
+  assert.notEqual(denied.exitCode, 0);
+  assert.doesNotMatch(denied.stdout, /HOST_READ_ALLOWED/);
+  assert.match(denied.stderr, /ERR_ACCESS_DENIED/);
 });

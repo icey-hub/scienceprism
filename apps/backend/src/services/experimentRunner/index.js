@@ -333,6 +333,7 @@ async function executeRun(projectId, runId, control) {
     current.execution = {
       startedAt,
       finishedAt,
+      isolation: result?.isolation || null,
       exitCode: result?.exitCode ?? null,
       signal: result?.signal || null,
       error: executionError ? { code: executionError.code, message: executionError.message } : null
