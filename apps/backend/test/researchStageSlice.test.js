@@ -93,6 +93,15 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
     workflow = await runUiAction(projectId, { action: 'handoff-writing', adapter: 'fake', fakeResponse: writingResponse }, 'human');
     assert.equal(stageData(workflow, 'writing').ready, true);
     assert.equal(stageData(workflow, 'writing').briefPath, 'research/writing-brief.md');
+    // The stage input must carry the Evidence Ledger. It used to carry selected
+    // papers only, so a brief about the project's own experiment reported that
+    // experiment's Evidence as absent while it sat in the ledger the whole time.
+    const writingInput = stageData(workflow, 'writing').task?.input;
+    assert.ok(Array.isArray(writingInput?.evidenceLedger), 'the writing input must carry the Evidence Ledger');
+    assert.ok(
+      writingInput.evidenceLedger.every((entry) => typeof entry.id === 'string' && typeof entry.kind === 'string'),
+      'ledger entries must carry id and kind so a claim can cite them precisely'
+    );
     const brief = await readFile(path.join(dataDir, projectId, 'research/writing-brief.md'), 'utf8');
     assert.match(brief, /claim-1/);
     assert.match(brief, new RegExp(paperEvidenceId));
@@ -187,3 +196,4 @@ test('a failed ideation Harness Run leaves the stage empty instead of fabricatin
     globalThis.fetch = originalFetch;
   }
 });
+

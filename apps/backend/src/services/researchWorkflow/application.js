@@ -3,7 +3,7 @@ import { getEnv } from '../../config/constants.js';
 import { applyQualityGate, listResearchSkills, resolveResearchSkillBindings, runResearchStage, validateResearchSkillBindings, normalizeQualityPolicy } from '../researchResearch/index.js';
 import { mergePaperCandidates, prioritizePaperCandidates, validatePaperMetadata } from '../researchResearch/paperCandidates.js';
 import { listResearchSourceAdapters, searchResearchSources } from '../researchSources/index.js';
-import { upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
+import { getEvidenceLedger, upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
 import { createStageTask } from './stageTask.js';
 import { writeWritingBriefArtifact } from './writingBriefArtifact.js';
 import {
@@ -196,12 +196,34 @@ export async function runUiAction(projectId, body, actor) {
     const selectedStage = stageData(workflow, 'selection');
     const selectedPapers = selectedStage.selectedPapers || [];
     const ideas = (stageData(workflow, 'ideation').ideas || []).filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
+    // The Evidence Ledger belongs in the writing input.
+    //
+    // It was missing, so the stage could only see the papers the selection stage
+    // happened to carry. Everything else the project recorded — experiment runs,
+    // results, artifacts — was invisible to the writer even though the ledger is
+    // the thing claims are validated against. A brief about the project's own
+    // experiment therefore reported that experiment's Evidence as absent while it
+    // sat in the ledger the whole time.
+    //
+    // Summaries are truncated because this text goes into the Context Pack, which
+    // has its own token budget.
+    const ledger = await getEvidenceLedger(projectId);
+    const citableEvidence = ledger.entries
+      .filter((entry) => entry.verificationStatus !== 'superseded')
+      .slice(0, 60)
+      .map((entry) => ({
+        id: entry.id,
+        kind: entry.kind,
+        verificationStatus: entry.verificationStatus,
+        summary: String(entry.summary || '').slice(0, 300)
+      }));
     const input = {
       direction: stageData(workflow, 'direction'),
       papers: selectedPapers,
       ideas,
       method: body.method || stageData(workflow, 'method').method || {},
-      experiment: body.experiment || stageData(workflow, 'experiment')
+      experiment: body.experiment || stageData(workflow, 'experiment'),
+      evidenceLedger: citableEvidence
     };
     const harness = await runResearchStage({ stage: 'writing', projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger'] });
