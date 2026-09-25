@@ -11,25 +11,11 @@ const repoRoot = path.join(here, '..', '..', '..');
 const AIDOC = path.join(repoRoot, 'aidoc');
 const WORK = path.join(repoRoot, '.cache', 'figure-gates');
 
-/**
- * The figures in this repository are experiment output, so two properties
- * matter and both are checkable:
- *
- *   - reproducibility: regenerating from the recorded data reproduces the
- *     committed figure, so the figure cannot be quietly hand-edited
- *   - data-derived: perturbing the data changes the figure, so the numbers on it
- *     are actually read from the data rather than typed in
- *
- * The second is the one that is easy to skip. A figure whose accuracy labels
- * were hardcoded still passes a byte-comparison against a regeneration from the
- * data that happens to agree with them, so comparing against the real data alone
- * proves nothing about where the numbers came from.
- */
-const EXPERIMENT_FIGURES = [
-  { id: 'cot-results', script: 'build-cot-figure.mjs', dataFiles: ['experiment-cot-gsm8k.json', 'experiment-cot-gsm8k-analysis.json', 'experiment-cot-gsm8k-artifacts.json'] }
-];
+import { EXPERIMENT_FIGURES } from '../../../scripts/figure-inventory.mjs';
 
-/** Perturb every numeric-looking field so any data-derived figure must change. */
+/**
+ * Perturb every numeric field so any data-derived figure must change.
+ */
 function perturb(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value + 0.137;
   if (Array.isArray(value)) return value.map(perturb);
@@ -105,5 +91,22 @@ test('every committed figure passes the layout check', async () => {
     const stdout = `${error.stdout || ''}${error.stderr || ''}`;
     if (/skipped: Chrome not found/.test(stdout)) return;
     throw error;
+  }
+});
+
+test('the produced paper satisfies the structure rules', async () => {
+  // Rules written after a paper shipped with an appendix of unrelated diagrams
+  // and no figure of its own results. Proven by two breakages: deleting the
+  // Results section fails it, and substituting an "Illustrative Figures"
+  // appendix for the results figure fails it with four separate complaints.
+  try {
+    const output = await run('node', [path.join(repoRoot, 'scripts', 'check-paper-structure.mjs')], {
+      cwd: repoRoot,
+      env: { ...process.env, SCIENCEPRISM_FIGURE_DATA: AIDOC }
+    });
+    assert.match(String(output.stdout || ''), /structure ok/);
+  } catch (error) {
+    const stdout = `${error.stdout || ''}${error.stderr || ''}`;
+    throw new Error(`paper structure check failed:\n${stdout}`);
   }
 });

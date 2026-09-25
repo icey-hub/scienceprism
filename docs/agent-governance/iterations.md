@@ -171,6 +171,10 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | 048 | 减 | **"什么算已结束的 Harness Run"从 4 处调用点收敛为 1 个常量**。取证：`['completed','failed','cancelled']` 在 **2 个模块的 4 个调用点**重复出现（`harnessRuntime` 的取消与人工决定各 1 处、`observability` 的时长计算与汇总过滤各 1 处）。语义是同一个："Run 是否已结束"。**漂移后果具体**：新增一个终止状态（如 `timed_out`）时必须找齐 4 处，漏掉一处就会让**已结束的 Run 在运行中心永远显示为进行中**，或让 `decideHarnessRun` **拒绝一个早已结束的 Run**。处置：导出 `TERMINAL_HARNESS_RUN_STATUSES`，4 处改为引用。**关键判断：第 5 处不该合并**——`taskCenter.js:33` 的同一字面量属于 **task 词汇**（`TASK_STATUSES` 还含 `queued`/`rejected`），"任务结束"与"Run 结束"**不是同一概念，只是字符串巧合**；强行合并会在两者语义分岔时埋雷，故保留并**加注释说明为何不合并** | `npm run quality` exit 0（**109 项**，108 → 109，含前端 tsc 与 build）；新增 1 项门禁：① 常量内容必须是这 3 个值；② **源码扫描** `harnessRuntime/index.js` 里该字面量**只能出现 1 次**（定义处）、`observability/index.js` **必须 0 次**；③ 断言 `taskCenter` 仍持有自己的 `TASK_STATUSES`（防止被"顺手合并"）。**诚实说明**：朴素扫描的"重复组数"仍是 4（定义处 + taskCenter 有意保留被算作一组），**真正的改善是调用点 4 → 1**，由门禁锁住 |
 | 049 | 验证 | 验证 047–048 两拍：全量门禁 + 回归 + 工作区边界自检 + 表格生成性与单一定义确认 | ① `npm run quality` **exit 0**（109 项 / 0 失败 / 前端 tsc / build）。② 约束注册表：**17 条、17/17 有测试、漂移 0**。③ **表格生成性实测**：`docs/project-constraints.md` 的表格 == `renderConstraintTable()` → **true**。④ **终止状态单一定义**：`TERMINAL_HARNESS_RUN_STATUSES` 在 `harnessRuntime` 与 `observability` 各引用 3 次、字面量仅存在于定义处。⑤ 边界：`package.json` / `package-lock.json` **零变更**；工作区外无目录；`/tmp` 无我的残留 |
 
+## Round 6 逐拍记录
+
+| 061 | 加 | **论文结构门禁**：把"图和论文没关系 / 没有结果图"这两次真实失败变成可执行的规则 | 新增 `scripts/check-paper-structure.mjs`；五条规则（须有 Results 章节 / Results 须含图 / 至少一张图来自实验数据 / 不得有"自认无关"的插图附录 / 每张图须有图题）。抽 `scripts/figure-inventory.mjs` 作共享清单，避免门禁与结构检查对"哪些图来自数据"判断不一致。**两次破坏实验验证**：删掉 Results → 报"no Results section"；把结果图换成 Illustrative Figures 附录 → **同时命中 4 条**（含本轮真实发生过的那条）。已接入 `npm test`（113 → 114） |
+
 ## Round 6 逐拍记录（051–060）
 
 | # | 拍型 | 变更摘要 | 验证证据 |
