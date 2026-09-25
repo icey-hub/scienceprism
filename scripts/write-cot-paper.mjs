@@ -11,25 +11,11 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadDotEnv } from './lib/script-helpers.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-async function loadDotEnv() {
-  let text = '';
-  try {
-    text = await fs.readFile(path.join(REPO_ROOT, '.env'), 'utf8');
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (!match) continue;
-    const [, key, rawValue] = match;
-    if (process.env[key] !== undefined) continue;
-    process.env[key] = rawValue.replace(/^["']|["']$/g, '');
-  }
-}
-await loadDotEnv();
+await loadDotEnv(REPO_ROOT);
 process.env.SCIENCEPRISM_DATA_DIR = process.env.SCIENCEPRISM_DATA_DIR || path.join(REPO_ROOT, 'aidoc');
 
 const projectId = process.argv[2] || 'aidoc-research-document';

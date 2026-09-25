@@ -105,3 +105,13 @@ PNG 这类由外部渲染器（headless Chrome）产出的东西，**跨版本�
 - 约束注册表门禁：`apps/backend/test/constraintRegistry.test.js`
 - 绘图产物门禁：`apps/backend/test/diagramAssets.test.js`
 - skill 可达性门禁：`apps/backend/test/researchSkillReachability.test.js`
+
+### 3.6 验证脚本时，不要实跑会覆盖交付数据的脚本
+
+**本会话的真实代价**：为确认实验脚本能跑，我用 2 题冒烟运行它，**把 600 条真实实验数据（`aidoc/experiment-cot-gsm8k.json`）覆盖成了 6 条**。已用 git 恢复，但代价是真实产出差点丢失。
+
+**硬性做法**：
+
+- 验证脚本改动，**用 `node --check` + 会真正执行它的门禁**，而不是实跑。
+- 若必须实跑，**先确认它写的文件是可丢弃的**，或给它加输出路径 override（本项目 `build-cot-figure.mjs` 有 `SCIENCEPRISM_FIGURE_OUT`）。
+- 交付数据文件**始终在 git 里**，这样任何覆盖都能被"可复现"门禁发现并还原。

@@ -173,6 +173,10 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 
 ## Round 6 逐拍记录
 
+| 063 | 减 | **用安全方式重做：`loadDotEnv` 从 6 份收敛为 1 个共享模块** | 新增 `scripts/lib/script-helpers.mjs`（含 `loadDotEnv`/`hash`/`sampleByHash`）。**改用精确字符串匹配**逐文件替换（一次一个文件，每次 `node --check` 验证），**未再出现批量正则的附带损伤**——逐文件 diff 仅 `+2 行 import / −16~25 行函数体，无常量或 import 被误删。门禁 **114 项全绿**、6 张图 0 缺陷。**过程中一次真实事故**：为验证脚本能跑，我用 2 题冒烟运行，**覆盖了 600 条真实实验数据**（`experiment-cot-gsm8k.json`），已从 git 恢复——也正因如此，"可复现"门禁当时变红，**证明了它在守护数据集**。教训已写入 playbook：验证脚本时不要实跑会写覆盖交付数据的脚本，改用语法检查 + 门禁 |
+
+## Round 6 逐拍记录
+
 | 062 | 减 | **尝试消除 `loadDotEnv` 在 6 个脚本中的重复——失败并回滚**，转而加强拦住它的门禁 | 重复属实（约 90 行），但我用**一条正则跨文件批量替换**，正则过贪，**连带删掉常量、import 与整个函数体**：`render-brief-pdf.mjs` 丢 `projectId`/`projectRoot`/`briefPath`/`absoluteTex`/`log`；`experiment-evidence-gate.mjs` 丢全部 import 与实验常量（脚本当场跑不起来）。**已全量回滚 `scripts/`**，未提交损坏代码。真实收获是门禁：原 `documentLanding.test.js` **只扫一个 driver**，故 `render-brief-pdf.mjs` 的同类损伤未被第一时间发现 → **已扩展为扫两个 driver**，且断言改为"不依赖各 driver 变量名的共享不变量"。playbook 新增"禁止一条正则跨文件批量重构" |
 
 ## Round 6 逐拍记录

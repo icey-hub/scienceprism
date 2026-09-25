@@ -34,6 +34,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hash, loadDotEnv } from './lib/script-helpers.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATASET = path.join(REPO_ROOT, 'aidoc', 'datasets', 'gsm8k-test.jsonl');
@@ -42,22 +43,7 @@ const OUT = path.join(REPO_ROOT, 'aidoc', 'experiment-cot-gsm8k.json');
 const COUNT = Number(process.argv[2]) || 200;
 const SEED = process.argv[3] || 'gsm8k-cot-2026';
 
-async function loadDotEnv() {
-  let text = '';
-  try {
-    text = await fs.readFile(path.join(REPO_ROOT, '.env'), 'utf8');
-  } catch {
-    return;
-  }
-  for (const line of text.split('\n')) {
-    const match = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
-    if (!match) continue;
-    const [, key, rawValue] = match;
-    if (process.env[key] !== undefined) continue;
-    process.env[key] = rawValue.replace(/^["']|["']$/g, '');
-  }
-}
-await loadDotEnv();
+await loadDotEnv(REPO_ROOT);
 
 const ENDPOINT = process.env.SCIENCEPRISM_LLM_ENDPOINT;
 const API_KEY = process.env.SCIENCEPRISM_LLM_API_KEY;
@@ -77,15 +63,6 @@ const CONDITIONS = [
     system: 'Solve the problem. End your reply with exactly: #### <number>'
   }
 ];
-
-function hash(value) {
-  let h = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    h ^= value.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(36);
-}
 
 function lastNumber(text) {
   const cleaned = String(text || '').replace(/,/g, '');
