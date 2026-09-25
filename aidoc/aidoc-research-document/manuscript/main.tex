@@ -2,58 +2,75 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath}
 \usepackage{booktabs}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{enumitem}
 \usepackage{graphicx}
 \usepackage{microtype}
-\hypersetup{hidelinks}
+
 \setlength{\emergencystretch}{3em}
-\tolerance=1000
+\sloppy
+\tolerance=2000
 \hbadness=10000
 \vbadness=10000
-\hfuzz=2pt
-\vfuzz=2pt
 
-\title{Prompt Instruction Versus Code Enforcement for Evidence-Grounded Citation: A Four-Arm Pilot Ablation}
-\author{SciencePrism Writing Brief}
-\date{2026-09-25}
+\title{Prompt Instruction Versus Code Enforcement for Evidence-Grounded Citation:\\ A Four-Arm Pilot Ablation}
+\author{}
+\date{}
 
 \begin{document}
-\sloppy
 \maketitle
 
 \begin{abstract}
-This brief reports a pilot ablation on evidence grounding for retrieval-augmented generation. We contrast prompt-level citation instruction with code-level enforcement as two ways to suppress fabricated citations. All empirical claims in this brief are unverified pending a confirmed experiment-run Evidence entry. The experiment-run Evidence entry \path{evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50} is recorded in the stage input ledger with verificationStatus pending and does not resolve as confirmed Evidence in this project, so no empirical claim is treated as verified. The findings below are pilot observations only.
+This brief is a pilot ablation on evidence grounding, not a study of the original retrieval-augmented-generation question. All empirical claims in it are unverified pending a confirmed experiment-run Evidence entry. We describe a four-arm ablation with eight generations per arm on a single research question, in which the arms vary whether Evidence is present in the stage input and how strongly citation is required, together with a citation instruction, schema enforcement, and a repair retry. The reported pilot signals --- coverage of 1.00 and no fabricated ids with Evidence present, roughly tenfold higher declared uncertainty under the citation instruction, minimal schema-enforcement effect with no repair trigger, and, without Evidence, all-fabricated ids, seven-of-eight enforcement rejections, and zero repairs --- remain unverified single-question observations. None of the three human-confirmed background papers directly addresses retrieval-augmented-generation provenance.
 \end{abstract}
 
 \section{Introduction}
-Fabricated citations undermine the trustworthiness of retrieval-augmented generation. Two approaches to suppressing them are prompt-level citation instruction, which asks the model to cite evidence, and code-level enforcement, which validates citations against a schema and can trigger a repair retry. This brief presents a four-arm pilot ablation comparing these approaches on a single research question.
+Retrieval-augmented generation pipelines can emit citations that do not correspond to any retrieved source. Two broad remedies are available. The first is a prompt-level citation instruction: the model is asked to cite its Evidence. The second is code-level enforcement: a schema check rejects generations whose cited identifiers do not resolve, optionally followed by a repair retry. This brief motivates a pilot ablation that contrasts the two mechanisms as ways to suppress fabricated citations. The pilot is deliberately narrow, and the contrast between declared honesty and accepted output is the object of study rather than a completed finding.
 
 \section{Related Work}
-The human-confirmed abstract of the causality-benchmark review (\path{paper-50abf243f9f4e962403b}) states that many existing benchmarks for large language model causal inference and reasoning can likely be solved through retrieval of domain knowledge, which the review says questions whether those benchmarks achieve their intended purpose (claim \path{claim.review-retrieval-shortcut}, confidence 0.9). The same review reports that recent benchmarks move toward a more thorough definition of causal reasoning by incorporating interventional or counterfactual reasoning and that it derives criteria a useful benchmark should satisfy; the abstract does not enumerate those criteria, so any operational checklist derived from them is an extrapolation (claim \path{claim.review-interventional-criteria}, confidence 0.85).
+Three human-confirmed paper abstracts supply the background for this brief.
 
-The human-confirmed abstract of the cyber threat attribution paper (\path{paper-bcc49f7513ed61be3a1f}) proposes a modular architecture that can combine concrete attributors via opinion pools, including a Pairing Aggregator that sequentially applies logarithmic and linear opinion pools, and reports experimental validation suggesting the modular approach does not decrease performance and can improve precision and recall; this is background by analogy only and does not address retrieval-augmented-generation provenance (claim \path{claim.attribution-aggregation-background}, confidence 0.85).
+The abstract of the causality-benchmark review, \path{paper-50abf243f9f4e962403b}, states that many existing benchmarks for large language model causal inference and reasoning can likely be solved through retrieval of domain knowledge, which the review says questions whether those benchmarks achieve their intended purpose (\path{claim.review-retrieval-shortcut}, confidence 0.9). The same abstract reports that recent benchmarks move toward a more thorough definition of causal reasoning by incorporating interventional or counterfactual reasoning and that it derives criteria a useful benchmark should satisfy; the abstract does not enumerate those criteria, so any operational checklist derived from them is an extrapolation (\path{claim.review-interventional-criteria}, confidence 0.85).
 
-The human-confirmed abstract of the distributed attribute representation paper (\path{paper-b2b2f01594862b01e12f}) proposes a third-order multiplicative model in which word context and attribute vectors interact to predict the next word, and reports tasks including sentiment classification, cross-lingual document classification, and blog authorship attribution; this is background by analogy only and does not address retrieval-augmented-generation provenance (claim \path{claim.attribute-representation-background}, confidence 0.85).
+The abstract of the cyber threat attribution paper, \path{paper-bcc49f7513ed61be3a1f}, proposes a modular architecture that can combine concrete attributors via opinion pools, including a Pairing Aggregator that sequentially applies logarithmic and linear opinion pools, and reports experimental validation suggesting the modular approach does not decrease performance and can improve precision and recall; this is background by analogy only and does not address retrieval-augmented-generation provenance (\path{claim.attribution-aggregation-background}, confidence 0.85).
 
-None of the three human-confirmed paper abstracts supplied in this project directly addresses retrieval-augmented-generation provenance or claim-to-source traceability, so they can serve only as background and cannot substantiate the empirical findings of this study (claim \path{claim.no-rag-provenance-paper}, confidence 0.8; Evidence \path{paper-50abf243f9f4e962403b}, \path{paper-bcc49f7513ed61be3a1f}, \path{paper-b2b2f01594862b01e12f}).
+The abstract of the distributed attribute representation paper, \path{paper-b2b2f01594862b01e12f}, proposes a third-order multiplicative model in which word context and attribute vectors interact to predict the next word, and reports tasks including sentiment classification, cross-lingual document classification, and blog authorship attribution; this is background by analogy only and does not address retrieval-augmented-generation provenance (\path{claim.attribute-representation-background}, confidence 0.85).
+
+Taken together, none of the three human-confirmed paper abstracts supplied in this project directly addresses retrieval-augmented-generation provenance or claim-to-source traceability, so they can serve only as background and cannot substantiate the empirical findings of this study (\path{claim.no-rag-provenance-paper}, confidence 0.8).
 
 \section{Method}
-The empirical study is a four-arm ablation with eight generations per arm on a single research question, in which arms vary whether Evidence is present in the stage input and how strongly citation is required (claim \path{claim.ablation-design}, confidence 0.4). Its paired, intervention-style logic is only analogically motivated by the human-confirmed review abstract (\path{paper-50abf243f9f4e962403b}), which reports that stronger benchmarks incorporate interventional or counterfactual reasoning; the actual four-arm design is not recorded in any confirmed Evidence entry, and transposing that rationale from causal-reasoning benchmarks to claim-level provenance is an unvalidated analogy. The conditions include Evidence-present and no-Evidence stage inputs, a citation instruction, schema enforcement, and a repair retry.
+The study is a four-arm ablation with eight generations per arm on a single research question. The arms vary whether Evidence is present in the stage input and how strongly citation is required. In the Evidence-present condition the stage input contains the evidence items; in the no-Evidence condition it does not. The citation instruction asks the model to cite Evidence. Schema enforcement checks the generated structure and rejects a generation that fails the schema. A repair retry re-invokes the model after a rejection. The sequence flow of the pipeline under study is shown in Figure~\ref{fig:sequence-flow}, and its module graph is shown in Figure~\ref{fig:module-graph}.
+
+The paired, intervention-style logic of this design is only analogically motivated by the human-confirmed review abstract \path{paper-50abf243f9f4e962403b}, which reports that stronger benchmarks incorporate interventional or counterfactual reasoning. The actual four-arm design is not recorded in any confirmed Evidence entry, and transposing that rationale from causal-reasoning benchmarks to claim-level provenance is an unvalidated analogy (\path{claim.ablation-design}, confidence 0.4).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.86\linewidth]{figures/sequence-flow.pdf}
+\caption{Sequence flow of the pipeline under study: the stage input, the optional Evidence condition, generation, the citation instruction, schema enforcement, and the repair retry.}
+\label{fig:sequence-flow}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.80\linewidth]{figures/module-graph.pdf}
+\caption{Module graph of the pipeline under study, showing the components whose interaction the four-arm ablation varies.}
+\label{fig:module-graph}
+\end{figure}
 
 \section{Results}
-With Evidence present in the stage input, claim-evidence coverage was 1.00 in every arm and no cited id was fabricated, indicating that adding the citation requirement imposed no measurable citation cost in that condition (claim \path{claim.coverage-with-evidence}, confidence 0.25; Evidence \path{paper-50abf243f9f4e962403b}). The experiment-run Evidence entry that would confirm this is pending/unverified and was therefore not used as claim evidence, so this remains an unverified single-question pilot observation.
+With Evidence present in the stage input, claim--evidence coverage was 1.00 in every arm and no cited id was fabricated, indicating that adding the citation requirement imposed no measurable citation cost in that condition (\path{claim.coverage-with-evidence}, confidence 0.25). Instructing the model to cite Evidence raised declared uncertainty roughly tenfold relative to the condition without that instruction (\path{claim.instruction-raises-declared-uncertainty}, confidence 0.25). Schema enforcement added almost nothing beyond the prompt instruction and never triggered a repair in the Evidence-present arms (\path{claim.schema-enforcement-minimal}, confidence 0.25). With no Evidence in the stage input, every cited id was fabricated, enforcement rejected seven of eight generations, and the repair retry never repaired one (\path{claim.no-evidence-fabrication}, confidence 0.25). The no-evidence arm is the only arm in which fabrication was possible by construction, so this rate is not comparable across arms. The repair retry could not repair a model that had nothing to cite, repairing zero of the rejected no-evidence generations (\path{claim.retry-repaired-none}, confidence 0.25).
 
-Instructing the model to cite Evidence raised declared uncertainty roughly tenfold relative to the condition without that instruction (claim \path{claim.instruction-raises-declared-uncertainty}, confidence 0.25; Evidence \path{paper-50abf243f9f4e962403b}). This is a single-question pilot observation, and the experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence.
+Each of these is a single-question pilot observation. The experiment-run Evidence entry that would confirm them is pending/unverified and was therefore not used as claim evidence. Figure~\ref{fig:experiment-results} presents the pilot results.
 
-Schema enforcement added almost nothing beyond the prompt instruction and never triggered a repair in the Evidence-present arms (claim \path{claim.schema-enforcement-minimal}, confidence 0.25; Evidence \path{paper-bcc49f7513ed61be3a1f}). The experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence, so this is not a confirmed result.
-
-With no Evidence in the stage input, every cited id was fabricated, enforcement rejected seven of eight generations, and the repair retry never repaired one (claim \path{claim.no-evidence-fabrication}, confidence 0.25; Evidence \path{paper-50abf243f9f4e962403b}). The no-evidence arm is the only arm in which fabrication was possible by construction, so this rate is not comparable across arms; the experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence.
-
-The repair retry could not repair a model that had nothing to cite, repairing zero of the rejected no-evidence generations (claim \path{claim.retry-repaired-none}, confidence 0.25; Evidence \path{paper-b2b2f01594862b01e12f}). The experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence.
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.98\linewidth]{figures/experiment-results.pdf}
+\caption{Pilot results for the four-arm ablation. The four arms vary whether Evidence is present in the stage input (Evidence present versus no Evidence) and how strongly citation is required (the citation instruction, with schema enforcement applied over it). Bars show the pilot outcome measures reported in the text: claim--evidence coverage, count of fabricated citation ids, declared uncertainty, enforcement rejections, and repairs. All values are single-question, eight-generations-per-arm pilot observations and remain unverified pending a confirmed experiment-run Evidence entry.}
+\label{fig:experiment-results}
+\end{figure}
 
 \section{Analysis}
-Prompt instruction changes declared honesty, whereas code enforcement is what stops a fabricated citation from being accepted, and the retry cannot repair a model that has nothing to cite (claim \path{claim.instruction-vs-enforcement}, confidence 0.2; Evidence \path{paper-bcc49f7513ed61be3a1f}). This interpretation rests on an eight-generations-per-arm, single-question pilot and is not backed by any confirmed Evidence entry, so it must not be reported as a verified result.
+Prompt instruction changes declared honesty, whereas code enforcement is what stops a fabricated citation from being accepted, and the retry cannot repair a model that has nothing to cite (\path{claim.instruction-vs-enforcement}, confidence 0.2). This interpretation rests on an eight-generations-per-arm, single-question pilot and is not backed by any confirmed Evidence entry, so it must not be reported as a verified result.
 
 \section{Limitations}
 \begin{itemize}[leftmargin=*]
@@ -68,15 +85,10 @@ Prompt instruction changes declared honesty, whereas code enforcement is what st
 \end{itemize}
 
 \section{Availability and Next Steps}
-Before any claim can be promoted to verified, the following human inputs are required:
-\begin{itemize}[leftmargin=*]
-\item A confirmed experiment-run Evidence entry.
-\item Dataset and code provenance.
-\item The statistical design.
-\end{itemize}
+Before any claim in this brief can be promoted to verified, the following human inputs are required: a confirmed experiment-run Evidence entry, dataset and code provenance, and the statistical design. Until those inputs are supplied, every empirical statement above remains a pilot observation.
 
 \section{Unverified Claims}
-The following claims are unverified and must not be presented as established results.
+The following items are unverified and must not be presented as established results.
 \begin{itemize}[leftmargin=*]
 \item \path{claim.ablation-design}: the four-arm, eight-generations-per-arm design and its interventional logic are only analogically motivated by \path{paper-50abf243f9f4e962403b} and are not recorded in any confirmed Evidence entry.
 \item \path{claim.coverage-with-evidence}: no confirmed experiment-run Evidence entry is present, so the 1.00 coverage and zero-fabrication result is unverified.
@@ -87,33 +99,5 @@ The following claims are unverified and must not be presented as established res
 \item \path{claim.instruction-vs-enforcement}: the conclusion distinguishing prompt instruction from code enforcement is an unverified interpretation of the pilot and is not a confirmed result.
 \item The experiment-run Evidence entry \path{evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50} is pending/unverified and does not resolve as confirmed Evidence, so it was not cited in any claim and no claim may be reported as verified on its basis.
 \end{itemize}
-
-\appendix
-\section{Illustrative Figures}
-The figures in this appendix illustrate the tooling that produced this brief, not the research subject. They must not be mistaken for results.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.98\linewidth]{figures/cell-structure.pdf}
-\caption{Cell structure diagram illustrating the tooling that produced this brief.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.80\linewidth]{figures/module-graph.pdf}
-\caption{Module graph illustrating the tooling that produced this brief.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.86\linewidth]{figures/sequence-flow.pdf}
-\caption{Sequence flow illustrating the tooling that produced this brief.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.72\linewidth]{figures/comparison-chart.pdf}
-\caption{Comparison chart illustrating the tooling that produced this brief.}
-\end{figure}
 
 \end{document}

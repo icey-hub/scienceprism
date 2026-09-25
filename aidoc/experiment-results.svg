@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="940" height="470" viewBox="0 0 940 470">
+<rect width="940" height="470" fill="#ffffff"/>
+<text x="30" y="30" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="16" font-weight="700" text-anchor="start" fill="#1e293b">四臂消融：证据门禁是否改变产出（n=8 次/臂，模型 global:deepseek-v4.1-flash）</text>
+<text x="30" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">伪造的证据 id</text>
+<text x="287.3333333333333" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">个 / 全臂</text>
+<path d="M 30 318 L 287.3333333333333 318" stroke="#cbd5e1" stroke-width="1"/>
+<text x="62.166666666666664" y="311" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0</text>
+<text x="62.166666666666664" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">A 无指令</text>
+<text x="126.5" y="311" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0</text>
+<text x="126.5" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">B 仅指令</text>
+<text x="190.83333333333331" y="311" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0</text>
+<text x="190.83333333333331" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">C 强制</text>
+<rect x="239.1" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#b91c1c"/>
+<text x="255.16666666666666" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">6</text>
+<text x="255.16666666666666" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">D 强制</text>
+<text x="255.16666666666666" y="347" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">无证据</text>
+<text x="313.3333333333333" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">被接受率</text>
+<text x="570.6666666666666" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">比例</text>
+<path d="M 313.3333333333333 318 L 570.6666666666666 318" stroke="#cbd5e1" stroke-width="1"/>
+<rect x="329.4" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
+<text x="345.5" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">1.00</text>
+<text x="345.5" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">A 无指令</text>
+<rect x="393.8" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
+<text x="409.8333333333333" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">1.00</text>
+<text x="409.8333333333333" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">B 仅指令</text>
+<rect x="458.1" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
+<text x="474.1666666666667" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">1.00</text>
+<text x="474.1666666666667" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">C 强制</text>
+<rect x="522.4" y="287.8" width="32.166666666666664" height="30.2" rx="3" fill="#b91c1c"/>
+<text x="538.5" y="280.84" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">0.13</text>
+<text x="538.5" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">D 强制</text>
+<text x="538.5" y="347" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">无证据</text>
+<text x="596.6666666666666" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">声明的不确定性</text>
+<text x="854" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">均值 / 次</text>
+<path d="M 596.6666666666666 318 L 854 318" stroke="#cbd5e1" stroke-width="1"/>
+<rect x="612.7" y="282.7" width="32.166666666666664" height="35.3" rx="3" fill="#1d4ed8"/>
+<text x="628.8333333333333" y="275.736" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0.38</text>
+<text x="628.8333333333333" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">A 无指令</text>
+<rect x="677.1" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
+<text x="693.1666666666666" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">2.50</text>
+<text x="693.1666666666666" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">B 仅指令</text>
+<rect x="741.4" y="109.2" width="32.166666666666664" height="208.8" rx="3" fill="#1d4ed8"/>
+<text x="757.4999999999999" y="102.19999999999999" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">2.25</text>
+<text x="757.4999999999999" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">C 强制</text>
+<rect x="805.7" y="213.1" width="32.166666666666664" height="104.9" rx="3" fill="#b91c1c"/>
+<text x="821.8333333333333" y="206.13600000000002" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">1.13</text>
+<text x="821.8333333333333" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">D 强制</text>
+<text x="821.8333333333333" y="347" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">无证据</text>
+<text x="30" y="392" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12.5" font-weight="500" text-anchor="start" fill="#64748b">A/B/C 的输入里有 3 篇 human-confirmed 论文可引；D 的输入里没有任何证据。只有 D 存在伪造的可能。</text>
+<text x="30" y="412" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12.5" font-weight="700" text-anchor="start" fill="#b91c1c">D 臂：6 个引用 id 全部伪造，门禁拒绝 7/8 次，修复重试触发 7 次但修好 0 次。</text>
+<text x="30" y="440" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="start" fill="#64748b">来源：aidoc/experiment-evidence-gate.json（scripts/experiment-evidence-gate.mjs 产出，严格串行）</text>
+</svg>

@@ -66,8 +66,10 @@ const SYSTEM = [
   'Do not add results, numbers, citations, or findings that are not in the brief. This is a proposal, not a completed study.',
   'Keep the "Unverified Claims" content visible as an explicit section; never present an unverified claim as established.',
   'Use only these packages, which the local tectonic bundle provides: geometry, amsmath, booktabs, hyperref, enumitem, graphicx, microtype.',
-  'End the document with an appendix section titled "Illustrative Figures". Include every figure listed below exactly once, inside a figure environment, using the exact \\includegraphics option given for it, with a caption saying what it shows.',
-  'Those figures illustrate the tooling that produced this brief, not the research subject; say so in the appendix text so no reader mistakes them for results.',
+  'Place experiment-results in the Results section as the figure of the results, with a caption that states what the four arms are and what the bars show.',
+  'Place sequence-flow and module-graph in the Method section as figures of the pipeline under study.',
+  'Include each figure listed below exactly once, inside a figure environment, using the exact \\includegraphics option given for it.',
+  'Do not add an appendix of unrelated figures.',
   'Escape LaTeX special characters in prose. Do not use \\citep or a bibliography.',
   'Wrap every long identifier — Evidence ids, claim ids, file paths — in \\path{...} so it can break across lines. A \\texttt{...} box cannot break, and a 26-character id overflows the margin.',
   'The document must compile with no Overfull or Underfull box warnings.'
@@ -79,18 +81,23 @@ const SYSTEM = [
 // \linewidth: a sparse boxes-and-arrows diagram stretched to the full text
 // width leaves most of the frame empty, which is what made the figures look
 // the wrong size. The dense illustration earns the full width.
+// Only the figures this paper is about. The set used to include a cell
+// illustration and a self-assessment chart, which had nothing to do with an
+// evidence-gate experiment, while the paper carried no figure of its own results.
 const FIGURE_WIDTHS = {
-  'cell-structure': '0.98\\linewidth',
-  'module-graph': '0.80\\linewidth',
+  'experiment-results': '0.98\\linewidth',
   'sequence-flow': '0.86\\linewidth',
-  'comparison-chart': '0.72\\linewidth'
+  'module-graph': '0.80\\linewidth'
 };
 const FIGURE_SOURCES = Object.keys(FIGURE_WIDTHS);
 const figuresDir = path.join(projectRoot, 'manuscript', 'figures');
+await fs.rm(figuresDir, { recursive: true, force: true });
 await fs.mkdir(figuresDir, { recursive: true });
 const availableFigures = [];
 for (const name of FIGURE_SOURCES) {
-  const from = path.join(REPO_ROOT, 'docs', 'agent-governance', 'assets', 'diagrams', `${name}.pdf`);
+  const from = name === 'experiment-results'
+      ? path.join(REPO_ROOT, 'aidoc', 'experiment-results.pdf')
+      : path.join(REPO_ROOT, 'docs', 'agent-governance', 'assets', 'diagrams', `${name}.pdf`);
   try {
     await fs.copyFile(from, path.join(figuresDir, `${name}.pdf`));
     availableFigures.push(name);
@@ -116,6 +123,22 @@ if (!completion?.ok) {
 }
 
 let latex = String(completion.content || '').trim();
+latex = latex.replace(/^\uFEFF/, '');
+
+// Guarantee the preamble can break long identifiers.
+//
+// Asking the model to do this in prose was not enough: a run of consecutive
+// \path{} identifiers has nowhere to break, and one manuscript came back with 24
+// Overfull boxes up to 70pt. Injecting it is deterministic, and [hyphens]{url} is
+// what lets \path{} break at the hyphens inside an evidence id.
+const REQUIRED_PREAMBLE = [
+  '\\usepackage[hyphens]{url}',
+  '\\usepackage{microtype}',
+  '\\setlength{\\emergencystretch}{3em}'
+].join('\n');
+if (!/\\setlength\{\\emergencystretch\}/.test(latex)) {
+  latex = latex.replace(/(\\documentclass(?:\[[^\]]*\])?\{[^}]+\})/, `$1\n${REQUIRED_PREAMBLE}`);
+}
 latex = latex.replace(/^```(?:latex|tex)?\s*/i, '').replace(/```\s*$/, '').trim();
 if (!latex.startsWith('\\documentclass')) {
   console.error('model did not return a LaTeX document; first 200 chars:', latex.slice(0, 200));
