@@ -74,6 +74,41 @@ function parseInlineList(value) {
  * It is sufficient for discovery and avoids treating arbitrary skill content
  * as executable configuration in the SciencePrism server.
  */
+/** A YAML block scalar header: `>-`, `>`, `|-`, `|`, optionally with a chomp digit. */
+const BLOCK_SCALAR_HEADER = /^[>|][-+]?\d*$/;
+
+/**
+ * Reads a YAML block scalar body.
+ *
+ * This parser was line-based and read only single-line values, so a skill that
+ * wrote its description the standard way — `description: >-` with the text
+ * indented below — had its description parsed as the literal string ">-". The
+ * description is what `researchSkillPrompt` hands the model, so the skill
+ * silently reached every run with no usable description at all.
+ */
+function readBlockScalar(frontmatter, headerIndex) {
+  const headerIndent = frontmatter[headerIndex].match(/^(\s*)/)?.[1].length || 0;
+  const isLiteral = frontmatter[headerIndex].trim().startsWith('|');
+  const collected = [];
+  let blockIndent = null;
+  let cursor = headerIndex + 1;
+
+  for (; cursor < frontmatter.length; cursor += 1) {
+    const line = frontmatter[cursor];
+    if (!line.trim()) {
+      collected.push('');
+      continue;
+    }
+    const indent = line.match(/^(\s*)/)?.[1].length || 0;
+    if (indent <= headerIndent) break;
+    if (blockIndent === null) blockIndent = indent;
+    collected.push(line.slice(blockIndent));
+  }
+
+  const joined = isLiteral ? collected.join('\n') : collected.join(' ').replace(/[ \t]+/g, ' ');
+  return { value: joined.trim(), nextIndex: cursor - 1 };
+}
+
 function parseSkillFrontmatter(content) {
   const lines = String(content || '').replace(/^\uFEFF/, '').split(/\r?\n/);
   if (lines[0]?.trim() !== '---') return null;
@@ -91,9 +126,15 @@ function parseSkillFrontmatter(content) {
       name = unquote(nameMatch[1]);
       continue;
     }
-    const descriptionMatch = line.match(/^description:\s*(.+?)\s*$/);
+    const descriptionMatch = line.match(/^description:\s*(.*?)\s*$/);
     if (descriptionMatch) {
-      description = unquote(descriptionMatch[1]);
+      if (BLOCK_SCALAR_HEADER.test(descriptionMatch[1])) {
+        const block = readBlockScalar(frontmatter, index);
+        description = block.value;
+        index = block.nextIndex;
+      } else {
+        description = unquote(descriptionMatch[1]);
+      }
       continue;
     }
     const stagesMatch = line.match(/^\s*stages:\s*(.*?)\s*$/);
