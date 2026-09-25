@@ -1,0 +1,55 @@
+{
+  "gradingArtifact": {
+    "numericallyEqualButMarkedWrong": 6,
+    "parseFailures": 2,
+    "examples": [
+      {
+        "condition": "direct",
+        "gold": "7",
+        "predicted": "7.00"
+      },
+      {
+        "condition": "direct",
+        "gold": "12",
+        "predicted": "12.00"
+      },
+      {
+        "condition": "cot",
+        "gold": "5",
+        "predicted": "5.00"
+      },
+      {
+        "condition": "cot",
+        "gold": "12",
+        "predicted": "12.00"
+      },
+      {
+        "condition": "format",
+        "gold": "7",
+        "predicted": "7.00"
+      },
+      {
+        "condition": "format",
+        "gold": "12",
+        "predicted": "12.00"
+      }
+    ]
+  },
+  "correctedAccuracy": {
+    "direct": {
+      "strict": 0.955,
+      "numericCorrected": 0.965,
+      "delta": 0.01
+    },
+    "cot": {
+      "strict": 0.955,
+      "numericCorrected": 0.965,
+      "delta": 0.01
+    },
+    "format": {
+      "strict": 0.945,
+      "numericCorrected": 0.955,
+      "delta": 0.01
+    }
+  }
+}

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="470" viewBox="0 0 1000 470">
+<rect width="1000" height="470" fill="#ffffff"/>
+<text x="28" y="30" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="16" font-weight="700" text-anchor="start" fill="#1e293b">GSM8K 上的思维链消融（n=200 题 × 3 条件，模型 global:deepseek-v4.1-flash）</text>
+<text x="28" y="68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="700" text-anchor="start" fill="#1e293b">(a) 各条件准确率</text>
+<text x="328" y="68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">越接近 1 越好</text>
+<path d="M 28 270 L 328 270" stroke="#cbd5e1"/>
+<rect x="42" y="101.92000000000002" width="34" height="168.07999999999998" rx="3" fill="#1d4ed8"/>
+<rect x="80" y="100.16" width="34" height="169.84" rx="3" fill="#b45309"/>
+<text x="59" y="95.92000000000002" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1d4ed8">0.955</text>
+<text x="97" y="94.16" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle" fill="#b45309">0.965</text>
+<text x="78" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="500" text-anchor="middle" fill="#64748b">direct</text>
+<rect x="142" y="101.92000000000002" width="34" height="168.07999999999998" rx="3" fill="#1d4ed8"/>
+<rect x="180" y="100.16" width="34" height="169.84" rx="3" fill="#b45309"/>
+<text x="159" y="95.92000000000002" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1d4ed8">0.955</text>
+<text x="197" y="94.16" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle" fill="#b45309">0.965</text>
+<text x="178" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="500" text-anchor="middle" fill="#64748b">CoT</text>
+<rect x="242" y="103.68" width="34" height="166.32" rx="3" fill="#1d4ed8"/>
+<rect x="280" y="101.92000000000002" width="34" height="168.07999999999998" rx="3" fill="#b45309"/>
+<text x="259" y="97.68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle" fill="#1d4ed8">0.945</text>
+<text x="297" y="95.92000000000002" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle" fill="#b45309">0.955</text>
+<text x="278" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="500" text-anchor="middle" fill="#64748b">format</text>
+<rect x="28" y="306" width="10" height="10" rx="2" fill="#1d4ed8"/>
+<text x="43" y="315" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#64748b">exact-match</text>
+<rect x="120" y="306" width="10" height="10" rx="2" fill="#b45309"/>
+<text x="135" y="315" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#64748b">数值等价修正后</text>
+<text x="360" y="68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="700" text-anchor="start" fill="#1e293b">(b) direct vs CoT：逐题配对</text>
+<text x="640" y="68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">同一批题</text>
+<path d="M 360 270 L 640 270" stroke="#cbd5e1"/>
+<rect x="373" y="94" width="44" height="176" rx="3" fill="#1d4ed8"/>
+<text x="395" y="88" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">190</text>
+<text x="395" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">两者都对</text>
+<rect x="443" y="269.0736842105263" width="44" height="0.9263157894736842" rx="3" fill="#b45309"/>
+<text x="465" y="263.0736842105263" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">1</text>
+<text x="465" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">仅 direct 对</text>
+<rect x="513" y="269.0736842105263" width="44" height="0.9263157894736842" rx="3" fill="#b45309"/>
+<text x="535" y="263.0736842105263" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">1</text>
+<text x="535" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">仅 CoT 对</text>
+<rect x="583" y="262.58947368421053" width="44" height="7.410526315789474" rx="3" fill="#b91c1c"/>
+<text x="605" y="256.58947368421053" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">8</text>
+<text x="605" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">两者都错</text>
+<text x="360" y="317" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="start" fill="#64748b">不一致仅 2 题：CoT 净增益为 0</text>
+<text x="672" y="68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="700" text-anchor="start" fill="#1e293b">(c) 隐藏推理 vs 可见答案</text>
+<text x="972" y="68" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">三条件合计</text>
+<path d="M 672 270 L 972 270" stroke="#cbd5e1"/>
+<rect x="685.5" y="94" width="48" height="176" rx="3" fill="#1d4ed8"/>
+<text x="709.5" y="88" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">546</text>
+<text x="709.5" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">两者都对</text>
+<rect x="760.5" y="261.94139194139194" width="48" height="8.058608058608058" rx="3" fill="#b91c1c"/>
+<text x="784.5" y="255.94139194139194" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">25</text>
+<text x="784.5" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">仅答案对</text>
+<rect x="835.5" y="269.67765567765565" width="48" height="0.32234432234432236" rx="3" fill="#b45309"/>
+<text x="859.5" y="263.67765567765565" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b45309">1</text>
+<text x="859.5" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">仅推理对</text>
+<rect x="910.5" y="260.97435897435895" width="48" height="9.025641025641026" rx="3" fill="#94a3b8"/>
+<text x="934.5" y="254.97435897435895" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#94a3b8">28</text>
+<text x="934.5" y="287" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">都错</text>
+<text x="672" y="317" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="700" text-anchor="start" fill="#b91c1c">答案正确而推理末数错误 25 次，反向仅 1 次</text>
+<text x="28" y="380" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12.5" font-weight="500" text-anchor="start" fill="#64748b">判分伪影：6 次数值相等但字符串不同（如 12 vs 12.00），另 2 次解析失败。</text>
+<text x="28" y="402" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">结论：对推理模型而言，提示方式几乎不改变结果；主要误差来自题目难度与判分规则，而不是提示。</text>
+<text x="28" y="440" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="start" fill="#64748b">数据：GSM8K 测试集（Cobbe et al., 2021），aidoc/experiment-cot-gsm8k.json，temperature 0，串行调用</text>
+</svg>

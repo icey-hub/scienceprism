@@ -1,0 +1,77 @@
+{
+  "n": 200,
+  "model": "global:deepseek-v4.1-flash",
+  "dataset": "GSM8K test split (Cobbe et al., 2021)",
+  "summary": {
+    "direct": {
+      "n": 200,
+      "declaredAccuracy": 0.955,
+      "lenientAccuracy": 0.955,
+      "reasoningAccuracy": 0.915,
+      "parseFailureRate": 0.005,
+      "formatGap": 0,
+      "meanSeconds": 2.71,
+      "meanContentChars": 2.39,
+      "meanReasoningChars": 1023.66,
+      "errors": 0
+    },
+    "cot": {
+      "n": 200,
+      "declaredAccuracy": 0.955,
+      "lenientAccuracy": 0.955,
+      "reasoningAccuracy": 0.91,
+      "parseFailureRate": 0,
+      "formatGap": 0,
+      "meanSeconds": 2.85,
+      "meanContentChars": 190.38,
+      "meanReasoningChars": 1060.85,
+      "errors": 0
+    },
+    "format": {
+      "n": 200,
+      "declaredAccuracy": 0.945,
+      "lenientAccuracy": 0.945,
+      "reasoningAccuracy": 0.91,
+      "parseFailureRate": 0.005,
+      "formatGap": 0,
+      "meanSeconds": 3.47,
+      "meanContentChars": 148.31,
+      "meanReasoningChars": 1066.26,
+      "errors": 1
+    }
+  },
+  "paired": {
+    "direct_vs_cot": {
+      "both": 190,
+      "onlyA": 1,
+      "onlyB": 1,
+      "neither": 8,
+      "discordant": 2
+    },
+    "direct_vs_format": {
+      "both": 189,
+      "onlyA": 2,
+      "onlyB": 0,
+      "neither": 9,
+      "discordant": 2
+    },
+    "cot_vs_format": {
+      "both": 188,
+      "onlyA": 3,
+      "onlyB": 1,
+      "neither": 8,
+      "discordant": 4
+    }
+  },
+  "reasoningVsAnswer": {
+    "bothRight": 546,
+    "ansOnly": 25,
+    "reaOnly": 1,
+    "bothWrong": 28
+  },
+  "difficulty": {
+    "allThreeRight": 188,
+    "allThreeWrong": 8,
+    "mixed": 4
+  }
+}

@@ -1,8 +1,567 @@
 {
   "schemaVersion": 1,
   "projectId": "aidoc-research-document",
-  "version": 52,
+  "version": 81,
   "entries": [
+    {
+      "id": "claim-75a766fc3c139c261c0d",
+      "kind": "paper-claim",
+      "title": "claim-selfconsistency-background",
+      "summary": "Wang et al. propose self-consistency as a decoding strategy that replaces greedy decoding in chain-of-thought prompting and improves reasoning accuracy, making it a candidate next lever if prompt-level changes prove inert.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.968Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-wang-2022-self-consistency"
+        ],
+        "confidence": 0.8
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.968Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-0c55fc4c496f9c14afd7",
+      "kind": "paper-claim",
+      "title": "claim-zeroshot-background",
+      "summary": "Kojima et al. show that a single zero-shot trigger phrase elicits chain-of-thought reasoning without exemplars, which motivates varying only the instruction rather than adding demonstrations.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.966Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-kojima-2022-zero-shot"
+        ],
+        "confidence": 0.8
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.966Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-a2ebe51de652e62e33f8",
+      "kind": "paper-claim",
+      "title": "claim-mechanism",
+      "summary": "A plausible mechanism, not demonstrated in this project, is that because a reasoning model is trained to produce hidden reasoning traces, an explicit chain-of-thought instruction adds little. Kojima et al. show a single zero-shot trigger phrase elicits reasoning without exemplars, and Wang et al. propose self-consistency decoding as a strategy that improves reasoning accuracy, making it a candidate next lever; neither the mechanism nor the prompting result is confirmed here.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.963Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-deepseek-2025-r1",
+          "paper-kojima-2022-zero-shot",
+          "paper-wang-2022-self-consistency"
+        ],
+        "confidence": 0.2
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.963Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-27c1bb32b06084e3ed5c",
+      "kind": "paper-claim",
+      "title": "claim-conclusion",
+      "summary": "Read against the background that chain-of-thought prompting helps conventional LLMs (Wei et al.) while a reasoning model such as DeepSeek-R1 already reasons in a hidden channel, the unverified experiment record suggests that for a reasoning model the prompting condition barely changes the outcome and that the dominant measured error sources are item difficulty and the grading rule rather than the prompt. This conclusion is an interpretation of an unverified record, not a confirmed result.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.960Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-deepseek-2025-r1",
+          "paper-wei-2022-cot"
+        ],
+        "confidence": 0.25
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.960Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-5d2409982458e7bd085b",
+      "kind": "paper-claim",
+      "title": "claim-grading",
+      "summary": "GSM8K was introduced by Cobbe et al. as a dataset of 8.5K grade-school math word problems. The unverified experiment record reports that exact-match grading under-counted accuracy by 1.0 percentage points because 6 responses were numerically equal but textually different (for example 12 against 12.00) and 2 failed to parse.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.958Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-cobbe-2021-gsm8k"
+        ],
+        "confidence": 0.25
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.958Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-d17ee68d2a3837ff7bd7",
+      "kind": "paper-claim",
+      "title": "claim-trace",
+      "summary": "DeepSeek-R1 is trained to produce long reasoning traces through reinforcement learning, so reasoning already occurs in a hidden channel. The unverified experiment record reports that the hidden reasoning trace was a worse answer source than the visible answer: 25 generations had a correct answer but a wrong last number in the reasoning, against 1 in the other direction.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.956Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-deepseek-2025-r1"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.956Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-d30f1f256d016c161f01",
+      "kind": "paper-claim",
+      "title": "claim-pairing",
+      "summary": "The unverified experiment record reports per-item pairing on the same 200 questions: 190 were answered correctly by both direct and chain-of-thought, 1 by direct alone, 1 by chain-of-thought alone, 8 by neither, and only 4 questions changed outcome across conditions at all. This item-level pairing is not confirmed.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.953Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-cobbe-2021-gsm8k",
+          "paper-wei-2022-cot"
+        ],
+        "confidence": 0.25
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.953Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-d1bd3be07e1bdfc3498b",
+      "kind": "paper-claim",
+      "title": "claim-accuracy-null",
+      "summary": "Wei et al. report that generating a chain of intermediate reasoning steps substantially improves complex reasoning. The unverified experiment record reports declared accuracy of 0.955 for direct, 0.955 for chain-of-thought, and 0.945 for an explicit answer format, which would mean no measurable chain-of-thought gain and a 0.010 cost from the format requirement; those numbers are not confirmed.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.950Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-wei-2022-cot",
+          "paper-deepseek-2025-r1"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.950Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "claim-8f72fcafd0133ee1bd2b",
+      "kind": "paper-claim",
+      "title": "claim-study-design",
+      "summary": "Cobbe et al. introduce GSM8K as a dataset of 8.5K grade-school math word problems on which even the largest transformer models fail to reach high test performance. An experiment record not yet confirmed in this project reports running 200 GSM8K test questions under three prompting conditions at temperature 0, with 600 generations in total; that configuration is unverified here.",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:41:57.949Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "paper-cobbe-2021-gsm8k"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:41:57.949Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "paper-deepseek-2025-r1",
+      "kind": "paper",
+      "title": "DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning",
+      "summary": "Trains a model to produce long reasoning traces through reinforcement learning. The model under test is a reasoning model of this kind, which is the reason explicit chain-of-thought prompting may add nothing: the reasoning already happens in a hidden channel.",
+      "source": {
+        "url": "https://arxiv.org/abs/2501.12948",
+        "path": null,
+        "provider": "arxiv",
+        "locator": "2501.12948"
+      },
+      "sourceUrl": "https://arxiv.org/abs/2501.12948",
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:40:21.098Z",
+      "verifiedAt": "2026-09-25T07:40:21.098Z",
+      "verificationStatus": "human-confirmed",
+      "version": null,
+      "sha256": null,
+      "location": "2501.12948",
+      "tags": [
+        "reference"
+      ],
+      "metadata": {
+        "confirmedBy": "agent from the arXiv API",
+        "confirmedAt": "2026-09-25T07:40:21.098Z"
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:40:21.308Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "paper-kojima-2022-zero-shot",
+      "kind": "paper",
+      "title": "Large Language Models are Zero-Shot Reasoners",
+      "summary": "Shows that a single zero-shot trigger phrase elicits chain-of-thought reasoning without exemplars, which is why the conditions here vary only the instruction rather than adding demonstrations.",
+      "source": {
+        "url": "https://arxiv.org/abs/2205.11916",
+        "path": null,
+        "provider": "arxiv",
+        "locator": "2205.11916"
+      },
+      "sourceUrl": "https://arxiv.org/abs/2205.11916",
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:40:21.098Z",
+      "verifiedAt": "2026-09-25T07:40:21.098Z",
+      "verificationStatus": "human-confirmed",
+      "version": null,
+      "sha256": null,
+      "location": "2205.11916",
+      "tags": [
+        "reference"
+      ],
+      "metadata": {
+        "confirmedBy": "agent from the arXiv API",
+        "confirmedAt": "2026-09-25T07:40:21.098Z"
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:40:21.307Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "paper-wang-2022-self-consistency",
+      "kind": "paper",
+      "title": "Self-Consistency Improves Chain of Thought Reasoning in Language Models",
+      "summary": "Proposes self-consistency as a decoding strategy that replaces greedy decoding in chain-of-thought prompting and improves reasoning accuracy; it is the natural next lever after the prompt-level intervention tested here.",
+      "source": {
+        "url": "https://arxiv.org/abs/2203.11171",
+        "path": null,
+        "provider": "arxiv",
+        "locator": "2203.11171"
+      },
+      "sourceUrl": "https://arxiv.org/abs/2203.11171",
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:40:21.098Z",
+      "verifiedAt": "2026-09-25T07:40:21.098Z",
+      "verificationStatus": "human-confirmed",
+      "version": null,
+      "sha256": null,
+      "location": "2203.11171",
+      "tags": [
+        "reference"
+      ],
+      "metadata": {
+        "confirmedBy": "agent from the arXiv API",
+        "confirmedAt": "2026-09-25T07:40:21.098Z"
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:40:21.306Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "paper-wei-2022-cot",
+      "kind": "paper",
+      "title": "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+      "summary": "Shows that generating a chain of intermediate reasoning steps substantially improves the ability of large language models to perform complex reasoning, which is the intervention this experiment tests on a reasoning model.",
+      "source": {
+        "url": "https://arxiv.org/abs/2201.11903",
+        "path": null,
+        "provider": "arxiv",
+        "locator": "2201.11903"
+      },
+      "sourceUrl": "https://arxiv.org/abs/2201.11903",
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:40:21.098Z",
+      "verifiedAt": "2026-09-25T07:40:21.098Z",
+      "verificationStatus": "human-confirmed",
+      "version": null,
+      "sha256": null,
+      "location": "2201.11903",
+      "tags": [
+        "reference"
+      ],
+      "metadata": {
+        "confirmedBy": "agent from the arXiv API",
+        "confirmedAt": "2026-09-25T07:40:21.098Z"
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:40:21.304Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "paper-cobbe-2021-gsm8k",
+      "kind": "paper",
+      "title": "Training Verifiers to Solve Math Word Problems",
+      "summary": "Introduces GSM8K, a dataset of 8.5K grade school math word problems, and reports that even the largest transformer models fail to achieve high test performance on it. This experiment uses the GSM8K test split as its dataset.",
+      "source": {
+        "url": "https://arxiv.org/abs/2110.14168",
+        "path": null,
+        "provider": "arxiv",
+        "locator": "2110.14168"
+      },
+      "sourceUrl": "https://arxiv.org/abs/2110.14168",
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T07:40:21.098Z",
+      "verifiedAt": "2026-09-25T07:40:21.098Z",
+      "verificationStatus": "human-confirmed",
+      "version": null,
+      "sha256": null,
+      "location": "2110.14168",
+      "tags": [
+        "reference"
+      ],
+      "metadata": {
+        "confirmedBy": "agent from the arXiv API",
+        "confirmedAt": "2026-09-25T07:40:21.098Z"
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:40:21.301Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
+    {
+      "id": "evidence-cot-gsm8k-experiment",
+      "kind": "experiment-run",
+      "title": "Chain-of-thought ablation on GSM8K with a reasoning model",
+      "summary": "Three prompting conditions (direct, chain-of-thought, and an explicit #### answer format) were run over 200 GSM8K test questions at temperature 0, 600 generations total, serially on global:deepseek-v4.1-flash. Declared accuracy was 0.955 for direct, 0.955 for chain-of-thought, and 0.945 for the explicit format, so explicit chain-of-thought produced no gain at all and demanding a format cost 0.010. Per-item pairing shows 190 of 200 questions answered correctly by both direct and chain-of-thought, 1 by direct alone, 1 by chain-of-thought alone, and 8 by neither; only 4 of 200 questions changed outcome across conditions at all. The hidden reasoning trace was a worse answer source than the visible answer: the answer was correct while the last number of the reasoning was wrong in 25 generations, against 1 in the opposite direction. Exact-match grading under-counted by 1.0 percentage points: 6 responses were numerically equal to the gold answer but textually different, such as 12 against 12.00, and 2 failed to parse. The sample is one model, one dataset, one temperature, and a single run per item, so these are measurements of that configuration rather than estimates of a population.",
+      "source": {
+        "url": "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl",
+        "path": "aidoc/experiment-cot-gsm8k.json",
+        "provider": "scienceprism",
+        "locator": "scripts/experiment-cot-gsm8k.mjs"
+      },
+      "sourceUrl": "https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl",
+      "sourcePath": "aidoc/experiment-cot-gsm8k.json",
+      "acquiredAt": "2026-09-25T07:40:21.098Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": "scripts/experiment-cot-gsm8k.mjs",
+      "tags": [
+        "chain-of-thought",
+        "gsm8k",
+        "evaluation",
+        "ablation"
+      ],
+      "metadata": {
+        "summary": {
+          "direct": {
+            "n": 200,
+            "declaredAccuracy": 0.955,
+            "lenientAccuracy": 0.955,
+            "reasoningAccuracy": 0.915,
+            "parseFailureRate": 0.005,
+            "formatGap": 0,
+            "meanSeconds": 2.71,
+            "meanContentChars": 2.39,
+            "meanReasoningChars": 1023.66,
+            "errors": 0
+          },
+          "cot": {
+            "n": 200,
+            "declaredAccuracy": 0.955,
+            "lenientAccuracy": 0.955,
+            "reasoningAccuracy": 0.91,
+            "parseFailureRate": 0,
+            "formatGap": 0,
+            "meanSeconds": 2.85,
+            "meanContentChars": 190.38,
+            "meanReasoningChars": 1060.85,
+            "errors": 0
+          },
+          "format": {
+            "n": 200,
+            "declaredAccuracy": 0.945,
+            "lenientAccuracy": 0.945,
+            "reasoningAccuracy": 0.91,
+            "parseFailureRate": 0.005,
+            "formatGap": 0,
+            "meanSeconds": 3.47,
+            "meanContentChars": 148.31,
+            "meanReasoningChars": 1066.26,
+            "errors": 1
+          }
+        },
+        "paired": {
+          "direct_vs_cot": {
+            "both": 190,
+            "onlyA": 1,
+            "onlyB": 1,
+            "neither": 8,
+            "discordant": 2
+          },
+          "direct_vs_format": {
+            "both": 189,
+            "onlyA": 2,
+            "onlyB": 0,
+            "neither": 9,
+            "discordant": 2
+          },
+          "cot_vs_format": {
+            "both": 188,
+            "onlyA": 3,
+            "onlyB": 1,
+            "neither": 8,
+            "discordant": 4
+          }
+        },
+        "reasoningVsAnswer": {
+          "bothRight": 546,
+          "ansOnly": 25,
+          "reaOnly": 1,
+          "bothWrong": 28
+        },
+        "gradingArtifact": {
+          "numericallyEqualButMarkedWrong": 6,
+          "parseFailures": 2,
+          "examples": [
+            {
+              "condition": "direct",
+              "gold": "7",
+              "predicted": "7.00"
+            },
+            {
+              "condition": "direct",
+              "gold": "12",
+              "predicted": "12.00"
+            },
+            {
+              "condition": "cot",
+              "gold": "5",
+              "predicted": "5.00"
+            },
+            {
+              "condition": "cot",
+              "gold": "12",
+              "predicted": "12.00"
+            },
+            {
+              "condition": "format",
+              "gold": "7",
+              "predicted": "7.00"
+            },
+            {
+              "condition": "format",
+              "gold": "12",
+              "predicted": "12.00"
+            }
+          ]
+        }
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T07:40:21.299Z",
+      "updatedAt": "2026-09-25T07:41:57.968Z"
+    },
     {
       "id": "claim-8492eda87c391d43492d",
       "kind": "paper-claim",
@@ -33,7 +592,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.756Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-89713ddef496c5bb0d07",
@@ -63,7 +622,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.754Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-ba56ab8c3907a52ec8f2",
@@ -93,7 +652,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.753Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-d4755366979f8f3f6fc9",
@@ -123,7 +682,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.740Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-bc8f5e5a906037cdd0aa",
@@ -153,7 +712,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.269Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-8453d30b7e0a6b928e3d",
@@ -183,7 +742,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.268Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-8de0a24311da72c7babf",
@@ -213,7 +772,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.266Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-923da3444d100df692d2",
@@ -243,7 +802,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.264Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-d239dbd09859304e7f8e",
@@ -273,7 +832,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.263Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-8f99c894e4d840737e1a",
@@ -303,7 +862,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.261Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-6e6e850e5cf5381be02b",
@@ -333,7 +892,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.257Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
@@ -420,7 +979,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:38:47.117Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-9ff9b69229ca2816720e",
@@ -451,7 +1010,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.652Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-71794ff674d5ad53cbd1",
@@ -481,7 +1040,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.651Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-9a38a90b08d28c0812fb",
@@ -511,7 +1070,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.650Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-dff2b75b796925cc9560",
@@ -541,7 +1100,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.649Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-c001966d011cc22f31df",
@@ -571,7 +1130,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.648Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "claim-121f1d5e47b0b6f5f148",
@@ -601,7 +1160,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.646Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "paper-b2b2f01594862b01e12f",
@@ -658,7 +1217,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:32:43.799Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "paper-bcc49f7513ed61be3a1f",
@@ -713,7 +1272,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:32:43.798Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     },
     {
       "id": "paper-50abf243f9f4e962403b",
@@ -771,10 +1330,150 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:32:43.797Z",
-      "updatedAt": "2026-09-25T04:43:15.757Z"
+      "updatedAt": "2026-09-25T07:41:57.968Z"
     }
   ],
   "relations": [
+    {
+      "id": "relation-1790322117969-c2f50fed009b38",
+      "type": "supports",
+      "fromId": "paper-wang-2022-self-consistency",
+      "toId": "claim-75a766fc3c139c261c0d",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.969Z"
+    },
+    {
+      "id": "relation-1790322117967-3035a199ddd518",
+      "type": "supports",
+      "fromId": "paper-kojima-2022-zero-shot",
+      "toId": "claim-0c55fc4c496f9c14afd7",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.967Z"
+    },
+    {
+      "id": "relation-1790322117965-95c0beee3cd5a",
+      "type": "supports",
+      "fromId": "paper-wang-2022-self-consistency",
+      "toId": "claim-a2ebe51de652e62e33f8",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.965Z"
+    },
+    {
+      "id": "relation-1790322117965-a81bfa26cef4c8",
+      "type": "supports",
+      "fromId": "paper-kojima-2022-zero-shot",
+      "toId": "claim-a2ebe51de652e62e33f8",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.965Z"
+    },
+    {
+      "id": "relation-1790322117963-79848c68fa0f18",
+      "type": "supports",
+      "fromId": "paper-deepseek-2025-r1",
+      "toId": "claim-a2ebe51de652e62e33f8",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.963Z"
+    },
+    {
+      "id": "relation-1790322117962-b4f1838add36",
+      "type": "supports",
+      "fromId": "paper-wei-2022-cot",
+      "toId": "claim-27c1bb32b06084e3ed5c",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.962Z"
+    },
+    {
+      "id": "relation-1790322117961-8be99406395c3",
+      "type": "supports",
+      "fromId": "paper-deepseek-2025-r1",
+      "toId": "claim-27c1bb32b06084e3ed5c",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.961Z"
+    },
+    {
+      "id": "relation-1790322117959-0a6644c3c1ce1",
+      "type": "supports",
+      "fromId": "paper-cobbe-2021-gsm8k",
+      "toId": "claim-5d2409982458e7bd085b",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.959Z"
+    },
+    {
+      "id": "relation-1790322117957-73a18f2c9c1da",
+      "type": "supports",
+      "fromId": "paper-deepseek-2025-r1",
+      "toId": "claim-d17ee68d2a3837ff7bd7",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.957Z"
+    },
+    {
+      "id": "relation-1790322117955-0b9be56251d8e",
+      "type": "supports",
+      "fromId": "paper-wei-2022-cot",
+      "toId": "claim-d30f1f256d016c161f01",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.955Z"
+    },
+    {
+      "id": "relation-1790322117954-1ec842e2200f",
+      "type": "supports",
+      "fromId": "paper-cobbe-2021-gsm8k",
+      "toId": "claim-d30f1f256d016c161f01",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.954Z"
+    },
+    {
+      "id": "relation-1790322117952-9e83aa0450d6b",
+      "type": "supports",
+      "fromId": "paper-deepseek-2025-r1",
+      "toId": "claim-d1bd3be07e1bdfc3498b",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.952Z"
+    },
+    {
+      "id": "relation-1790322117951-caabd9ec640b6",
+      "type": "supports",
+      "fromId": "paper-wei-2022-cot",
+      "toId": "claim-d1bd3be07e1bdfc3498b",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.951Z"
+    },
+    {
+      "id": "relation-1790322117950-2e0eae2bed8c98",
+      "type": "supports",
+      "fromId": "paper-cobbe-2021-gsm8k",
+      "toId": "claim-8f72fcafd0133ee1bd2b",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T07:41:57.950Z"
+    },
     {
       "id": "relation-1790311395758-639e6bef75567",
       "type": "supports",
@@ -976,5 +1675,5 @@
       "createdAt": "2026-09-24T07:33:55.647Z"
     }
   ],
-  "updatedAt": "2026-09-25T04:43:15.758Z"
+  "updatedAt": "2026-09-25T07:41:57.969Z"
 }

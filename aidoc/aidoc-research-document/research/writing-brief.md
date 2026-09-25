@@ -1,83 +1,70 @@
-# Prompt Instruction Versus Code Enforcement for Evidence-Grounded Citation: A Four-Arm Pilot Ablation
+# Prompting Condition Barely Changes Outcomes for a Reasoning Model: Direct, Chain-of-Thought, and Explicit-Format Prompting on 200 GSM8K Test Questions
 
-<!-- scienceprism-writing-brief: generatedAt=2026-09-25T04:43:15.758Z -->
+<!-- scienceprism-writing-brief: generatedAt=2026-09-25T07:41:57.970Z -->
 
 ## Outline
-- Abstract: frame the brief as a pilot ablation on evidence grounding rather than the original retrieval-augmented-generation question, and state that all empirical claims are unverified pending a confirmed experiment-run Evidence entry.
-- Introduction: motivate prompt-level citation instruction versus code-level enforcement as two ways to suppress fabricated citations.
-- Related work: summarize the three human-confirmed background papers (interventional benchmark criteria; modular attributor aggregation; attribute-conditioned representations) and state that none directly addresses retrieval-augmented-generation provenance.
-- Method: describe the four-arm ablation with eight generations per arm on a single research question, the Evidence-present and no-Evidence conditions, the citation instruction, schema enforcement, and the repair retry.
-- Results: report the pilot findings, namely coverage 1.00 and no fabricated ids with Evidence present, roughly tenfold higher declared uncertainty under the citation instruction, minimal schema-enforcement effect with no repair trigger, and, without Evidence, all-fabricated ids, seven-of-eight enforcement rejections, and zero repairs.
-- Analysis: state the conclusion that prompt instruction changes declared honesty while code enforcement blocks a fabricated citation from being accepted, and that the retry cannot repair a model with nothing to cite.
-- Limitations: state the eight-generations-per-arm single-question pilot scope, the fact that only the no-evidence arm could fabricate, and the pending/unverified experiment-run Evidence entry.
-- Availability and next steps: list the human inputs required before any claim can be promoted to verified, including a confirmed experiment-run Evidence entry, dataset and code provenance, and the statistical design.
+- Abstract: state that the study compares direct, chain-of-thought, and explicit-answer-format prompting on a reasoning model over 200 GSM8K test questions at temperature 0 (600 generations), and flag that every empirical number currently rests on an experiment record that is not yet confirmed in this project.
+- Introduction: frame the question of whether prompting condition changes outcomes for a model that already reasons in a hidden channel; cite the chain-of-thought, zero-shot reasoner, self-consistency, GSM8K, and reasoning-model papers as the background this result speaks to.
+- Related work: chain-of-thought prompting (Wei et al.), zero-shot reasoning (Kojima et al.), self-consistency decoding (Wang et al.), GSM8K (Cobbe et al.), and reasoning models (DeepSeek-R1).
+- Method: three conditions (direct, chain-of-thought, explicit #### answer format) on the GSM8K test split, temperature 0, one generation per item, exact-match grading plus a numeric-equivalence check.
+- Results (pending verification): declared accuracy 0.955 direct, 0.955 chain-of-thought, 0.945 explicit format; per-item pairing 190 both-correct, 1 direct-only, 1 chain-of-thought-only, 8 neither, 4 changed; hidden-trace versus visible-answer disagreement 25 versus 1; grading under-count of 1.0 percentage point from 6 textually different but numerically equal responses and 2 parse failures.
+- Analysis: prompting condition barely changes the outcome; item difficulty and the grading rule dominate measured error rather than the prompt.
+- Limitations and threats to validity: one model, one dataset, one temperature, one generation per item; no population estimate; the supporting experiment record is unconfirmed.
+- Data and code availability: the experiment command and dataset are stated in the approved plan but no dataset, code, or run artifacts were supplied to this brief.
 
 ## Claims And Evidence
-- Unverified study design: the empirical study is a four-arm ablation with eight generations per arm on a single research question, in which arms vary whether Evidence is present in the stage input and how strongly citation is required. Its paired, intervention-style logic is only analogically motivated by the human-confirmed review abstract (paper-50abf243f9f4e962403b), which reports that stronger benchmarks incorporate interventional or counterfactual reasoning; the actual four-arm design is not recorded in any confirmed Evidence entry, and transposing that rationale from causal-reasoning benchmarks to claim-level provenance is an unvalidated analogy.
-  - Claim ID: `claim.ablation-design`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`
-  - Confidence: 0.4
-- Unverified pilot finding: with Evidence present in the stage input, claim-evidence coverage was 1.00 in every arm and no cited id was fabricated, indicating that adding the citation requirement imposed no measurable citation cost in that condition. The experiment-run Evidence entry that would confirm this is pending/unverified and was therefore not used as claim evidence, so this remains an unverified single-question pilot observation.
-  - Claim ID: `claim.coverage-with-evidence`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`
+- Cobbe et al. introduce GSM8K as a dataset of 8.5K grade-school math word problems on which even the largest transformer models fail to reach high test performance. An experiment record not yet confirmed in this project reports running 200 GSM8K test questions under three prompting conditions at temperature 0, with 600 generations in total; that configuration is unverified here.
+  - Claim ID: `claim-study-design`
+  - Evidence IDs: `paper-cobbe-2021-gsm8k`
+  - Confidence: 0.3
+- Wei et al. report that generating a chain of intermediate reasoning steps substantially improves complex reasoning. The unverified experiment record reports declared accuracy of 0.955 for direct, 0.955 for chain-of-thought, and 0.945 for an explicit answer format, which would mean no measurable chain-of-thought gain and a 0.010 cost from the format requirement; those numbers are not confirmed.
+  - Claim ID: `claim-accuracy-null`
+  - Evidence IDs: `paper-wei-2022-cot`, `paper-deepseek-2025-r1`
+  - Confidence: 0.3
+- The unverified experiment record reports per-item pairing on the same 200 questions: 190 were answered correctly by both direct and chain-of-thought, 1 by direct alone, 1 by chain-of-thought alone, 8 by neither, and only 4 questions changed outcome across conditions at all. This item-level pairing is not confirmed.
+  - Claim ID: `claim-pairing`
+  - Evidence IDs: `paper-cobbe-2021-gsm8k`, `paper-wei-2022-cot`
   - Confidence: 0.25
-- Unverified pilot finding: instructing the model to cite Evidence raised declared uncertainty roughly tenfold relative to the condition without that instruction. This is a single-question pilot observation, and the experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence.
-  - Claim ID: `claim.instruction-raises-declared-uncertainty`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`
+- DeepSeek-R1 is trained to produce long reasoning traces through reinforcement learning, so reasoning already occurs in a hidden channel. The unverified experiment record reports that the hidden reasoning trace was a worse answer source than the visible answer: 25 generations had a correct answer but a wrong last number in the reasoning, against 1 in the other direction.
+  - Claim ID: `claim-trace`
+  - Evidence IDs: `paper-deepseek-2025-r1`
+  - Confidence: 0.3
+- GSM8K was introduced by Cobbe et al. as a dataset of 8.5K grade-school math word problems. The unverified experiment record reports that exact-match grading under-counted accuracy by 1.0 percentage points because 6 responses were numerically equal but textually different (for example 12 against 12.00) and 2 failed to parse.
+  - Claim ID: `claim-grading`
+  - Evidence IDs: `paper-cobbe-2021-gsm8k`
   - Confidence: 0.25
-- Unverified pilot finding: schema enforcement added almost nothing beyond the prompt instruction and never triggered a repair in the Evidence-present arms. The experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence, so this is not a confirmed result.
-  - Claim ID: `claim.schema-enforcement-minimal`
-  - Evidence IDs: `paper-bcc49f7513ed61be3a1f`
+- Read against the background that chain-of-thought prompting helps conventional LLMs (Wei et al.) while a reasoning model such as DeepSeek-R1 already reasons in a hidden channel, the unverified experiment record suggests that for a reasoning model the prompting condition barely changes the outcome and that the dominant measured error sources are item difficulty and the grading rule rather than the prompt. This conclusion is an interpretation of an unverified record, not a confirmed result.
+  - Claim ID: `claim-conclusion`
+  - Evidence IDs: `paper-deepseek-2025-r1`, `paper-wei-2022-cot`
   - Confidence: 0.25
-- Unverified pilot finding: with no Evidence in the stage input, every cited id was fabricated, enforcement rejected seven of eight generations, and the repair retry never repaired one. The no-evidence arm is the only arm in which fabrication was possible by construction, so this rate is not comparable across arms; the experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence.
-  - Claim ID: `claim.no-evidence-fabrication`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`
-  - Confidence: 0.25
-- Unverified pilot finding: the repair retry could not repair a model that had nothing to cite, repairing zero of the rejected no-evidence generations. The experiment-run Evidence entry that would confirm it is pending/unverified and was not used as claim evidence.
-  - Claim ID: `claim.retry-repaired-none`
-  - Evidence IDs: `paper-b2b2f01594862b01e12f`
-  - Confidence: 0.25
-- Unverified conclusion: prompt instruction changes declared honesty, whereas code enforcement is what stops a fabricated citation from being accepted, and the retry cannot repair a model that has nothing to cite. This interpretation rests on an eight-generations-per-arm, single-question pilot and is not backed by any confirmed Evidence entry, so it must not be reported as a verified result.
-  - Claim ID: `claim.instruction-vs-enforcement`
-  - Evidence IDs: `paper-bcc49f7513ed61be3a1f`
+- A plausible mechanism, not demonstrated in this project, is that because a reasoning model is trained to produce hidden reasoning traces, an explicit chain-of-thought instruction adds little. Kojima et al. show a single zero-shot trigger phrase elicits reasoning without exemplars, and Wang et al. propose self-consistency decoding as a strategy that improves reasoning accuracy, making it a candidate next lever; neither the mechanism nor the prompting result is confirmed here.
+  - Claim ID: `claim-mechanism`
+  - Evidence IDs: `paper-deepseek-2025-r1`, `paper-kojima-2022-zero-shot`, `paper-wang-2022-self-consistency`
   - Confidence: 0.2
-- The human-confirmed abstract of the causality-benchmark review states that many existing benchmarks for large language model causal inference and reasoning can likely be solved through retrieval of domain knowledge, which the review says questions whether those benchmarks achieve their intended purpose.
-  - Claim ID: `claim.review-retrieval-shortcut`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`
-  - Confidence: 0.9
-- The human-confirmed abstract of the same review reports that recent benchmarks move toward a more thorough definition of causal reasoning by incorporating interventional or counterfactual reasoning and that it derives criteria a useful benchmark should satisfy; the abstract does not enumerate those criteria, so any operational checklist derived from them is an extrapolation.
-  - Claim ID: `claim.review-interventional-criteria`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`
-  - Confidence: 0.85
-- The human-confirmed abstract of the cyber threat attribution paper proposes a modular architecture that can combine concrete attributors via opinion pools, including a Pairing Aggregator that sequentially applies logarithmic and linear opinion pools, and reports experimental validation suggesting the modular approach does not decrease performance and can improve precision and recall; this is background by analogy only and does not address retrieval-augmented-generation provenance.
-  - Claim ID: `claim.attribution-aggregation-background`
-  - Evidence IDs: `paper-bcc49f7513ed61be3a1f`
-  - Confidence: 0.85
-- The human-confirmed abstract of the distributed attribute representation paper proposes a third-order multiplicative model in which word context and attribute vectors interact to predict the next word, and reports tasks including sentiment classification, cross-lingual document classification, and blog authorship attribution; this is background by analogy only and does not address retrieval-augmented-generation provenance.
-  - Claim ID: `claim.attribute-representation-background`
-  - Evidence IDs: `paper-b2b2f01594862b01e12f`
-  - Confidence: 0.85
-- None of the three human-confirmed paper abstracts supplied in this project directly addresses retrieval-augmented-generation provenance or claim-to-source traceability, so they can serve only as background and cannot substantiate the empirical findings of this study.
-  - Claim ID: `claim.no-rag-provenance-paper`
-  - Evidence IDs: `paper-50abf243f9f4e962403b`, `paper-bcc49f7513ed61be3a1f`, `paper-b2b2f01594862b01e12f`
+- Kojima et al. show that a single zero-shot trigger phrase elicits chain-of-thought reasoning without exemplars, which motivates varying only the instruction rather than adding demonstrations.
+  - Claim ID: `claim-zeroshot-background`
+  - Evidence IDs: `paper-kojima-2022-zero-shot`
+  - Confidence: 0.8
+- Wang et al. propose self-consistency as a decoding strategy that replaces greedy decoding in chain-of-thought prompting and improves reasoning accuracy, making it a candidate next lever if prompt-level changes prove inert.
+  - Claim ID: `claim-selfconsistency-background`
+  - Evidence IDs: `paper-wang-2022-self-consistency`
   - Confidence: 0.8
 
 ## Limitations
-- The sample is eight generations per arm on a single research question, so the observed effects are a pilot signal rather than a population estimate; no uncertainty interval, variance summary, or significance test is available.
-- Only the no-evidence arm could fabricate citations by construction, so fabrication rates are not comparable across arms and the seven-of-eight rejection figure applies only to that arm.
-- The experiment-run Evidence entry evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50 is recorded in the stage input ledger with verificationStatus pending and does not resolve as confirmed Evidence in this project, so no empirical claim in this brief cites it or is treated as verified.
-- No retrieval-augmented-generation paper is present in the confirmed Evidence set; the three human-confirmed paper entries concern causal-reasoning benchmarks, cyber threat attribution, and distributed attribute representations, so they are background only and do not directly support evidence-grounding mechanisms.
-- Paper 2407.08029v1 is a preprint whose venue, venueLevel, peerReviewed, citationCount, and hasCode fields are unset, and its benchmark criteria are described only at abstract level, so any derived checklist is partly extrapolated.
-- The experiment is recorded as planned with a human-approved plan only; no structured Experiment Run has been executed and no unsupported-claim-rate result exists.
-- No dataset identity, size, version, license, code artifact, environment specification, or deterministic seed was supplied, so reproducibility cannot be assessed or claimed.
-- Ground-truth supported-by-cited-span labels and annotator agreement are unavailable, and the enforcement and repair behavior is observed on a single model and prompt scaffold, so generalization is unestablished.
+- One model (global:deepseek-v4.1-flash), one dataset (GSM8K test split), one temperature (0), and one generation per item, so the results characterise that configuration and do not estimate a population.
+- Every empirical number depends on an experiment record (evidence-cot-gsm8k-experiment) that is not present as confirmed Evidence in this project's evidence graph; those numbers remain unverified pending human confirmation.
+- No confidence intervals, repeated sampling, or per-item difficulty model are available, so no uncertainty estimate accompanies the reported accuracy figures.
+- Exact-match and numeric-equivalence grading were applied post hoc, and the 2 parse failures are not broken down by condition.
+- The background papers address conventional prompting, datasets, and reasoning models, not retrieval-augmented-generation provenance, so they can frame but cannot confirm any claim about claim-to-source traceability.
+- The study design, the direction, and the conclusion are the human's approved framing; the assistant has not independently verified the run or the experiment command.
+- No dataset, code, or run artifacts were supplied with the stage input, so data and code availability cannot be asserted.
 
 ## Unverified Claims
-- claim.ablation-design: the four-arm, eight-generations-per-arm design and its interventional logic are only analogically motivated by paper-50abf243f9f4e962403b and are not recorded in any confirmed Evidence entry.
-- claim.coverage-with-evidence: no confirmed experiment-run Evidence entry is present, so the 1.00 coverage and zero-fabrication result is unverified.
-- claim.instruction-raises-declared-uncertainty: the roughly tenfold rise in declared uncertainty is an unverified single-question pilot observation with no confirmed Evidence entry.
-- claim.schema-enforcement-minimal: the assertion that schema enforcement added almost nothing and never triggered a repair is unverified with no confirmed Evidence entry.
-- claim.no-evidence-fabrication: the all-fabricated ids, seven-of-eight rejections, and zero repairs without Evidence are unverified with no confirmed Evidence entry.
-- claim.retry-repaired-none: the retry repairing zero of the rejected generations is unverified with no confirmed Evidence entry.
-- claim.instruction-vs-enforcement: the conclusion distinguishing prompt instruction from code enforcement is an unverified interpretation of the pilot and is not a confirmed result.
-- The experiment-run Evidence entry evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50 is pending/unverified and does not resolve as confirmed Evidence, so it was not cited in any claim and no claim may be reported as verified on its basis.
+- claim-study-design: the 200-question, three-condition, temperature-0, 600-generation configuration comes from an experiment record (evidence-cot-gsm8k-experiment) that is not present as confirmed Evidence in this project's evidence graph; the configuration is unverified.
+- claim-accuracy-null: the declared accuracies 0.955 direct, 0.955 chain-of-thought, and 0.945 explicit format, the reading of no measurable chain-of-thought gain, and the 0.010 format cost are unverified; their experiment-run Evidence entry is not in the confirmed evidence graph.
+- claim-pairing: the per-item pairing of 190 both-correct, 1 direct-only, 1 chain-of-thought-only, 8 neither, and 4 changed questions is unverified.
+- claim-trace: the 25 generations with a correct answer but a wrong last reasoning number against 1 in the other direction are unverified.
+- claim-grading: the 1.0 percentage-point exact-match under-count, the 6 numerically equal but textually different responses (for example 12 against 12.00), and the 2 parse failures are unverified.
+- claim-conclusion: the conclusion that prompting barely changes the outcome and that item difficulty and the grading rule dominate measured error is an interpretation of an unverified record, not a confirmed result.
+- claim-mechanism: the proposed hidden-channel explanation for why explicit chain-of-thought adds little is a hypothesis, not a demonstrated result.
+- Unstated metadata: venue, venueLevel, peerReviewed, citationCount, hasCode, and doi are null for the three stage-input papers, and no project evidence entry confirms them.
