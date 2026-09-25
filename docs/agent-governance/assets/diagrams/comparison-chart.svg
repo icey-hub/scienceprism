@@ -5,7 +5,7 @@
   </filter>
 </defs>
 <rect width="900" height="480" fill="#ffffff"/>
-<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker></defs>
+<defs><marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker><marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#047857"/></marker><marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#1d4ed8"/></marker><marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6d28d9"/></marker><marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#b45309"/></marker></defs>
 <text x="240" y="81" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="15" font-weight="500" text-anchor="end" fill="#1e293b">复杂插画能力</text>
 <rect x="260" y="60" width="520" height="30" rx="6" fill="#0d9488" opacity="0.85"/>
 <text x="792" y="81" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="14" font-weight="500" text-anchor="start" fill="#64748b">100</text>

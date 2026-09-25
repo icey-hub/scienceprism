@@ -1,35 +1,56 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="940" height="460" viewBox="0 0 940 460">
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="634" viewBox="0 0 1040 634">
 <defs>
   <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
     <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.18"/>
   </filter>
 </defs>
-<rect width="940" height="460" fill="#ffffff"/>
-<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker></defs>
-<rect x="10" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
-<text x="90" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">研究者</text>
-<path d="M 90 70 L 90 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
-<rect x="230" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
-<text x="310" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">前端</text>
-<path d="M 310 70 L 310 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
-<rect x="450" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
-<text x="530" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">后端 Runtime</text>
-<path d="M 530 70 L 530 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
-<rect x="670" y="24" width="160" height="46" rx="10" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2" filter="url(#soft)"/>
-<text x="750" y="52" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">模型</text>
-<path d="M 750 70 L 750 430" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5 5"/>
-<path d="M 96 110 L 304 110" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="200" y="102" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">提交研究方向</text>
-<path d="M 316 160 L 524 160" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="420" y="152" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">POST /research-workflow</text>
-<path d="M 536 210 L 744 210" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="640" y="202" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">Harness Run（project.read）</text>
-<path d="M 744 258 L 536 258" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="640" y="250" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">JSON 阶段输出</text>
-<path d="M 524 306 L 316 306" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="420" y="298" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">校验 + 证据检查</text>
-<path d="M 304 356 L 96 356" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="200" y="348" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">等待人工审批</text>
-<path d="M 96 402 L 304 402" stroke="#6366f1" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
-<text x="200" y="394" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="middle" fill="#1e293b">人工批准</text>
+<rect width="1040" height="634" fill="#ffffff"/>
+<defs><marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker><marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#047857"/></marker><marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#1d4ed8"/></marker><marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6d28d9"/></marker><marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#b45309"/></marker></defs>
+<text x="22" y="32" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="19" font-weight="700" text-anchor="start" fill="#1e293b">研究流程：AI 产出必须通过门禁才能推进</text>
+<rect x="12" y="52" width="1016" height="340" rx="10" fill="#f8fafc"/>
+<rect x="12" y="392" width="1016" height="128" rx="10" fill="#ecfdf5" stroke="#a7f3d0"/>
+<text x="26" y="76" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="14" font-weight="700" text-anchor="start" fill="#475569">AI 执行</text>
+<text x="26" y="416" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="14" font-weight="700" text-anchor="start" fill="#047857">人工门禁</text>
+<rect x="96" y="58" width="208" height="456" rx="8" fill="#ffffff" opacity="0.75"/>
+<rect x="96" y="58" width="208" height="42" rx="8" fill="#ecfdf5" stroke="#047857" stroke-width="2" filter="url(#soft)"/>
+<text x="200" y="84" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">研究者</text>
+<path d="M 200 100 L 200 510" stroke="#047857" stroke-width="1.6" stroke-dasharray="6 6" opacity="0.5"/>
+<rect x="336" y="58" width="208" height="456" rx="8" fill="#ffffff" opacity="0.75"/>
+<rect x="336" y="58" width="208" height="42" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2" filter="url(#soft)"/>
+<text x="440" y="84" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">前端</text>
+<path d="M 440 100 L 440 510" stroke="#1d4ed8" stroke-width="1.6" stroke-dasharray="6 6" opacity="0.5"/>
+<rect x="576" y="58" width="208" height="456" rx="8" fill="#ffffff" opacity="0.75"/>
+<rect x="576" y="58" width="208" height="42" rx="8" fill="#f5f3ff" stroke="#6d28d9" stroke-width="2" filter="url(#soft)"/>
+<text x="680" y="84" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">后端 Runtime</text>
+<path d="M 680 100 L 680 510" stroke="#6d28d9" stroke-width="1.6" stroke-dasharray="6 6" opacity="0.5"/>
+<rect x="816" y="58" width="208" height="456" rx="8" fill="#ffffff" opacity="0.75"/>
+<rect x="816" y="58" width="208" height="42" rx="8" fill="#fffbeb" stroke="#b45309" stroke-width="2" filter="url(#soft)"/>
+<text x="920" y="84" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">模型</text>
+<path d="M 920 100 L 920 510" stroke="#b45309" stroke-width="1.6" stroke-dasharray="6 6" opacity="0.5"/>
+<path d="M 208 152 L 432 152" stroke="#047857" stroke-width="2" fill="none" marker-end="url(#arrow-green)"/>
+<text x="320" y="142" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="500" text-anchor="middle" fill="#1e293b">① 提交研究方向</text>
+<path d="M 448 206 L 672 206" stroke="#1d4ed8" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+<text x="560" y="196" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="500" text-anchor="middle" fill="#1e293b">② POST /research-workflow</text>
+<path d="M 688 260 L 912 260" stroke="#6d28d9" stroke-width="2" fill="none" marker-end="url(#arrow-purple)"/>
+<text x="800" y="250" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="500" text-anchor="middle" fill="#1e293b">③ Harness Run（project.read）</text>
+<path d="M 912 314 L 688 314" stroke="#b45309" stroke-width="2" fill="none" marker-end="url(#arrow-amber)" stroke-dasharray="7 5"/>
+<text x="800" y="304" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="500" text-anchor="middle" fill="#1e293b">④ JSON 阶段输出</text>
+<path d="M 672 368 L 448 368" stroke="#6d28d9" stroke-width="2" fill="none" marker-end="url(#arrow-purple)" stroke-dasharray="7 5"/>
+<text x="560" y="358" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="500" text-anchor="middle" fill="#1e293b">⑤ 契约校验 + 证据检查</text>
+<path d="M 432 424 L 208 424" stroke="#1d4ed8" stroke-width="2" fill="none" marker-end="url(#arrow-blue)" stroke-dasharray="7 5"/>
+<text x="320" y="414" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="500" text-anchor="middle" fill="#1e293b">⑥ 等待人工审批</text>
+<path d="M 208 486 L 432 486" stroke="#047857" stroke-width="3.4" fill="none" marker-end="url(#arrow-green)"/>
+<text x="320" y="476" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13.5" font-weight="700" text-anchor="middle" fill="#1e293b">⑦ 人工批准</text>
+<text x="26" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#64748b">实线 = 请求</text>
+<text x="138" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#64748b">虚线 = 返回</text>
+<text x="250" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#64748b">颜色 = 角色</text>
+<circle cx="380" cy="562" r="6" fill="#047857"/>
+<text x="392" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#1e293b">研究者</text>
+<circle cx="548" cy="562" r="6" fill="#1d4ed8"/>
+<text x="560" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#1e293b">前端</text>
+<circle cx="716" cy="562" r="6" fill="#6d28d9"/>
+<text x="728" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#1e293b">后端 Runtime</text>
+<circle cx="884" cy="562" r="6" fill="#b45309"/>
+<text x="896" y="566" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#1e293b">模型</text>
+<text x="26" y="596" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="500" text-anchor="start" fill="#64748b">⑦ 之后才进入下一阶段：AI 可以产出与建议，但不能代替人工批准。</text>
 </svg>
