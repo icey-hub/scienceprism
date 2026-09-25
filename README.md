@@ -265,6 +265,7 @@ Bundled research skills live under `.dsh/skills`:
 | `research-writing` | Writing | Build evidence-bounded outlines, claims, and citations. |
 | `claim-evidence-audit` | Writing | Classify claims as supported, needs-verification, or unsupported. |
 | `figure-table-plan` | Writing | Plan figures and tables, including the zero-install vector route. |
+| `paper-figure-style` | Writing | Venue figure specs, colour-blind-safe palettes, and a style gate. |
 
 To add a project Skill, open `/editor/:projectId/research/direction`, choose **添加 Skill**, and upload a directory containing one or more `SKILL.md` files. The upload stores only the selected Skill files under `.dsh/skills`; Skill instructions cannot bypass server-side gates or approvals.
 

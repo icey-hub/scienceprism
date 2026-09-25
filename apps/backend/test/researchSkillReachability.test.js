@@ -60,6 +60,7 @@ test('the bundled skill set is locked', async () => {
       'figure-table-plan',
       'literature-search',
       'paper-card',
+      'paper-figure-style',
       'research-writing',
       'statistics-audit'
     ]
@@ -81,4 +82,31 @@ test('.dsh/skills holds only product skills, so nothing is silently dropped', as
     catalog.map((skill) => skill.name).sort(),
     'a directory under .dsh/skills was silently dropped: it needs valid name/description/stages frontmatter'
   );
+});
+
+test('every bundled skill reaches the model with a usable description', async () => {
+  const { researchSkillPrompt } = await import('../src/services/researchResearch/researchSkills.js');
+  const catalog = await listResearchSkills({});
+
+  for (const skill of catalog) {
+    // A description written as a YAML block scalar (`description: >-`) used to be
+    // parsed as the literal string ">-", so the skill reached every run with no
+    // usable description and nothing failed. Assert on the parsed value, because
+    // that is what researchSkillPrompt hands the model.
+    assert.ok(
+      typeof skill.description === 'string' && skill.description.length >= 40,
+      `skill "${skill.name}" has no usable description (got ${JSON.stringify(skill.description)})`
+    );
+    assert.ok(
+      !/^[>|][-+]?\d*$/.test(skill.description.trim()),
+      `skill "${skill.name}" description is a YAML block-scalar header, not text: the parser failed to read its body`
+    );
+  }
+
+  // The prompt is the thing that actually degrades, so check it end to end.
+  const prompt = researchSkillPrompt('writing', catalog);
+  assert.ok(!/:\s*>-/.test(prompt), 'a block-scalar header leaked into the stage prompt');
+  for (const skill of catalog.filter((entry) => entry.stages.includes('writing'))) {
+    assert.ok(prompt.includes(skill.description), `prompt is missing the description for ${skill.name}`);
+  }
 });

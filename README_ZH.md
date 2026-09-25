@@ -265,6 +265,7 @@ SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
 | `research-writing` | 写作 | 生成受证据约束的结构、论断和引用。 |
 | `claim-evidence-audit` | 写作 | 把每条论断归类为有支撑／待核验／无支撑。 |
 | `figure-table-plan` | 写作 | 规划图表，含零安装矢量绘图路线与视觉复核。 |
+| `paper-figure-style` | 写作 | CCF-A / SCI 一区插图规格、色盲安全配色与风格门禁。 |
 
 要添加自己的 Skill，打开 `/editor/:projectId/research/direction`，点击 **添加 Skill**，上传包含一个或多个 `SKILL.md` 的目录。上传只会把选中的 Skill 文件存放到 `.dsh/skills`，Skill 指令不能绕过服务端门禁或人工确认。
 

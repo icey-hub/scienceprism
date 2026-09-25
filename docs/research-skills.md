@@ -1,6 +1,6 @@
 # Research Skills
 
-SciencePrism bundles eight DeepSeek Harness skills under `.dsh/skills`. A skill is
+SciencePrism bundles nine DeepSeek Harness skills under `.dsh/skills`. A skill is
 copied into the isolated Harness workspace and loaded when its bound stage
 actually runs a Harness Run.
 
@@ -21,6 +21,7 @@ in step with the invocations in `researchWorkflow/application.js`.
 | `research-writing` | Writing | Build evidence-bounded claims, outline, citations, and limitations. |
 | `claim-evidence-audit` | Writing | Classify every claim as supported, needs-verification, or unsupported. |
 | `figure-table-plan` | Writing | Plan figures and tables, including the zero-install vector route and visual QA. |
+| `paper-figure-style` | Writing | CCF-A / SCI 一区 figure specs, colour-blind-safe palettes, dual encoding, and a style gate. |
 
 > Three skills were added in iteration 024 (`experiment-design-audit`,
 > `claim-evidence-audit`, `figure-table-plan`), and `dataset-audit` /
