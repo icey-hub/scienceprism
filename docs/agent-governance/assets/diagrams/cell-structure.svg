@@ -216,29 +216,29 @@
 <circle cx="629" cy="413" r="3.4" fill="#334155" opacity="0.7"/>
 <circle cx="766" cy="502" r="3.4" fill="#334155" opacity="0.7"/>
 <circle cx="143" cy="591" r="3.4" fill="#334155" opacity="0.7"/>
-<path d="M 500 60 L 500 108" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="500" cy="60" r="3" fill="#64748b"/>
-<text x="500" y="102" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">细胞膜（磷脂双分子层）</text>
-<path d="M 430 190 L 300 70" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="430" cy="190" r="3" fill="#64748b"/>
-<text x="300" y="64" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">细胞核</text>
-<path d="M 470 300 L 700 62" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="470" cy="300" r="3" fill="#64748b"/>
-<text x="706" y="56" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">核仁</text>
-<path d="M 760 204 L 900 150" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="760" cy="204" r="3" fill="#64748b"/>
-<text x="900" y="144" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">线粒体（含嵴）</text>
-<path d="M 250 518 L 140 640" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="250" cy="518" r="3" fill="#64748b"/>
-<text x="140" y="634" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">线粒体</text>
-<path d="M 650 150 L 585 44" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="650" cy="150" r="3" fill="#64748b"/>
-<text x="585" y="38" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">粗面内质网</text>
-<path d="M 300 430 L 120 380" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="300" cy="430" r="3" fill="#64748b"/>
-<text x="120" y="374" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">高尔基体</text>
-<path d="M 330 200 L 210 120" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="330" cy="200" r="3" fill="#64748b"/>
-<text x="210" y="114" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">溶酶体</text>
-<path d="M 640 430 L 830 620" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="640" cy="430" r="3" fill="#64748b"/>
-<text x="830" y="614" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">液泡</text>
-<path d="M 859 436 L 930 470" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="859" cy="436" r="3" fill="#64748b"/>
-<text x="936" y="464" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">中心体</text>
-<path d="M 700 560 L 860 680" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="700" cy="560" r="3" fill="#64748b"/>
-<text x="860" y="674" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">游离核糖体</text>
-<path d="M 500 360 L 430 660" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="500" cy="360" r="3" fill="#64748b"/>
-<text x="430" y="654" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">细胞质基质</text>
+<path data-leader="1" d="M 500 60 L 500 108" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="500" cy="60" r="3" fill="#64748b"/>
+<text x="500" y="136" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">细胞膜（磷脂双分子层）</text>
+<path data-leader="1" d="M 430 190 L 300 70" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="430" cy="190" r="3" fill="#64748b"/>
+<text x="285.71275177521517" y="60.504078561737074" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="end" fill="#1e293b">细胞核</text>
+<path data-leader="1" d="M 470 300 L 700 62" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="470" cy="300" r="3" fill="#64748b"/>
+<text x="709.7288514931936" y="45.93275367226051" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">核仁</text>
+<path data-leader="1" d="M 760 204 L 820 150" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="760" cy="204" r="3" fill="#64748b"/>
+<text x="834.4061180474604" y="140.6344937572857" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">线粒体（含嵴）</text>
+<path data-leader="1" d="M 250 518 L 140 640" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="250" cy="518" r="3" fill="#64748b"/>
+<text x="130.62508029483936" y="664.3976382184509" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">线粒体</text>
+<path data-leader="1" d="M 650 150 L 585 44" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="650" cy="150" r="3" fill="#64748b"/>
+<text x="577.6814911517984" y="26.065200955240414" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">粗面内质网</text>
+<path data-leader="1" d="M 300 430 L 120 380" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="300" cy="430" r="3" fill="#64748b"/>
+<text x="102.51074926518083" y="376.2529859069947" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="end" fill="#1e293b">高尔基体</text>
+<path data-leader="1" d="M 330 200 L 210 120" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="330" cy="200" r="3" fill="#64748b"/>
+<text x="194.3512958792702" y="112.2341972528468" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="end" fill="#1e293b">溶酶体</text>
+<path data-leader="1" d="M 640 430 L 830 620" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="640" cy="430" r="3" fill="#64748b"/>
+<text x="843.8994949366116" y="629.8994949366116" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">液泡</text>
+<path data-leader="1" d="M 859 436 L 930 470" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="859" cy="436" r="3" fill="#64748b"/>
+<text x="946.6268678808417" y="476.0466691260369" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">中心体</text>
+<path data-leader="1" d="M 700 560 L 860 680" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="700" cy="560" r="3" fill="#64748b"/>
+<text x="875.2" y="688.4" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="start" fill="#1e293b">游离核糖体</text>
+<path data-leader="1" d="M 500 360 L 430 620" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 3" fill="none"/><circle cx="500" cy="360" r="3" fill="#64748b"/>
+<text x="426.3603713717298" y="647.5186206192893" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="17" font-weight="600" text-anchor="middle" fill="#1e293b">细胞质基质</text>
 <text x="30" y="700" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="16" font-weight="500" text-anchor="start" fill="#64748b">真核细胞结构示意图（手写 SVG · 零安装 · 可 diff）</text>
 </svg>

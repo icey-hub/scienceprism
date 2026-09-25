@@ -17,7 +17,8 @@
     "test:backend": "node --test apps/backend/test/*.test.js",
     "test": "npm run test:backend",
     "typecheck": "npm --workspace apps/frontend run typecheck",
-    "quality": "npm run test && npm run typecheck && npm run build"
+    "quality": "npm run test && npm run typecheck && npm run build && npm run check:diagrams",
+    "check:diagrams": "node scripts/check-diagram-layout.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

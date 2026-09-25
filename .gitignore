@@ -21,3 +21,9 @@ data/
 .venv/
 tools/
 .cache/
+
+# pic/ is a local figure-style research corpus (~149 MB, mostly a gallery of
+# third-party CC-BY paper figures). The user asked for the skill to be installed
+# without committing the corpus. Ignored so `git add -A` cannot sweep it in
+# again: that is exactly how it ended up in an unpushed local commit once.
+pic/
