@@ -6,7 +6,7 @@ import unzipper from 'unzipper';
 import crypto from 'crypto';
 import { DATA_DIR, TEMPLATE_DIR } from '../config/constants.js';
 import { ensureDir, readJson, writeJson, copyDir, listFilesRecursive } from '../utils/fsUtils.js';
-import { safeJoin, sanitizeUploadPath } from '../utils/pathUtils.js';
+import { assertStorageName, safeJoin, sanitizeUploadPath } from '../utils/pathUtils.js';
 import { isTextFile, extractDocumentBody, mergeTemplateBody } from '../utils/texUtils.js';
 import { readTemplateManifest, copyTemplateIntoProject } from '../services/templateService.js';
 import { getProjectRoot } from '../services/projectService.js';
@@ -41,6 +41,17 @@ export function registerProjectRoutes(fastify) {
   fastify.post('/api/projects', async (req, reply) => {
     await ensureDir(DATA_DIR);
     const { name = 'Untitled', template } = req.body || {};
+    if (template) {
+      try {
+        assertStorageName(template);
+      } catch {
+        return reply.code(400).send({ error: 'Invalid template.' });
+      }
+      const { templates } = await readTemplateManifest();
+      if (!templates.some((item) => item.id === template)) {
+        return reply.code(400).send({ error: 'Unknown template.' });
+      }
+    }
     const id = crypto.randomUUID();
     const projectRoot = path.join(DATA_DIR, id);
     await ensureDir(projectRoot);
@@ -370,6 +381,7 @@ export function registerProjectRoutes(fastify) {
     const { id } = req.params;
     const { targetTemplate, mainFile = 'main.tex' } = req.body || {};
     if (!targetTemplate) return { ok: false, error: 'Missing targetTemplate' };
+    assertStorageName(targetTemplate);
     const { templates } = await readTemplateManifest();
     const template = templates.find((item) => item.id === targetTemplate);
     if (!template) return { ok: false, error: 'Unknown template' };
@@ -405,6 +417,9 @@ export function registerProjectRoutes(fastify) {
     const { template } = req.body || {};
     const projectRoot = await getProjectRoot(id);
     if (!template) return { ok: false };
+    assertStorageName(template);
+    const { templates } = await readTemplateManifest();
+    if (!templates.some((item) => item.id === template)) return { ok: false, error: 'Unknown template' };
     const templateRoot = path.join(TEMPLATE_DIR, template);
     await copyDir(templateRoot, projectRoot);
     return { ok: true };

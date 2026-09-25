@@ -54,6 +54,9 @@ test('project initialization creates the first stage and dashboard projection', 
   assert.equal(dashboard.progress.currentStage, 'direction');
   assert.equal(dashboard.nextAction.href, `/editor/${projectId}/research/direction`);
   assert.equal(dashboard.constraints.contextTokenBudget, 8000);
+  assert.equal(dashboard.recentRuns.length, 0);
+  assert.equal(dashboard.approvals.length, 1);
+  assert.equal(dashboard.risks.find((item) => item.id === 'approval')?.detail, '当前阶段已满足提交条件，下一步需要人工决定。');
 });
 
 test('task center preserves logs and exposes failure summary', async () => {

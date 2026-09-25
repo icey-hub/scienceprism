@@ -35,6 +35,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hash, loadDotEnv } from './lib/script-helpers.mjs';
+import { assertExperimentArtifact } from './lib/experiment-artifacts.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATASET = path.join(REPO_ROOT, 'aidoc', 'datasets', 'gsm8k-test.jsonl');
@@ -97,10 +98,22 @@ console.log(`dataset : GSM8K test, ${rows.length} questions, sampled ${sampled.l
 console.log(`model   : ${MODEL}`);
 console.log(`design  : ${CONDITIONS.length} conditions x ${sampled.length} questions = ${CONDITIONS.length * sampled.length} serial calls\n`);
 
-const records = [];
+let previous = null;
+try {
+  previous = JSON.parse(await fs.readFile(OUT, 'utf8'));
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
+if (previous && (previous.seed !== SEED || previous.sampledQuestions !== sampled.length || previous.model !== MODEL ||
+  JSON.stringify(previous.conditions) !== JSON.stringify(CONDITIONS) || previous.records?.length !== CONDITIONS.length * sampled.length)) {
+  throw new Error(`Existing artifact does not match this run; refusing to overwrite ${OUT}`);
+}
+const records = previous?.records ? [...previous.records] : [];
 let done = 0;
 for (const condition of CONDITIONS) {
   for (let index = 0; index < sampled.length; index += 1) {
+    const existingIndex = records.findIndex((record) => record.condition === condition.id && record.index === index);
+    if (existingIndex >= 0 && !records[existingIndex].error) continue;
     const item = sampled[index];
     const gold = normalize(item.answer.split('####').pop());
     const started = Date.now();
@@ -122,12 +135,13 @@ for (const condition of CONDITIONS) {
           ]
         })
       });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       const message = data?.choices?.[0]?.message || {};
       content = String(message.content || '');
       reasoning = String(message.reasoning_content || '');
       usage = data?.usage || null;
-      if (!response.ok) error = `HTTP ${response.status}`;
+      if (!content.trim()) throw new Error('empty response content');
     } catch (caught) {
       error = String(caught?.message || caught).slice(0, 200);
     }
@@ -136,7 +150,7 @@ for (const condition of CONDITIONS) {
     const lenient = normalize(lastNumber(content));
     const fromReasoning = normalize(lastNumber(reasoning));
 
-    records.push({
+    const record = {
       condition: condition.id,
       index,
       gold,
@@ -155,7 +169,14 @@ for (const condition of CONDITIONS) {
       error,
       content,
       reasoning
-    });
+    };
+    if (error) {
+      console.error(`  ${condition.id}#${index} failed: ${error}; original artifact retained`);
+      process.exitCode = 1;
+      continue;
+    }
+    if (existingIndex >= 0) records[existingIndex] = record;
+    else records.push(record);
 
     done += 1;
     if (done % 25 === 0 || done === CONDITIONS.length * sampled.length) {
@@ -163,6 +184,8 @@ for (const condition of CONDITIONS) {
     }
   }
 }
+
+if (process.exitCode) throw new Error('Experiment incomplete; no artifact was published');
 
 const summarise = (conditionId) => {
   const subset = records.filter((row) => row.condition === conditionId);
@@ -185,16 +208,32 @@ const summarise = (conditionId) => {
 const summary = Object.fromEntries(CONDITIONS.map((condition) => [condition.id, summarise(condition.id)]));
 const baseline = summary.direct.declaredAccuracy;
 
-await fs.writeFile(OUT, `${JSON.stringify({
-  generatedAt: new Date().toISOString(),
+const artifact = {
+  generatedAt: previous?.generatedAt || new Date().toISOString(),
   model: MODEL,
   dataset: 'GSM8K test split (Cobbe et al., 2021)',
   seed: SEED,
   sampledQuestions: sampled.length,
   conditions: CONDITIONS,
   summary,
-  records
-}, null, 2)}\n`, 'utf8');
+  records,
+  ...(previous?.repairs || previous?.records?.some((record) => record.error)
+    ? { repairs: [
+      ...(previous.repairs || []),
+      ...previous.records.filter((record) => record.error).map((record) => ({
+        condition: record.condition,
+        index: record.index,
+        originalError: record.error,
+        originalSeconds: record.seconds,
+        repairedAt: new Date().toISOString()
+      }))
+    ] }
+    : {})
+};
+assertExperimentArtifact(artifact, OUT);
+const temporary = `${OUT}.tmp`;
+await fs.writeFile(temporary, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8');
+await fs.rename(temporary, OUT);
 
 console.log('\n=== accuracy by condition ===');
 console.log('condition  declared  lenient  reasoning  parse-fail  format-gap  secs');

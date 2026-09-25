@@ -112,7 +112,7 @@ export async function getProjectDashboard(projectId) {
   const current = stages.find((stage) => stage.id === workflow?.currentStage);
   const risks = [];
   if (!workflow) risks.push(risk('setup', 'action', '项目尚未初始化', '填写研究问题、模型和约束后才能开始第一阶段。', `/project/${projectId}`));
-  if (approvals.length) risks.push(risk('approval', 'action', `${approvals.length} 项研究阶段等待确认`, 'AI 输出和结构校验已经完成，下一步仍需要人工决定。', `/project/${projectId}`));
+  if (approvals.length) risks.push(risk('approval', 'action', `${approvals.length} 项研究阶段等待确认`, '当前阶段已满足提交条件，下一步需要人工决定。', `/project/${projectId}`));
   if (tasks.failed) risks.push(risk('tasks', 'error', `${tasks.failed} 个任务失败`, '查看任务日志，确认原因后重试或修正输入。', `/project/${projectId}/tasks`));
   if (matrix.unsupportedClaims || matrix.needsVerificationClaims) risks.push(risk('claims', 'warning', '写作主张仍有证据缺口', `${matrix.unsupportedClaims} 条主张缺少证据，${matrix.needsVerificationClaims} 条主张需要验证。`, `/project/${projectId}/quality`));
   if (library.needsSourceReview) risks.push(risk('sources', 'warning', `${library.needsSourceReview} 篇论文需要来源检查`, '资料库中的元数据尚未完成来源检查。', `/project/${projectId}/library`));
@@ -139,4 +139,3 @@ export async function getProjectDashboard(projectId) {
     generatedAt: now()
   };
 }
-

@@ -67,7 +67,7 @@ const CONDITIONS = [
   { id: 'format', label: 'Explicit format' }
 ];
 
-parts.push(text('Prompting barely changes outcomes for a reasoning model (GSM8K, n = 200 per condition)', 30, 32, { size: 15.5, weight: '700' }));
+parts.push(text(`Prompting barely changes outcomes for a reasoning model (GSM8K, n = ${n} per condition)`, 30, 32, { size: 15.5, weight: '700' }));
 parts.push(text(`model ${experiment.model}, temperature 0, ${n * 3} generations`, 30, 50, { size: 11.5, color: MUTED }));
 
 /* ------------------------------------------------------------------ (a) */
@@ -171,7 +171,7 @@ function matrix({ x, y, w, h, title, subtitle, rowLabels, colLabels, cells, high
       [{ value: paired.onlyB, label: 'only CoT' }, { value: paired.neither, label: 'both wrong' }]
     ],
     highlight: (row, col) => (row === 1 && col === 0) || (row === 0 && col === 1),
-    footnote: `Discordant on ${paired.discordant} of ${n} items: CoT nets zero.`
+    footnote: `Discordant on ${paired.discordant} of ${n} items; CoT net ${paired.onlyB - paired.onlyA}.`
   }));
 }
 
@@ -194,7 +194,7 @@ function matrix({ x, y, w, h, title, subtitle, rowLabels, colLabels, cells, high
 }
 
 parts.push(text(`Grading: exact match under-counts by ${(artifacts.correctedAccuracy.direct.delta * 100).toFixed(1)} points — ${artifacts.gradingArtifact.numericallyEqualButMarkedWrong} responses were numerically equal but textually different (12 vs 12.00), ${artifacts.gradingArtifact.parseFailures} failed to parse.`, 30, 356, { size: 12, color: MUTED }));
-parts.push(text('Item difficulty and the grading rule dominate; the prompt does not. 188 of 200 items were right in all three conditions and 8 in none.', 30, 378, { size: 12.5, weight: '700', color: INK }));
+parts.push(text(`Item difficulty and the grading rule dominate; the prompt does not. ${analysis.difficulty.allThreeRight} of ${n} items were right in all three conditions and ${analysis.difficulty.allThreeWrong} in none.`, 30, 378, { size: 12.5, weight: '700', color: INK }));
 parts.push(text('Data: GSM8K test split (Cobbe et al., 2021). aidoc/experiment-cot-gsm8k.json. Every number recomputed from the stored generations.', 30, 408, { size: 11, color: MUTED }));
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n<rect width="${W}" height="${H}" fill="#ffffff"/>\n${parts.join('\n')}\n</svg>\n`;

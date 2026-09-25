@@ -5,8 +5,7 @@ import unzipper from 'unzipper';
 import { readTemplateManifest, addTemplateToManifest } from '../services/templateService.js';
 import { TEMPLATE_DIR } from '../config/constants.js';
 import { ensureDir } from '../utils/fsUtils.js';
-import { sanitizeUploadPath } from '../utils/pathUtils.js';
-import { safeJoin } from '../utils/pathUtils.js';
+import { assertStorageName, safeJoin, sanitizeUploadPath } from '../utils/pathUtils.js';
 
 export function registerHealthRoutes(fastify) {
   fastify.get('/api/health', async () => ({ ok: true }));
@@ -36,6 +35,11 @@ export function registerHealthRoutes(fastify) {
         if (part.type !== 'file') continue;
         if (!templateId) {
           return reply.code(400).send({ ok: false, error: 'templateId is required before file.' });
+        }
+        try {
+          assertStorageName(templateId);
+        } catch {
+          return reply.code(400).send({ ok: false, error: 'Invalid templateId.' });
         }
         hasZip = true;
         const templateRoot = path.join(TEMPLATE_DIR, templateId);

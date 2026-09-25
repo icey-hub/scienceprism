@@ -10,6 +10,8 @@ import { DATA_DIR, TEMPLATE_DIR } from '../config/constants.js';
 import { ensureDir, readJson, writeJson, copyDir } from '../utils/fsUtils.js';
 import { applyProjectConstraintPolicy, hasCapability, resolveCapabilityPolicy } from '../services/harnessRuntime/capabilities.js';
 import { getProjectConstraints } from '../services/projectHub/dashboard.js';
+import { getProjectRoot } from '../services/projectService.js';
+import { assertStorageName } from '../utils/pathUtils.js';
 
 // In-memory job store: jobId → { graph, state, status, progressLog }
 const jobs = new Map();
@@ -35,6 +37,7 @@ export function registerTransferRoutes(fastify) {
     if (!sourceProjectId || !sourceMainFile || !targetTemplateId || !targetMainFile) {
       return reply.code(400).send({ error: 'Missing required fields.' });
     }
+    assertStorageName(targetTemplateId);
 
     // The migration pipeline writes .tex files and runs a LaTeX engine. It used to
     // check no Project Constraint at all, so it is now deniable like every other
@@ -229,6 +232,8 @@ export function registerTransferRoutes(fastify) {
         error: 'sourceProjectId and sourceMainFile must be provided together, or both omitted.',
       });
     }
+    assertStorageName(targetTemplateId);
+    if (sourceProjectId) await getProjectRoot(sourceProjectId);
 
     // Validate template
     const { templates } = await readTemplateManifest();

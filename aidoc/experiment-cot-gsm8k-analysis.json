@@ -32,12 +32,12 @@
       "declaredAccuracy": 0.945,
       "lenientAccuracy": 0.945,
       "reasoningAccuracy": 0.91,
-      "parseFailureRate": 0.005,
+      "parseFailureRate": 0,
       "formatGap": 0,
-      "meanSeconds": 3.47,
-      "meanContentChars": 148.31,
-      "meanReasoningChars": 1066.26,
-      "errors": 1
+      "meanSeconds": 3,
+      "meanContentChars": 148.93,
+      "meanReasoningChars": 1190.41,
+      "errors": 0
     }
   },
   "paired": {

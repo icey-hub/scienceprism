@@ -7,7 +7,7 @@
 - Introduction: frame the question of whether prompting condition changes outcomes for a model that already reasons in a hidden channel; cite the chain-of-thought, zero-shot reasoner, self-consistency, GSM8K, and reasoning-model papers as the background this result speaks to.
 - Related work: chain-of-thought prompting (Wei et al.), zero-shot reasoning (Kojima et al.), self-consistency decoding (Wang et al.), GSM8K (Cobbe et al.), and reasoning models (DeepSeek-R1).
 - Method: three conditions (direct, chain-of-thought, explicit #### answer format) on the GSM8K test split, temperature 0, one generation per item, exact-match grading plus a numeric-equivalence check.
-- Results (pending verification): declared accuracy 0.955 direct, 0.955 chain-of-thought, 0.945 explicit format; per-item pairing 190 both-correct, 1 direct-only, 1 chain-of-thought-only, 8 neither, 4 changed; hidden-trace versus visible-answer disagreement 25 versus 1; grading under-count of 1.0 percentage point from 6 textually different but numerically equal responses and 2 parse failures.
+- Results (pending verification): declared accuracy 0.955 direct, 0.955 chain-of-thought, 0.945 explicit format; per-item pairing 190 both-correct, 1 direct-only, 1 chain-of-thought-only, 8 neither, 4 changed; hidden-trace versus visible-answer disagreement 25 versus 1; grading under-count of 1.0 percentage point from 6 textually different but numerically equal responses and 1 parse failure.
 - Analysis: prompting condition barely changes the outcome; item difficulty and the grading rule dominate measured error rather than the prompt.
 - Limitations and threats to validity: one model, one dataset, one temperature, one generation per item; no population estimate; the supporting experiment record is unconfirmed.
 - Data and code availability: the experiment command and dataset are stated in the approved plan but no dataset, code, or run artifacts were supplied to this brief.
@@ -29,7 +29,7 @@
   - Claim ID: `claim-trace`
   - Evidence IDs: `paper-deepseek-2025-r1`
   - Confidence: 0.3
-- GSM8K was introduced by Cobbe et al. as a dataset of 8.5K grade-school math word problems. The unverified experiment record reports that exact-match grading under-counted accuracy by 1.0 percentage points because 6 responses were numerically equal but textually different (for example 12 against 12.00) and 2 failed to parse.
+- GSM8K was introduced by Cobbe et al. as a dataset of 8.5K grade-school math word problems. The unverified experiment record reports that exact-match grading under-counted accuracy by 1.0 percentage points because 6 responses were numerically equal but textually different (for example 12 against 12.00) and 1 failed to parse.
   - Claim ID: `claim-grading`
   - Evidence IDs: `paper-cobbe-2021-gsm8k`
   - Confidence: 0.25
@@ -54,7 +54,7 @@
 - One model (global:deepseek-v4.1-flash), one dataset (GSM8K test split), one temperature (0), and one generation per item, so the results characterise that configuration and do not estimate a population.
 - Every empirical number depends on an experiment record (evidence-cot-gsm8k-experiment) that is not present as confirmed Evidence in this project's evidence graph; those numbers remain unverified pending human confirmation.
 - No confidence intervals, repeated sampling, or per-item difficulty model are available, so no uncertainty estimate accompanies the reported accuracy figures.
-- Exact-match and numeric-equivalence grading were applied post hoc, and the 2 parse failures are not broken down by condition.
+- Exact-match and numeric-equivalence grading were applied post hoc; the one parse failure occurred in the direct condition.
 - The background papers address conventional prompting, datasets, and reasoning models, not retrieval-augmented-generation provenance, so they can frame but cannot confirm any claim about claim-to-source traceability.
 - The study design, the direction, and the conclusion are the human's approved framing; the assistant has not independently verified the run or the experiment command.
 - No dataset, code, or run artifacts were supplied with the stage input, so data and code availability cannot be asserted.
@@ -64,7 +64,7 @@
 - claim-accuracy-null: the declared accuracies 0.955 direct, 0.955 chain-of-thought, and 0.945 explicit format, the reading of no measurable chain-of-thought gain, and the 0.010 format cost are unverified; their experiment-run Evidence entry is not in the confirmed evidence graph.
 - claim-pairing: the per-item pairing of 190 both-correct, 1 direct-only, 1 chain-of-thought-only, 8 neither, and 4 changed questions is unverified.
 - claim-trace: the 25 generations with a correct answer but a wrong last reasoning number against 1 in the other direction are unverified.
-- claim-grading: the 1.0 percentage-point exact-match under-count, the 6 numerically equal but textually different responses (for example 12 against 12.00), and the 2 parse failures are unverified.
+- claim-grading: the 1.0 percentage-point exact-match under-count, the 6 numerically equal but textually different responses (for example 12 against 12.00), and the one parse failure are unverified.
 - claim-conclusion: the conclusion that prompting barely changes the outcome and that item difficulty and the grading rule dominate measured error is an interpretation of an unverified record, not a confirmed result.
 - claim-mechanism: the proposed hidden-channel explanation for why explicit chain-of-thought adds little is a hypothesis, not a demonstrated result.
 - Unstated metadata: venue, venueLevel, peerReviewed, citationCount, hasCode, and doi are null for the three stage-input papers, and no project evidence entry confirms them.

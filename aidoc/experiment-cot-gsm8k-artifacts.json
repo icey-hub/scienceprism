@@ -1,7 +1,7 @@
 {
   "gradingArtifact": {
     "numericallyEqualButMarkedWrong": 6,
-    "parseFailures": 2,
+    "parseFailures": 1,
     "examples": [
       {
         "condition": "direct",

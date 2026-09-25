@@ -63,7 +63,7 @@
 <rect x="620" y="201" width="98" height="71" rx="4" fill="rgba(29,78,216,0.07347368421052632)"/>
 <text x="669" y="238.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle" fill="#1d4ed8">8</text>
 <text x="669" y="254.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" font-weight="500" text-anchor="middle" fill="#6b7280">both wrong</text>
-<text x="420" y="280" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#6b7280">Discordant on 2 of 200 items: CoT nets zero.</text>
+<text x="420" y="280" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#6b7280">Discordant on 2 of 200 items; CoT net 0.</text>
 <text x="750" y="86" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#111827">(c) Answer vs hidden reasoning</text>
 <text x="1050" y="86" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="500" text-anchor="end" fill="#6b7280">all conditions</text>
 <text x="897" y="116" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" text-anchor="middle" fill="#6b7280">Reasoning right</text>
@@ -84,7 +84,7 @@
 <text x="999" y="254.5" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" font-weight="500" text-anchor="middle" fill="#6b7280">both wrong</text>
 <text x="750" y="280" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#6b7280">Answer right, reasoning wrong: 25.</text>
 <text x="750" y="295" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#6b7280">The reverse: 1.</text>
-<text x="30" y="356" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" text-anchor="start" fill="#6b7280">Grading: exact match under-counts by 1.0 points — 6 responses were numerically equal but textually different (12 vs 12.00), 2 failed to parse.</text>
+<text x="30" y="356" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" font-weight="500" text-anchor="start" fill="#6b7280">Grading: exact match under-counts by 1.0 points — 6 responses were numerically equal but textually different (12 vs 12.00), 1 failed to parse.</text>
 <text x="30" y="378" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="700" text-anchor="start" fill="#111827">Item difficulty and the grading rule dominate; the prompt does not. 188 of 200 items were right in all three conditions and 8 in none.</text>
 <text x="30" y="408" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="500" text-anchor="start" fill="#6b7280">Data: GSM8K test split (Cobbe et al., 2021). aidoc/experiment-cot-gsm8k.json. Every number recomputed from the stored generations.</text>
 </svg>
