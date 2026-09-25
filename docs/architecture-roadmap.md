@@ -1,6 +1,7 @@
 # SciencePrism 架构完善执行计划
 
 > 状态：第一至十阶段已执行，第十一阶段及以后尚未执行
+> 下文的「当前基线」是路线图起草时的历史快照，不代表今天的实现状态；当前使用说明见 [README](../README_ZH.md)。
 >
 > 目的：把 SciencePrism 从“带研究页面的 LaTeX 编辑器”逐步完善为以项目约束为核心、以 DeepSeek Harness 为受控执行引擎、以证据链为数据主线、以人工审批为最终控制点的科研工作台。
 
@@ -10,7 +11,7 @@
 
 架构讨论统一使用以下术语：Module、Interface、Implementation、Depth、Seam、Adapter、Leverage、Locality。每次拆分或抽象都执行一次 deletion test：删除该 Module 后，如果复杂度只是移动而没有减少，就不增加这个 Module。
 
-## 当前基线
+## 起草时基线（历史）
 
 - DeepSeek Harness 已有临时工作区、SDK 加载、JSON 输出契约、项目 Skill 和人工审批雏形。
 - 研究流程已经包含方向、检索、筛选、复现、创新点、方法、实验和写作阶段。

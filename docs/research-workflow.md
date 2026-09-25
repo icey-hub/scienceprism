@@ -62,6 +62,6 @@ PORT=8799 SCIENCEPRISM_TUNNEL=false npm --workspace apps/backend run dev
 SCIENCEPRISM_BACKEND_URL=http://127.0.0.1:8799 npm --workspace apps/frontend run dev -- --host 127.0.0.1 --port 5174
 ```
 
-Research stages call the Harness Runtime and do not depend on a provider SDK. The default Adapter is DeepSeek; set `llmConfig.runtime` to `legacy` for the LangChain Adapter, or use `fake` in deterministic tests. Set `SCIENCEPRISM_HARNESS_SDK` or install the SDK where the DeepSeek Adapter can discover it before running DeepSeek-assisted stages. Each Run is queryable under `/api/projects/:id/harness-runs`.
+Research stages call the Harness Runtime. In the editor, Workspace Settings defaults to the Legacy LangChain runtime and sends that choice as `llmConfig.runtime`; selecting DeepSeek Harness requires a discoverable SDK or `SCIENCEPRISM_HARNESS_SDK`. A direct Harness API request that omits both `adapter` and `llmConfig.runtime` defaults to the DeepSeek Adapter. Deterministic tests may use `fake`. Each Run is queryable under `/api/projects/:id/harness-runs`.
 
 Stage-specific Harness skills are documented in [research-skills.md](./research-skills.md). The bundled skills are copied into the isolated run workspace and cannot bypass the server-side quality gate or human approvals.

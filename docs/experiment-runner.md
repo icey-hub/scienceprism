@@ -40,14 +40,15 @@ directory at `.scienceprism/experiment-runs/<run-id>/`. The Manifest records:
   checkpoint, environment, or output.
 
 The built-in production Adapter runs a project-relative `.js`, `.mjs`, or
-`.cjs` entrypoint through `process.execPath` with `shell: false`. On macOS the
-Node process is launched through `/usr/bin/sandbox-exec`: network access is
-denied, host filesystem reads are limited to the copied workspace, the Node
-runtime, and required macOS runtime files, and writes are limited to the copied
-workspace. The child receives a small non-secret environment with workspace-
-local `HOME` and `TMPDIR`. Platforms without a supported OS sandbox fail closed
-with `EXPERIMENT_SANDBOX_UNAVAILABLE`; the process is never started without
-isolation. The Fake Adapter is test-only.
+`.cjs` entrypoint through `process.execPath` with `shell: false`. The Runner
+prefers macOS `/usr/bin/sandbox-exec` when it can apply a profile; otherwise it
+uses Node's permission model when available. The Node permission model restricts
+Node file, subprocess, worker, and network APIs, but is a weaker boundary than
+the OS sandbox. Each Run records the chosen `execution.isolation` strategy. If
+neither strategy is available, the Run fails with
+`EXPERIMENT_SANDBOX_UNAVAILABLE` before execution. The child receives a small
+non-secret environment with workspace-local `HOME` and `TMPDIR`. The Fake
+Adapter is test-only.
 
 Immediately before execution, the Runner rehashes the selected code paths in
 the source Project and compares them with the Manifest. A mismatch fails with

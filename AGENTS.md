@@ -33,7 +33,7 @@
 - 子 agent 不得执行 git 写操作；分支、提交、推送由 Lead 独占。
 - 子 agent 的写范围必须互不重叠，并在任务书里写明「不得触碰」清单。
 
-## 目标（goal-16c676ec）
+## 原治理目标（历史记录：goal-16c676ec）
 
 把 agent 工作流从「规则写在 prompt 里」改造成「规则写在代码里」：
 
@@ -56,6 +56,7 @@
 - Round 1 = `feat/agent-governance-r1`（迭代 001–010）；Round 2 = `feat/agent-governance-r2`（011–020）；Round 3 = `feat/agent-governance-r3`（021–030）。
 - 每次迭代收尾 `npm run quality` 必须全绿；不绿就不提交。
 - 每轮结束推送 `scienceprism` 并留 PR 给人工审，**不自动合并**。
+  用户已明确要求将当前成果提交主分支，迭代 065 因此已快进并推送到 `scienceprism/main`；后续按用户当次指令处理。
 
 ## 文档目录约定
 
@@ -74,9 +75,9 @@
 - **本机 LLM 网关 `127.0.0.1:7864` 与 DSH 会话共享并发**（U-20）：模型调用必须串行、单发，禁止并发压测或批量并行。
 - **迭代交付物必须是项目真实跑出来的文档**（U-21）：工具产出放 `aidoc/`；agent 的治理 md 只作内部过程记录。
 
-## 本机基线事实（踩坑清单）
+## 历史环境基线与踩坑清单
 
-- `experimentRunner` 的 4 个测试在本机**必红**：`/usr/bin/sandbox-exec` 返回 `sandbox_apply: Operation not permitted`（exit 71）。这是环境限制，不是代码缺陷。
+- 迭代 001 时，`experimentRunner` 的 4 个测试因 `/usr/bin/sandbox-exec` 返回 exit 71 而失败；这是**历史基线**，不代表当前门禁状态。迭代 065 的 `npm run quality` 已通过 126 项后端测试、类型检查、构建和 6 张图的布局检查。
 - 已实证的替代隔离：**Node 权限模型**（`node --permission --allow-fs-read/write=<workspace>`）在本机可用，实测能拦住越权读 `/etc/hosts`、越权写、`child_process` 与网络；坑是 workspace 必须传**真实路径**（`/tmp` 是 `/private/tmp` 的软链，授权匹配不上）。
 - 本机无 matplotlib / seaborn（产品 `plotService` 因此不可用）；LaTeX 只有 `tectonic`（无 `pdflatex`/`xelatex`/`latexmk`）；无 Java。
 - `.dsh/skills` 是**产品研究 skill 的源目录**，且只认带 `stages:` frontmatter 的 skill；开发侧 skill 不放这里。
