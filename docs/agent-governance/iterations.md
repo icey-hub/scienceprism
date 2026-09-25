@@ -173,6 +173,10 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 
 ## Round 6 逐拍记录
 
+| 062 | 减 | **尝试消除 `loadDotEnv` 在 6 个脚本中的重复——失败并回滚**，转而加强拦住它的门禁 | 重复属实（约 90 行），但我用**一条正则跨文件批量替换**，正则过贪，**连带删掉常量、import 与整个函数体**：`render-brief-pdf.mjs` 丢 `projectId`/`projectRoot`/`briefPath`/`absoluteTex`/`log`；`experiment-evidence-gate.mjs` 丢全部 import 与实验常量（脚本当场跑不起来）。**已全量回滚 `scripts/`**，未提交损坏代码。真实收获是门禁：原 `documentLanding.test.js` **只扫一个 driver**，故 `render-brief-pdf.mjs` 的同类损伤未被第一时间发现 → **已扩展为扫两个 driver**，且断言改为"不依赖各 driver 变量名的共享不变量"。playbook 新增"禁止一条正则跨文件批量重构" |
+
+## Round 6 逐拍记录
+
 | 061 | 加 | **论文结构门禁**：把"图和论文没关系 / 没有结果图"这两次真实失败变成可执行的规则 | 新增 `scripts/check-paper-structure.mjs`；五条规则（须有 Results 章节 / Results 须含图 / 至少一张图来自实验数据 / 不得有"自认无关"的插图附录 / 每张图须有图题）。抽 `scripts/figure-inventory.mjs` 作共享清单，避免门禁与结构检查对"哪些图来自数据"判断不一致。**两次破坏实验验证**：删掉 Results → 报"no Results section"；把结果图换成 Illustrative Figures 附录 → **同时命中 4 条**（含本轮真实发生过的那条）。已接入 `npm test`（113 → 114） |
 
 ## Round 6 逐拍记录（051–060）

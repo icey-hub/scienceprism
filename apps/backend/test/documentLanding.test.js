@@ -35,16 +35,38 @@ test('a produced document must land under aidoc/', () => {
   assert.throws(() => assertDocumentLandingPath(landing, landing), /must land under aidoc/);
 });
 
-test('the driver pins the landing directory instead of inheriting it', async () => {
-  const source = await readFile(new URL('../../../scripts/produce-research-document.mjs', import.meta.url), 'utf8');
+// Both drivers are scanned. The first version only scanned
+// produce-research-document.mjs, so a refactor that stripped the landing logic
+// out of render-brief-pdf.mjs would have passed with half the drivers broken.
+// Each driver asserts the invariant it can express: the landing directory is
+// resolved in code, assigned before importing services, and checked on output.
+// The variable names differ between them, so only the shared invariant is common.
+const DRIVERS = ['produce-research-document.mjs', 'render-brief-pdf.mjs'];
 
-  assert.match(source, /resolveDocumentLandingDir\(REPO_ROOT/);
-  assert.match(source, /process\.env\.SCIENCEPRISM_DATA_DIR = LANDING_DIR/);
-  assert.match(source, /assertDocumentLandingPath\(absoluteBrief, LANDING_DIR\)/);
-  // The gitignored .env must not be able to move the landing directory, which is
-  // how R-15 held before: only by accident of a local environment file.
-  assert.ok(
-    !/process\.env\.SCIENCEPRISM_DATA_DIR\s*\|\|/.test(source),
-    'the landing directory must not fall back to the environment'
-  );
+test('the driver pins the landing directory instead of inheriting it', async () => {
+  for (const driver of DRIVERS) {
+    const source = await readFile(new URL(`../../../scripts/${driver}`, import.meta.url), 'utf8');
+
+    assert.match(
+      source,
+      /resolveDocumentLandingDir\(REPO_ROOT/,
+      `${driver} must resolve the landing directory from the repo root`
+    );
+    assert.match(
+      source,
+      /process\.env\.SCIENCEPRISM_DATA_DIR = LANDING_DIR/,
+      `${driver} must assign the pinned landing directory`
+    );
+    assert.match(
+      source,
+      /assertDocumentLandingPath\(\w+, LANDING_DIR\)/,
+      `${driver} must assert that its output lands under the landing directory`
+    );
+    // The gitignored .env must not be able to move the landing directory, which is
+    // how R-15 held before: only by accident of a local environment file.
+    assert.ok(
+      !/process\.env\.SCIENCEPRISM_DATA_DIR\s*\|\|/.test(source),
+      `${driver} must not fall back to the environment for the landing directory`
+    );
+  }
 });

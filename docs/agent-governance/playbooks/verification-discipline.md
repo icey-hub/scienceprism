@@ -56,6 +56,18 @@ node scripts/foo.mjs > /tmp/foo.log 2>&1       # ❌ 越界
 
 重定向之前**先看一眼路径的第一个字符**：`/` 开头就是工作区外。`git add -A` 之前同理——未跟踪且未 ignore 的目录会被一起提交（`pic/` 149 MB 就是这样进了一次未推送的提交）。
 
+### 3.5 不要用一条正则跨文件批量重构
+
+**本会话的真实代价**：`loadDotEnv` 在 6 个脚本里各写一份，我用一条正则批量替换成共享导入。那条正则太贪心，**连带删掉了常量、import 和整个函数体**——`render-brief-pdf.mjs` 丢了 `projectId`/`projectRoot`/`briefPath`/`absoluteTex`/`log` 的定义，`experiment-evidence-gate.mjs` 丢了全部 import 与实验常量，**脚本当场跑不起来**。
+
+**硬性做法**：
+
+- **一次只改一个文件**，改完立刻 `node --check` + 跑相关门禁。
+- 批量替换前，**先只打印匹配范围**（不写入），确认它不会越过函数边界。
+- 重构后**跑一遍会真正执行这些脚本的门禁**（本项目：`figureGates.test.js`、`check-diagram-layout.mjs`、`documentLanding.test.js`），而不是只看语法检查通过——语法通过但变量被删掉的情况检查不出来。
+
+> 这次是**门禁救了我**：`documentLanding.test.js` 扫出落点钉定逻辑消失。但它在修复前只扫 `produce-research-document.mjs`，所以 `render-brief-pdf.mjs` 的同类损伤**没有被第一时间发现**——已扩展为扫两个 driver。
+
 ### 4. 目视的东西必须真的看
 
 中文标签、图表、UI——**不能只看源码里有 `<text>` 节点就判定通过**，字形可能缺失。
