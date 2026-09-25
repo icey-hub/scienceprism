@@ -26,9 +26,13 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.SCIENCEPRISM_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
-const experiment = JSON.parse(await fs.readFile(path.join(REPO_ROOT, 'aidoc', 'experiment-cot-gsm8k.json'), 'utf8'));
-const analysis = JSON.parse(await fs.readFile(path.join(REPO_ROOT, 'aidoc', 'experiment-cot-gsm8k-analysis.json'), 'utf8'));
-const artifacts = JSON.parse(await fs.readFile(path.join(REPO_ROOT, 'aidoc', 'experiment-cot-gsm8k-artifacts.json'), 'utf8'));
+// Overridable so a gate can point the generator at perturbed data and check
+// that the figure actually changes: a figure with hardcoded numbers would not.
+const DATA_DIR = process.env.SCIENCEPRISM_FIGURE_DATA || path.join(REPO_ROOT, 'aidoc');
+const OUT_DIR = process.env.SCIENCEPRISM_FIGURE_OUT || DATA_DIR;
+const experiment = JSON.parse(await fs.readFile(path.join(DATA_DIR, 'experiment-cot-gsm8k.json'), 'utf8'));
+const analysis = JSON.parse(await fs.readFile(path.join(DATA_DIR, 'experiment-cot-gsm8k-analysis.json'), 'utf8'));
+const artifacts = JSON.parse(await fs.readFile(path.join(DATA_DIR, 'experiment-cot-gsm8k-artifacts.json'), 'utf8'));
 
 const FONT = 'Helvetica Neue, Helvetica, Arial, sans-serif';
 const INK = '#111827';
@@ -195,7 +199,7 @@ parts.push(text('Data: GSM8K test split (Cobbe et al., 2021). aidoc/experiment-c
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n<rect width="${W}" height="${H}" fill="#ffffff"/>\n${parts.join('\n')}\n</svg>\n`;
 
-const outDir = path.join(REPO_ROOT, 'aidoc');
+const outDir = OUT_DIR;
 const svgPath = path.join(outDir, 'cot-results.svg');
 await fs.writeFile(svgPath, svg, 'utf8');
 

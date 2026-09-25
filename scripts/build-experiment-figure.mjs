@@ -21,8 +21,9 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = process.env.SCIENCEPRISM_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const DATA = path.join(REPO_ROOT, 'aidoc', 'experiment-evidence-gate.json');
-const OUT_DIR = path.join(REPO_ROOT, 'aidoc');
+const DATA_DIR = process.env.SCIENCEPRISM_FIGURE_DATA || path.join(REPO_ROOT, 'aidoc');
+const DATA = path.join(DATA_DIR, 'experiment-evidence-gate.json');
+const OUT_DIR = process.env.SCIENCEPRISM_FIGURE_OUT || DATA_DIR;
 
 const FONT = 'Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif';
 const INK = '#1e293b';

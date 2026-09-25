@@ -113,6 +113,47 @@ const PAGE_SCRIPT = `
 })();
 `;
 
+async function fsAccessOk(full) {
+  try {
+    await fs.access(full);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Loads one SVG in the page script and returns its measured layout report. */
+async function measure(markup) {
+  const html = `<!doctype html><meta charset="utf-8"><body style="margin:0">${markup}<script>${PAGE_SCRIPT}</script></body>`;
+  const htmlPath = path.join(WORK_DIR, 'measure.html');
+  await fs.writeFile(htmlPath, html, 'utf8');
+  const dom = await runChrome(`file://${htmlPath}`);
+  const match = dom.match(/<pre id="layout-report">([\s\S]*?)<\/pre>/);
+  await fs.rm(htmlPath, { force: true });
+  if (!match) return null;
+  return JSON.parse(match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+}
+
+function collectProblems(report) {
+  const problems = [];
+  if (!report) return ['COULD NOT MEASURE'];
+  for (const overlap of report.textOverlaps) problems.push(`labels overlap (${overlap.area}px²): "${overlap.a}" × "${overlap.b}"`);
+  for (const text of report.outside) problems.push(`label outside the canvas: "${text}"`);
+  for (const crossing of report.leaderCrossings) problems.push(`connector crosses label "${crossing.text}" (${crossing.from} → ${crossing.to})`);
+  for (const pair of report.leaderCrossingsEachOther || []) problems.push(`connectors cross each other: ${pair.a} × ${pair.b}`);
+  return problems;
+}
+
+function report(name, dom, problems) {
+  if (!problems.length) {
+    console.log(`  ${name.padEnd(18)} ${dom ? `${dom.labelCount} labels, ${dom.leaderCount} leaders` : 'measured'} — clean`);
+    return 0;
+  }
+  console.log(`  ${name.padEnd(18)} ${dom ? `${dom.labelCount} labels, ${dom.leaderCount} leaders` : 'measured'} — ${problems.length} defect(s)`);
+  for (const problem of problems) console.log(`      ${problem}`);
+  return problems.length;
+}
+
 function runChrome(url) {
   return new Promise((resolve, reject) => {
     const child = spawn(CHROME, ['--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', url], {
@@ -143,6 +184,14 @@ await fs.mkdir(WORK_DIR, { recursive: true });
 let defects = 0;
 let checked = 0;
 
+// The set under test: the hand-authored governance figures, plus every committed
+// experiment figure. An experiment figure is paper artwork too, so it answers to
+// the same rule rather than getting a pass because it is generated.
+const AIDOC = process.env.SCIENCEPRISM_FIGURE_DATA || path.join(REPO_ROOT, 'aidoc');
+const EXTRA_SVGS = ['cot-results.svg', 'experiment-results.svg']
+  .map((name) => path.join(AIDOC, name))
+  .filter((full) => fsAccessOk(full));
+
 for (const name of Object.keys(FIGURES)) {
   const markup = buildSvg(name);
   const html = `<!doctype html><meta charset="utf-8"><body style="margin:0">${markup}<script>${PAGE_SCRIPT}</script></body>`;
@@ -172,6 +221,15 @@ for (const name of Object.keys(FIGURES)) {
   } else {
     console.log(`  ${name.padEnd(18)} ${report.labelCount} labels, ${report.leaderCount} leaders — clean`);
   }
+}
+
+for (const full of EXTRA_SVGS) {
+  const text = await fs.readFile(full, 'utf8');
+  const name = path.basename(full, '.svg');
+  const dom = await measure(text);
+  const problems = collectProblems(dom);
+  checked += 1;
+  defects += report(name, dom, problems);
 }
 
 await fs.rm(WORK_DIR, { recursive: true, force: true });
