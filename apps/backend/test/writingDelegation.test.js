@@ -117,3 +117,15 @@ test('cancelling an active reviewer stops delegation before the coordinator star
     registerHarnessAdapter(fakeHarnessAdapter);
   }
 });
+
+test('a delegated coordinator still rejects claims without confirmed Evidence', async () => {
+  const request = await setup('writing-delegation-evidence-gate');
+  const invalid = JSON.parse(request.fakeResponse);
+  invalid.claims[0].evidenceIds = ['missing-evidence'];
+  request.fakeResponse = JSON.stringify(invalid);
+  const result = await runWritingDelegation(request);
+  assert.equal(result.ok, false);
+  assert.equal(result.output, null);
+  assert.ok(result.validation.errors.some((error) => error.code === 'UNSUPPORTED_CLAIM'));
+  assert.equal((await getEvidenceLedger(request.projectId)).entries.length, 1);
+});

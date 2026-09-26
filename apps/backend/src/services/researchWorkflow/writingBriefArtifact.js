@@ -13,7 +13,7 @@ function bullet(value) {
 }
 
 /** Persist a reviewable editor artifact without mutating the manuscript. */
-export async function writeWritingBriefArtifact(projectId, brief, { generatedAt = new Date().toISOString() } = {}) {
+export async function writeWritingBriefArtifact(projectId, brief, { generatedAt = new Date().toISOString(), delegation = null } = {}) {
   const root = await getProjectRoot(projectId);
   const outputPath = path.join(root, WRITING_BRIEF_PATH);
   const claims = Array.isArray(brief?.claims) ? brief.claims : [];
@@ -23,6 +23,12 @@ export async function writeWritingBriefArtifact(projectId, brief, { generatedAt 
     '',
     `<!-- scienceprism-writing-brief: generatedAt=${generatedAt} -->`,
     '',
+    ...(delegation ? [
+      '## Review Run Provenance',
+      `- Coordinator Run: \`${asText(delegation.parentRunId)}\``,
+      ...(delegation.children || []).map((child) => `- ${asText(child.label)}: \`${asText(child.runId)}\` (review opinion, not verified Evidence)`),
+      ''
+    ] : []),
     '## Outline',
     ...(outline.length ? outline.map(bullet) : ['- Add an outline after human review.']),
     '',

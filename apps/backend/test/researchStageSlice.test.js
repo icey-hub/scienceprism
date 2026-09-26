@@ -107,9 +107,33 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
       writingInput.evidenceLedger.every((entry) => typeof entry.id === 'string' && typeof entry.kind === 'string'),
       'ledger entries must carry id and kind so a claim can cite them precisely'
     );
+    assert.equal(stageData(workflow, 'writing').task.delegation, null, 'the default handoff keeps the single-Agent path');
+    workflow = await runUiAction(projectId, {
+      action: 'handoff-writing', agentMode: 'multi-agent', adapter: 'fake', fakeResponse: writingResponse,
+      fakeReviewResponses: { 'claim-evidence-audit': 'The evidence is limited.', 'method-consistency-review': '' }
+    }, 'human');
+    const failedDelegation = stageData(workflow, 'writing').task;
+    assert.equal(failedDelegation.status, 'failed');
+    assert.equal(failedDelegation.error.code, 'CHILD_REVIEW_FAILED');
+    assert.equal(failedDelegation.delegation.children[0].status, 'completed');
+    assert.equal(workflow.currentStage, 'writing');
+    workflow = await runUiAction(projectId, {
+      action: 'handoff-writing', agentMode: 'multi-agent', adapter: 'fake', fakeResponse: writingResponse,
+      fakeReviewResponses: {
+        'claim-evidence-audit': 'Review opinion: the selected paper ID supports only the motivation claim.',
+        'method-consistency-review': 'Review opinion: the experiment is still only a plan.'
+      }
+    }, 'human');
+    const delegatedTask = stageData(workflow, 'writing').task;
+    assert.equal(delegatedTask.status, 'awaiting_approval');
+    assert.equal(delegatedTask.delegation.children.length, 2);
+    assert.equal(delegatedTask.delegation.children[0].runId, failedDelegation.delegation.children[0].runId);
+    assert.equal(delegatedTask.harness.runId, delegatedTask.delegation.parentRunId);
+    assert.equal(workflow.currentStage, 'writing', 'multiple Agents must not approve the stage');
     const brief = await readFile(path.join(dataDir, projectId, 'research/writing-brief.md'), 'utf8');
     assert.match(brief, /claim-1/);
     assert.match(brief, new RegExp(paperEvidenceId));
+    assert.match(brief, new RegExp(delegatedTask.delegation.children[0].runId));
     const finalLedger = await getEvidenceLedger(projectId);
     assert.ok(finalLedger.entries.some((entry) => entry.kind === 'paper-claim'));
 

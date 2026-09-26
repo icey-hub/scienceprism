@@ -37,9 +37,9 @@
 **说明：** 在 `handoff-writing` 接入可选择的多 Agent 模式，保留现有单 Agent 路径。阶段任务记录整个编排及各 Run 状态，协调输出沿用现有 Schema、Evidence Ledger 校验和人工确认。
 
 **验收标准：**
-- [ ] 默认单 Agent 行为与此前一致；显式选择多 Agent 时生成 1 个协调 Run 和 2 个子 Run。
-- [ ] 子 Agent 的意见不能直接写入 Evidence Ledger 或使阶段自动通过；校验失败保持 `failed`，成功保持 `awaiting_approval`。
-- [ ] 阶段任务和写作 Brief 能追溯各子 Run；已有阶段任务数据仍可读取。
+- [x] 默认单 Agent 行为与此前一致；显式选择多 Agent 时生成 1 个协调 Run 和 2 个子 Run。
+- [x] 子 Agent 的意见不能直接写入 Evidence Ledger 或使阶段自动通过；校验失败保持 `failed`，成功保持 `awaiting_approval`。
+- [x] 阶段任务和写作 Brief 能追溯各子 Run；已有阶段任务数据仍可读取。
 
 **验证：** 写作工作流集成测试覆盖两种模式、证据负例和旧数据兼容；`npm run quality`。
 

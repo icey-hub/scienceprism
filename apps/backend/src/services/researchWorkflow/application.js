@@ -6,6 +6,7 @@ import { listResearchSourceAdapters, searchResearchSources } from '../researchSo
 import { getEvidenceLedger, upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
 import { createStageTask } from './stageTask.js';
 import { writeWritingBriefArtifact } from './writingBriefArtifact.js';
+import { runWritingDelegation } from './writingDelegation.js';
 import {
   approveResearchWorkflow,
   getResearchWorkflow,
@@ -192,6 +193,9 @@ export async function runUiAction(projectId, body, actor) {
     return updateStage(projectId, 'experiment', { ...experiment, status: 'planned', humanApprovalRequired: true, runRequestedAt: new Date().toISOString(), task: createStageTask({ stage: 'experiment', input: { experiment }, output: { ...experiment, status: 'planned' }, validation: { ok: true, errors: [], warnings: ['This Experiment Plan must be converted to a structured Experiment Run, explicitly approved, and executed with the project experiment.execute capability.'] }, adapters: ['human-decision'] }) }, body, actor);
   }
   if (action === 'handoff-writing') {
+    if (body.agentMode && !['single-agent', 'multi-agent'].includes(body.agentMode)) {
+      throw new ResearchWorkflowError(400, 'INVALID_AGENT_MODE', 'agentMode must be single-agent or multi-agent.');
+    }
     const workflow = await getResearchWorkflow(projectId);
     const completedWorkflow = workflow.status === 'completed';
     const selectedStage = stageData(workflow, 'selection');
@@ -226,8 +230,10 @@ export async function runUiAction(projectId, body, actor) {
       experiment: body.experiment || stageData(workflow, 'experiment'),
       evidenceLedger: citableEvidence
     };
-    const harness = await runResearchStage({ stage: 'writing', projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
-    const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger'] });
+    const harness = body.agentMode === 'multi-agent'
+      ? await runWritingDelegation({ projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeReviewResponses: body.fakeReviewResponses, adapter: body.adapter })
+      : await runResearchStage({ stage: 'writing', projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger', ...(harness.delegation ? ['multi-agent-review'] : [])], error: harness.delegation ? harness.error : null });
     if (!harness.ok || !harness.output) {
       if (completedWorkflow) {
         throw new ResearchWorkflowError(502, 'WRITING_HANDOFF_FAILED', 'SciencePrism could not refresh the writing brief.', { validation: harness.validation });
@@ -242,7 +248,7 @@ export async function runUiAction(projectId, body, actor) {
         try { await linkEvidence(projectId, { type: 'supports', fromId: evidenceId, toId: claimId, actor }, { actor }); } catch { /* the claim check remains authoritative */ }
       }
     }
-    const artifact = await writeWritingBriefArtifact(projectId, brief);
+    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation });
     // A completed workflow is immutable, but researchers may need to refresh
     // its derived writing brief after new Evidence is verified. Save the new
     // artifact without reopening or rewriting the completed stage history.

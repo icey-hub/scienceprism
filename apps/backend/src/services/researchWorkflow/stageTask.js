@@ -38,6 +38,7 @@ export function createStageTask({
       status: harness.status || (harness.ok ? 'completed' : 'failed'),
       fallback: harness.fallback === true
     }) : null,
+    delegation: harness?.delegation ? clone(harness.delegation) : null,
     adapters: [...new Set((Array.isArray(adapters) ? adapters : []).map(String).filter(Boolean))],
     humanDecision: null,
     error: error ? { code: error.code || 'STAGE_TASK_FAILED', message: error.message || String(error) } : null,
