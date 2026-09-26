@@ -84,6 +84,19 @@ test('plot generation is denied when the execution feature flag is off', async (
   await app.close();
 });
 
+test('GPT Image 2 cannot store images when the project revokes patch.propose', async () => {
+  const projectId = 'gate-image-denied';
+  await createProject(projectId, ['project.read']);
+  const app = Fastify();
+  registerPlotRoutes(app);
+  const response = await app.inject({
+    method: 'POST', url: '/api/plot/gpt-image-2',
+    payload: { projectId, prompt: 'graph diagram' }
+  });
+  assert.equal(response.json().code, 'CAPABILITY_DENIED');
+  await app.close();
+});
+
 test('template transfer is denied when the project revokes patch.propose', async () => {
   const projectId = 'gate-transfer-denied';
   await createProject(projectId, ['project.read']);

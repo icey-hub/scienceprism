@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">Controlled study of explainable graph anomaly detection</title>
+  <desc id="desc">Editable vector schematic showing the audited Reddit graph, two-layer GCN and feature-only logistic baseline, local edge-mask explanation, paired deletion controls, and evidence boundaries. No measured results are encoded.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#405570" stroke-width="1.5"/></marker>
+    <marker id="arrowViolet" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 L7 4 L1 7" fill="none" stroke="#674eaa" stroke-width="1.5"/></marker>
+    <linearGradient id="paper" x2="1" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#f7f9fc"/></linearGradient>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#dbe4ef" stroke-width=".6" opacity=".45"/></pattern>
+    <filter id="softShadow" x="-20%" y="-30%" width="140%" height="170%"><feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#26374d" flood-opacity=".09"/></filter>
+    <style>
+      text{font-family:Inter,Arial,sans-serif;fill:#24354b} .eyebrow{font-size:18px;font-weight:700;letter-spacing:2.4px;fill:#53718f}.heading{font-size:29px;font-weight:750}.sub{font-size:17px;fill:#60738a}.label{font-size:18px;font-weight:700}.small{font-size:15px;fill:#60738a}.mini{font-size:13px;fill:#6f8197}.num{font-size:21px;font-weight:760}.panel{fill:url(#paper);stroke:#d9e4ef;stroke-width:1.5;filter:url(#softShadow)}.pill{fill:#eef3f9;stroke:#dce6f0}.wire{fill:none;stroke:#8fa4b9;stroke-width:2.5;stroke-linecap:round}.fine{fill:none;stroke:#b4c4d4;stroke-width:1.7}.orange{fill:#f19b62;stroke:#cc7248}.blue{fill:#72a9d2;stroke:#3a7ca6}.violet{fill:#8d7ac8;stroke:#674eaa}.teal{fill:#7bb7ac;stroke:#4b988f}.node{stroke-width:2}.dash{stroke-dasharray:7 6}
+    </style>
+  </defs>
+  <rect width="1600" height="980" fill="#f4f7fb"/>
+  <rect width="1600" height="980" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1600" height="118" fill="#182b40"/>
+  <path d="M0 116H1600" stroke="#cce1f2" opacity=".4"/>
+  <text x="58" y="39" style="font:700 15px Inter,Arial,sans-serif;letter-spacing:3px;fill:#a9cbe4">FIGURE 1 · STUDY FRAMEWORK</text>
+  <text x="58" y="79" style="font:750 37px Inter,Arial,sans-serif;fill:#ffffff">Explainable graph anomaly detection</text>
+  <text x="58" y="105" style="font:500 16px Inter,Arial,sans-serif;fill:#c7d9e8">Controlled perturbation and evidence boundaries</text>
+  <text x="1235" y="45" style="font:600 15px Inter,Arial,sans-serif;fill:#bbd5e7">GADBench Reddit</text>
+  <text x="1235" y="70" style="font:500 14px Inter,Arial,sans-serif;fill:#bbd5e7">single graph · three official splits</text>
+
+  <!-- A: audited graph -->
+  <rect class="panel" x="38" y="146" rx="23" width="350" height="626"/>
+  <circle cx="74" cy="186" r="19" fill="#dbeaf5"/><text x="67" y="193" style="font-size:20px;font-weight:750;fill:#2f6f9b">A</text>
+  <text class="heading" x="105" y="195">Audited graph</text>
+  <text class="sub" x="62" y="231">Official file → local SHA-256 check</text>
+  <rect x="61" y="259" width="304" height="275" rx="18" fill="#f2f7fb" stroke="#dce8f2"/>
+  <path class="fine" d="M95 400L140 343 178 385 218 314 275 357 319 300M95 400L141 445 178 385 246 456 275 357 321 434M140 343L218 314 178 385M178 385L275 357M218 314L319 300M141 445L246 456 321 434M246 456L275 357"/>
+  <circle class="node blue" cx="95" cy="400" r="13"/><circle class="node blue" cx="140" cy="343" r="11"/><circle class="node blue" cx="178" cy="385" r="14"/><circle class="node orange" cx="218" cy="314" r="15"/><circle class="node blue" cx="275" cy="357" r="12"/><circle class="node blue" cx="319" cy="300" r="10"/><circle class="node blue" cx="141" cy="445" r="12"/><circle class="node orange" cx="246" cy="456" r="14"/><circle class="node blue" cx="321" cy="434" r="11"/>
+  <rect class="pill" x="76" y="483" width="108" height="31" rx="15"/><circle class="blue" cx="92" cy="499" r="5"/><text class="mini" x="105" y="504">normal</text>
+  <rect class="pill" x="197" y="483" width="147" height="31" rx="15"/><circle class="orange" cx="213" cy="499" r="5"/><text class="mini" x="226" y="504">anomalous</text>
+  <text class="eyebrow" x="62" y="568" style="font-size:13px">FIXED STUDY INPUT</text>
+  <text class="num" x="62" y="602">10,984</text><text class="small" x="146" y="602">nodes</text>
+  <text class="num" x="62" y="634">168,016</text><text class="small" x="164" y="634">directed edges</text>
+  <text class="num" x="62" y="666">64</text><text class="small" x="100" y="666">features · 366 anomaly labels</text>
+  <path d="M62 690H363" stroke="#d8e3ed"/>
+  <text class="small" x="62" y="717">Train / validation / test masks</text>
+  <rect x="62" y="733" width="77" height="10" rx="5" fill="#72a9d2"/><rect x="143" y="733" width="77" height="10" rx="5" fill="#7bb7ac"/><rect x="224" y="733" width="77" height="10" rx="5" fill="#8d7ac8"/>
+  <text class="mini" x="62" y="760">trial 0</text><text class="mini" x="143" y="760">trial 1</text><text class="mini" x="224" y="760">trial 2</text>
+
+  <!-- B: detection branch -->
+  <path d="M388 452H415" stroke="#405570" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect class="panel" x="415" y="146" rx="23" width="374" height="626"/>
+  <circle cx="452" cy="186" r="19" fill="#e0efeb"/><text x="445" y="193" style="font-size:20px;font-weight:750;fill:#367e75">B</text>
+  <text class="heading" x="484" y="195">Detect</text>
+  <text class="sub" x="439" y="231">Same splits; validation-only selection</text>
+  <rect x="438" y="261" width="328" height="205" rx="17" fill="#eef7f5" stroke="#c6dfd8"/>
+  <text class="label" x="460" y="296" fill="#347e74">Two-layer GCN</text>
+  <text class="mini" x="460" y="320">graph structure + 64-D node features</text>
+  <g class="wire" stroke="#4b988f"><path d="M472 378L558 365 641 378 718 370M472 403L558 365M472 403L558 416 641 378M558 416L641 427 718 370M558 365L641 427"/></g>
+  <g class="teal node"><circle cx="472" cy="378" r="11"/><circle cx="472" cy="403" r="11"/><circle cx="558" cy="365" r="12"/><circle cx="558" cy="416" r="12"/><circle cx="641" cy="378" r="12"/><circle cx="641" cy="427" r="12"/><circle cx="718" cy="370" r="14"/></g>
+  <text class="mini" x="480" y="448">A·X·W₁ → ReLU → A·H·W₂</text>
+  <rect x="438" y="484" width="328" height="115" rx="17" fill="#f3f4fa" stroke="#daddeb"/>
+  <text class="label" x="460" y="520" fill="#584991">Feature-only logistic</text>
+  <text class="small" x="460" y="550">X → standardize on train → classifier</text>
+  <text class="mini" x="460" y="575">C selected by validation AUPRC</text>
+  <path d="M602 611V652" stroke="#405570" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <rect x="438" y="661" width="328" height="87" rx="17" fill="#edf2f8" stroke="#d6e1ec"/>
+  <text class="eyebrow" x="459" y="690" style="font-size:13px">HELD-OUT EVALUATION</text>
+  <text class="label" x="459" y="721">AUPRC  ·  AUROC  ·  3 trials</text>
+
+  <!-- C: explanation branch -->
+  <path d="M789 452H814" stroke="#674eaa" stroke-width="3" marker-end="url(#arrowViolet)"/>
+  <rect class="panel" x="815" y="146" rx="23" width="435" height="626"/>
+  <circle cx="851" cy="186" r="19" fill="#e9e4f5"/><text x="844" y="193" style="font-size:20px;font-weight:750;fill:#674eaa">C</text>
+  <text class="heading" x="883" y="195">Explain a prediction</text>
+  <text class="sub" x="839" y="231">Stratified test sample · trial 0 only</text>
+  <rect x="839" y="259" width="387" height="259" rx="18" fill="#f5f2fb" stroke="#dfd6f2"/>
+  <circle cx="1031" cy="386" r="107" fill="none" stroke="#c7b7e6" stroke-width="2" stroke-dasharray="7 7"/>
+  <text class="mini" x="851" y="291">2-hop computation subgraph</text>
+  <g class="fine"><path d="M900 363L973 321 1032 384 1110 331 1172 379M900 363L945 441 1032 384 1100 450 1172 379M973 321L1100 450M945 441L1110 331"/></g>
+  <g fill="none" stroke="#674eaa" stroke-width="6" stroke-linecap="round"><path d="M973 321L1032 384M1032 384L1110 331M945 441L1032 384"/></g>
+  <circle class="node blue" cx="900" cy="363" r="11"/><circle class="node blue" cx="973" cy="321" r="12"/><circle class="node violet" cx="1032" cy="384" r="19"/><circle class="node blue" cx="1110" cy="331" r="11"/><circle class="node blue" cx="1172" cy="379" r="11"/><circle class="node blue" cx="945" cy="441" r="12"/><circle class="node blue" cx="1100" cy="450" r="12"/>
+  <text x="1014" y="390" style="font-size:17px;font-weight:800;fill:#fff">v</text>
+  <text class="mini" x="850" y="493">Optimize edge mask; rank candidate edges</text>
+  <path d="M1031 520V547" stroke="#674eaa" stroke-width="2.5" marker-end="url(#arrowViolet)"/>
+  <rect x="839" y="555" width="177" height="128" rx="16" fill="#eee9f8" stroke="#cdbde8"/>
+  <text class="label" x="857" y="586">Top-k mask edges</text>
+  <path d="M862 616H993M875 636H966M889 655H975" stroke="#674eaa" stroke-width="6" stroke-linecap="round"/>
+  <rect x="1033" y="555" width="193" height="128" rx="16" fill="#f2f5f8" stroke="#d4dee8"/>
+  <text class="label" x="1051" y="586">Random controls</text>
+  <path d="M1055 617H1100M1136 617H1199M1073 640H1153M1165 654H1204" stroke="#9baec1" stroke-width="5" stroke-linecap="round"/>
+  <text class="mini" x="1051" y="668">20 matched-size draws</text>
+  <path d="M928 684V710M1130 684V710" stroke="#405570" stroke-width="2.1"/>
+  <path d="M928 710H1130" stroke="#405570" stroke-width="2.1"/>
+  <rect x="839" y="718" width="387" height="35" rx="12" fill="#e6edf5"/>
+  <text class="small" x="851" y="741">Paired Δ predicted-class logit after deletion</text>
+
+  <!-- D: interpretation boundary -->
+  <path d="M1250 452H1277" stroke="#405570" stroke-width="3" marker-end="url(#arrow)"/>
+  <rect class="panel" x="1278" y="146" rx="23" width="284" height="626"/>
+  <circle cx="1314" cy="186" r="19" fill="#fcebdc"/><text x="1307" y="193" style="font-size:20px;font-weight:750;fill:#ba673b">D</text>
+  <text class="heading" x="1345" y="195">Interpret</text>
+  <text class="sub" x="1302" y="232">Joint evidence profile</text>
+  <rect x="1301" y="261" width="237" height="91" rx="16" fill="#eaf2f9" stroke="#d0e1ef"/>
+  <text class="eyebrow" x="1320" y="290" style="font-size:13px">DETECTION</text>
+  <text class="label" x="1320" y="321">AUPRC / AUROC</text>
+  <rect x="1301" y="370" width="237" height="91" rx="16" fill="#f0eafa" stroke="#ddcff1"/>
+  <text class="eyebrow" x="1320" y="399" style="font-size:13px;fill:#7559a6">FIDELITY</text>
+  <text class="label" x="1320" y="430">Paired logit drop</text>
+  <rect x="1301" y="479" width="237" height="91" rx="16" fill="#eaf5f1" stroke="#cce5dd"/>
+  <text class="eyebrow" x="1320" y="508" style="font-size:13px;fill:#4d8d7b">TRACEABILITY</text>
+  <text class="label" x="1320" y="538">Run + artifacts</text>
+  <path d="M1302 595H1538" stroke="#d9e2ea"/>
+  <circle cx="1314" cy="625" r="7" fill="#f0a675"/><text class="small" x="1331" y="631">No edge truth labels</text>
+  <circle cx="1314" cy="662" r="7" fill="#f0a675"/><text class="small" x="1331" y="668">One observed graph</text>
+  <circle cx="1314" cy="699" r="7" fill="#f0a675"/><text class="small" x="1331" y="705">Perturbation shifts input</text>
+  <text class="mini" x="1302" y="748">Bound conclusions to this setting.</text>
+
+  <rect x="38" y="799" width="1524" height="133" rx="20" fill="#e8eef5" stroke="#d7e2ed"/>
+  <text class="eyebrow" x="63" y="832" style="font-size:13px">RESEARCH QUESTION</text>
+  <text x="63" y="866" style="font-size:23px;font-weight:670">Can a graph model detect anomalous nodes and support faithful local explanations of its own predictions?</text>
+  <path d="M63 887H1537" stroke="#c8d7e5"/>
+  <text class="small" x="63" y="913">Conceptual workflow only. Arrows describe the registered experiment; boxes do not encode measured effects or causal mechanisms.</text>
+  <text class="mini" x="1371" y="957">EDITABLE SVG · v1</text>
+</svg>

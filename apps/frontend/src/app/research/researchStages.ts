@@ -136,11 +136,13 @@ export interface ExperimentPlan {
   datasetVersion: string;
   protocol: string;
   command?: string;
-  execution?: { adapter: 'node'; entrypoint: string; args: string[] };
+  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
   parameters?: Record<string, unknown>;
   seed?: string;
   successCriteria?: string[];
   artifacts?: { path: string; kind: string; name?: string }[];
+  codePaths?: string[];
+  resources?: { timeoutMs?: number };
   status?: string;
   metrics: ExperimentMetric[];
 }

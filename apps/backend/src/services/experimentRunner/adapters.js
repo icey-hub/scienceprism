@@ -10,6 +10,10 @@ function safeEnvironment(runId, inputPath, workspaceRoot) {
   environment.TMPDIR = path.join(workspaceRoot, '.experiment-tmp');
   environment.SCIENCEPRISM_EXPERIMENT_RUN_ID = runId;
   environment.SCIENCEPRISM_EXPERIMENT_INPUT = inputPath;
+  environment.PYTHONNOUSERSITE = '1';
+  environment.PYTHONDONTWRITEBYTECODE = '1';
+  environment.XDG_CACHE_HOME = path.join(workspaceRoot, '.experiment-home');
+  environment.MPLCONFIGDIR = path.join(workspaceRoot, '.experiment-home');
   return environment;
 }
 
@@ -99,7 +103,9 @@ export async function nodePermissionCommand(workspaceRoot, entrypoint, args) {
     executable: process.execPath,
     args: [
       '--permission',
+      `--allow-fs-read=${workspaceRoot}`,
       `--allow-fs-read=${workspaceRealPath}`,
+      `--allow-fs-write=${workspaceRoot}`,
       `--allow-fs-write=${workspaceRealPath}`,
       entrypointRealPath,
       ...args
@@ -108,8 +114,8 @@ export async function nodePermissionCommand(workspaceRoot, entrypoint, args) {
   };
 }
 
-async function macSandboxCommand(workspaceRoot, entrypoint, args) {
-  const nodeRealPath = await fs.realpath(process.execPath);
+async function macSandboxCommand(workspaceRoot, executable, entrypoint, args, extraReadablePaths = []) {
+  const nodeRealPath = await fs.realpath(executable);
   const workspaceRealPath = await fs.realpath(workspaceRoot);
   const nodeRuntimeRoot = path.dirname(path.dirname(nodeRealPath));
   const cellarMarker = `${path.sep}Cellar${path.sep}`;
@@ -121,6 +127,7 @@ async function macSandboxCommand(workspaceRoot, entrypoint, args) {
     workspaceRoot,
     workspaceRealPath,
     nodeRuntimeRoot,
+    ...extraReadablePaths,
     ...packageManagerPaths,
     '/System/Library',
     '/usr/lib',
@@ -140,7 +147,7 @@ async function macSandboxCommand(workspaceRoot, entrypoint, args) {
     `(deny file-read* (require-not ${readableFilter}))`,
     `(deny file-write* (require-not ${writableFilter}))`
   ].join('\n');
-  return { executable: sandboxExecutable, args: ['-p', profile, process.execPath, entrypoint, ...args], isolation: 'macos-sandbox-exec' };
+  return { executable: sandboxExecutable, args: ['-p', profile, executable, entrypoint, ...args], isolation: 'macos-sandbox-exec' };
 }
 
 /**
@@ -161,12 +168,12 @@ async function isolatedCommand(workspaceRoot, entrypoint, args) {
     osSandboxApplicable: applicability.ok,
     nodePermissionSupported: supportsNodePermissionModel()
   });
-  if (strategy === 'macos-sandbox-exec') return macSandboxCommand(workspaceRoot, entrypoint, args);
+  if (strategy === 'macos-sandbox-exec') return macSandboxCommand(workspaceRoot, process.execPath, entrypoint, args);
   if (strategy === 'node-permission') return nodePermissionCommand(workspaceRoot, entrypoint, args);
   throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `No enforceable Experiment Runner sandbox is available (${applicability.reason}; node permission model unsupported); the Experiment Run was not started.`);
 }
 
-export async function runNodeExperiment(manifest, { workspaceRoot, inputPath, signal, onOutput } = {}) {
+async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal, onOutput } = {}, commandFactory) {
   const entrypoint = path.resolve(workspaceRoot, manifest.command.entrypoint);
   const workspaceRealPath = await fs.realpath(workspaceRoot);
   const entrypointRealPath = await fs.realpath(entrypoint).catch(() => null);
@@ -175,7 +182,7 @@ export async function runNodeExperiment(manifest, { workspaceRoot, inputPath, si
   }
   await fs.mkdir(path.join(workspaceRoot, '.experiment-home'), { recursive: true });
   await fs.mkdir(path.join(workspaceRoot, '.experiment-tmp'), { recursive: true });
-  const command = await isolatedCommand(workspaceRoot, entrypoint, manifest.command.args);
+  const command = await commandFactory(workspaceRoot, entrypoint, manifest.command.args);
   const child = spawn(command.executable, command.args, {
     cwd: workspaceRoot,
     env: safeEnvironment(manifest.id, inputPath, workspaceRoot),
@@ -213,6 +220,24 @@ export async function runNodeExperiment(manifest, { workspaceRoot, inputPath, si
   return { ...result, isolation: command.isolation };
 }
 
+export async function runNodeExperiment(manifest, options = {}) {
+  return runProcessExperiment(manifest, options, isolatedCommand);
+}
+
+export async function runPythonExperiment(manifest, options = {}) {
+  const configured = process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
+  if (!configured || !path.isAbsolute(configured)) {
+    throw new ExperimentRunnerError(503, 'PYTHON_RUNTIME_UNAVAILABLE', 'Set SCIENCEPRISM_EXPERIMENT_PYTHON to an absolute path to a trusted Python virtual environment interpreter.');
+  }
+  const interpreter = await fs.realpath(configured).catch(() => null);
+  if (!interpreter) throw new ExperimentRunnerError(503, 'PYTHON_RUNTIME_UNAVAILABLE', 'The configured Python interpreter does not exist.');
+  const applicability = await isOsSandboxApplicable();
+  if (!applicability.ok) throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `Python runs require the macOS OS sandbox (${applicability.reason}).`);
+  const venvRoot = path.dirname(path.dirname(configured));
+  return runProcessExperiment(manifest, options, (workspaceRoot, entrypoint, args) =>
+    macSandboxCommand(workspaceRoot, configured, entrypoint, args, [venvRoot]));
+}
+
 export async function runFakeExperiment(manifest, { inputPath } = {}) {
   const input = JSON.parse(await fs.readFile(inputPath, 'utf8'));
   return {
@@ -225,4 +250,4 @@ export async function runFakeExperiment(manifest, { inputPath } = {}) {
   };
 }
 
-export const experimentAdapters = Object.freeze({ node: runNodeExperiment, fake: runFakeExperiment });
+export const experimentAdapters = Object.freeze({ node: runNodeExperiment, python: runPythonExperiment, fake: runFakeExperiment });

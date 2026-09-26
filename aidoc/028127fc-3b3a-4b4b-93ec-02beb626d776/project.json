@@ -1,0 +1,18 @@
+{
+  "id": "028127fc-3b3a-4b4b-93ec-02beb626d776",
+  "name": "可解释图异常检测研究",
+  "createdAt": "2026-09-26T02:08:54.983Z",
+  "researchQuestion": "在通用属性图的节点异常检测中，图神经网络能否提供既有检测效能又对预测忠实的局部解释？",
+  "researchScope": "以 GADBench 公开 Reddit 图为首个真实标签数据集，比较两层 GCN 与特征基线，评价 AUPRC、AUROC 和局部边解释的扰动忠实度；明确说明缺少解释真值。",
+  "researchKeywords": [
+    "graph anomaly detection",
+    "GCN",
+    "explainability",
+    "GNNExplainer",
+    "GADBench",
+    "fidelity"
+  ],
+  "model": "gpt-5.6",
+  "setupCompletedAt": "2026-09-26T02:13:24.030Z",
+  "updatedAt": "2026-09-26T02:13:24.030Z"
+}

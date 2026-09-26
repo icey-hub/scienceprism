@@ -681,6 +681,19 @@ export function plotFromTable(payload: {
   );
 }
 
+export function generateGptImage(payload: {
+  projectId: string;
+  prompt: string;
+  size?: '1024x1024' | '1536x1024' | '1024x1536';
+  quality?: 'low' | 'medium' | 'high';
+  llmConfig?: Partial<LLMConfig>;
+}) {
+  return request<{ ok: boolean; assetPath?: string; error?: string }>(
+    '/api/plot/gpt-image-2',
+    { method: 'POST', body: JSON.stringify(payload) }
+  );
+}
+
 export function callLLM(payload: {
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[];
   model?: string;

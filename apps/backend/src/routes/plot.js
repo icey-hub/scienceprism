@@ -1,14 +1,39 @@
 import path from 'path';
+import crypto from 'crypto';
+import { promises as fs } from 'fs';
 import { safeJoin, sanitizeUploadPath } from '../utils/pathUtils.js';
 import { ensureDir } from '../utils/fsUtils.js';
 import { getProjectRoot } from '../services/projectService.js';
 import { resolveLLMConfig, callOpenAICompatible } from '../services/llmService.js';
 import { runPythonPlot } from '../services/plotService.js';
+import { generateGptImage, resolveImageConfig } from '../services/imageGenerationService.js';
 import { applyProjectConstraintPolicy, hasCapability, resolveCapabilityPolicy } from '../services/harnessRuntime/capabilities.js';
 import { getProjectFeatureFlags } from '../services/featureFlags.js';
 import { getProjectConstraints } from '../services/projectHub/dashboard.js';
 
 export function registerPlotRoutes(fastify) {
+  fastify.post('/api/plot/gpt-image-2', async (req) => {
+    const { projectId, prompt, size, quality, llmConfig } = req.body || {};
+    if (!projectId) return { ok: false, error: 'Missing projectId.' };
+    const constraints = await getProjectConstraints(projectId);
+    const policy = applyProjectConstraintPolicy(resolveCapabilityPolicy({ configured: constraints.capabilities }), constraints);
+    if (!hasCapability(policy, 'patch.propose')) {
+      return { ok: false, code: 'CAPABILITY_DENIED', error: 'Storing a generated image requires the patch.propose capability.' };
+    }
+
+    try {
+      const projectRoot = await getProjectRoot(projectId);
+      const buffer = await generateGptImage({ prompt, size, quality, config: resolveImageConfig(llmConfig) });
+      const assetRel = path.posix.join('assets', 'images', `gpt-image-2-${crypto.randomUUID()}.png`);
+      const abs = safeJoin(projectRoot, assetRel);
+      await ensureDir(path.dirname(abs));
+      await fs.writeFile(abs, buffer, { flag: 'wx' });
+      return { ok: true, assetPath: assetRel };
+    } catch (error) {
+      return { ok: false, error: error.message || 'Image generation failed.' };
+    }
+  });
+
   fastify.post('/api/plot/from-table', async (req) => {
     const { projectId, tableLatex, chartType, title, prompt, filename, llmConfig, retries } = req.body || {};
     if (!projectId) return { ok: false, error: 'Missing projectId.' };

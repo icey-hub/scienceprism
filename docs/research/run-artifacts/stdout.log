@@ -1,0 +1,15 @@
+{"trial": 0, "gcn": {"auprc": 0.06944688963393031, "auroc": 0.6916652254121988}, "feature_logistic": {"auprc": 0.06096576955162283, "auroc": 0.6669228896831803}}
+{"explained_node": 7044, "status": "skipped"}
+{"explained_node": 8416, "status": "ok"}
+{"explained_node": 5341, "status": "ok"}
+{"explained_node": 425, "status": "skipped"}
+{"explained_node": 2591, "status": "ok"}
+{"explained_node": 9481, "status": "ok"}
+{"explained_node": 9944, "status": "ok"}
+{"explained_node": 9408, "status": "ok"}
+{"explained_node": 1920, "status": "ok"}
+{"explained_node": 7752, "status": "ok"}
+{"explained_node": 8646, "status": "ok"}
+{"explained_node": 7913, "status": "skipped"}
+{"trial": 1, "gcn": {"auprc": 0.058843517175687574, "auroc": 0.6540773088896575}, "feature_logistic": {"auprc": 0.06488455530955978, "auroc": 0.6614597345529549}}
+{"trial": 2, "gcn": {"auprc": 0.05780990180616414, "auroc": 0.6627360454539633}, "feature_logistic": {"auprc": 0.05552720585942334, "auroc": 0.6499200904467248}}

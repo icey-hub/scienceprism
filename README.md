@@ -39,6 +39,8 @@ npm run dev
 
 The backend's `npm run dev` does not automatically load the repository's `.env` file. If you use one, load it in your shell first, and keep credentials out of Git. The editor's Agent Tools mode defaults to Legacy LangChain. DeepSeek Harness is optional and needs a separate SDK setup; see [DeepSeek Harness](docs/deepseek-harness.md).
 
+In the editor's **Plotting** sidebar, GPT Image 2 can create PNG diagrams from a text prompt, save them in the current project's `assets/images/`, and insert a LaTeX figure. It uses the editor's model endpoint and key by default; you can configure the backend separately with `SCIENCEPRISM_IMAGE_ENDPOINT` and `SCIENCEPRISM_IMAGE_API_KEY`. The endpoint can be an OpenAI-compatible base URL such as `https://example.com/v1`; the backend calls `/v1/images/generations` with model `gpt-image-2`. Generated illustrations are raster images; use reproducible plotting for quantitative research figures.
+
 ## Workflow
 
 The research stages are Direction, Search, Selection, optional Replication, Ideation, Method, Experiment, and Writing. The implemented paper source is arXiv. You review search results and AI suggestions. An experiment plan and an experiment run are separate; a run needs its own approval and project execution capability.
@@ -55,6 +57,8 @@ See [Research Workflow](docs/research-workflow.md), [Harness Runtime](docs/harne
 ## Data and commands
 
 Projects are stored in the repository's gitignored `data/` directory by default. Set `SCIENCEPRISM_DATA_DIR` before startup to choose another directory. Each project's workflow, evidence, and run records live under its `.scienceprism/` directory. The repository's `aidoc/` holds committed example research output, separate from personal project data.
+
+The repository also includes an exploratory study of explainable graph anomaly detection, run through SciencePrism's controlled Experiment Runner. See the [editable manuscript](aidoc/028127fc-3b3a-4b4b-93ec-02beb626d776/main.tex), [portable run artifacts](docs/research/run-artifacts/), [result plotting source](docs/research/plot-gadbench-results.py), and [GADBench data preparation script](scripts/prepare-gadbench-reddit.py). Rebuild the result figure with `python3 docs/research/plot-gadbench-results.py docs/research/run-artifacts/results/results.json docs/research/figure2-gadbench-results` (requires Matplotlib and NumPy). The study is limited to one attributed graph and a small explanation pilot; it does not establish general performance or explanation validity.
 
 | Command | Purpose |
 | --- | --- |

@@ -4,6 +4,7 @@ export {
   callLLM,
   compileProject,
   getAgentRuntime,
+  generateGptImage,
   plotFromTable,
   runAgent,
   uploadFiles,

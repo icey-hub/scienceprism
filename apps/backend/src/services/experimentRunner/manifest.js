@@ -5,7 +5,7 @@ import { isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { ExperimentRunnerError } from './errors.js';
 
 export const RUNNER_VERSION = '1';
-export const EXPERIMENT_ADAPTERS = Object.freeze(['node', 'fake']);
+export const EXPERIMENT_ADAPTERS = Object.freeze(['node', 'python', 'fake']);
 export const ARTIFACT_KINDS = Object.freeze(['log', 'metric', 'chart', 'table', 'checkpoint', 'environment', 'output']);
 const MAX_SNAPSHOT_FILES = 2_000;
 const MAX_SNAPSHOT_FILE_BYTES = 25 * 1024 * 1024;
@@ -30,7 +30,8 @@ function normalizeExecution(value) {
   if (args.some((item) => item.includes('\u0000') || item.length > 2_000) || args.length > 100) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ARGS', 'Experiment arguments are invalid or exceed the limit.');
   if (adapter === 'fake') return { adapter, args };
   const entrypoint = normalizeRelativePath(value.entrypoint, 'execution.entrypoint');
-  if (!/\.(?:c|m)?js$/i.test(entrypoint)) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENTRYPOINT', 'The Node Adapter requires a .js, .mjs, or .cjs entrypoint.');
+  if (adapter === 'node' && !/\.(?:c|m)?js$/i.test(entrypoint)) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENTRYPOINT', 'The Node Adapter requires a .js, .mjs, or .cjs entrypoint.');
+  if (adapter === 'python' && !/\.py$/i.test(entrypoint)) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENTRYPOINT', 'The Python Adapter requires a .py entrypoint.');
   return { adapter, entrypoint, args };
 }
 

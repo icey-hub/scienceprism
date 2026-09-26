@@ -218,6 +218,10 @@ test('workflow projection preserves the structured Experiment Plan contract', ()
   const projected = toFrontendWorkflow(workflow).experiment;
 
   assert.deepEqual(projected, stage.data);
+
+  stage.data.codePaths = ['experiments/run.py'];
+  stage.data.resources = [{ name: 'dataset', path: 'datasets/data.json' }];
+  assert.deepEqual(toFrontendWorkflow(workflow).experiment, stage.data);
 });
 
 test('the grantable capability vocabulary holds only enforceable capabilities', () => {

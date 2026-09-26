@@ -26,6 +26,7 @@ export function toFrontendWorkflow(workflow) {
   const replication = getStageData(workflow, 'replication');
   const ideation = getStageData(workflow, 'ideation');
   const method = getStageData(workflow, 'method');
+  const methodDraft = method.method || method;
   const experiment = getStageData(workflow, 'experiment');
   const writing = getStageData(workflow, 'writing');
   const selectedIds = new Set(selection.selectedPaperIds || selection.paperIds || []);
@@ -48,7 +49,7 @@ export function toFrontendWorkflow(workflow) {
     replication: replication.replication || replication.replicationPlan || replication,
     ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: idea.evidence || idea.relatedPaperIds || [], selected: Boolean(idea.selected) })),
     ideaComparison: ideation.comparison || [],
-    method: { title: method.title || method.name || '', hypothesis: method.hypothesis || method.description || '', baselines: method.baselines || [], ablations: method.ablations || [] },
+    method: { title: methodDraft.title || methodDraft.name || '', hypothesis: methodDraft.hypothesis || methodDraft.description || '', baselines: methodDraft.baselines || [], ablations: methodDraft.ablations || [] },
     methodCandidates: method.methodProposals || [],
     experiment: {
       dataset: experiment.dataset || experiment.datasetId || experiment.datasetIds?.join(', ') || '',
@@ -60,6 +61,8 @@ export function toFrontendWorkflow(workflow) {
       seed: experiment.seed,
       successCriteria: experiment.successCriteria || [],
       artifacts: experiment.artifacts || [],
+      ...(experiment.codePaths !== undefined ? { codePaths: experiment.codePaths } : {}),
+      ...(experiment.resources !== undefined ? { resources: experiment.resources } : {}),
       status: experiment.status || '待规划',
       metrics: experiment.metrics || []
     },

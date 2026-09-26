@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "experiment-run-bca97a65-c447-4e18-87d0-e267623c78ec",
+  "projectId": "028127fc-3b3a-4b4b-93ec-02beb626d776",
+  "planId": null,
+  "code": {
+    "version": "workspace:261bf3e2a7f81be09e24700204f69ef93e96cbcd0c522be8289b6f813432bb27",
+    "snapshotHash": "261bf3e2a7f81be09e24700204f69ef93e96cbcd0c522be8289b6f813432bb27",
+    "files": [
+      {
+        "path": "assets/images/gpt-image-2-f7dd4016-9fc0-4f3f-bf7d-e9341c184c32.png",
+        "bytes": 1245490,
+        "sha256": "7039bf3a6f555cb44ef0d28efc4b77190df64a6df1dfb580c664edbebfbb3cf6"
+      },
+      {
+        "path": "datasets/reddit-trials-0-2.json.gz",
+        "bytes": 5778635,
+        "sha256": "ce1ad69ea915d0857495b7cc75dc88535ac014b3198f8213c7c35b09347190d6"
+      },
+      {
+        "path": "experiments/reddit_gcn_explain.py",
+        "bytes": 12402,
+        "sha256": "3e8c6d6a9f347f0e32337abd6f04f510c77b9ffa35215b9417b91a7a35485af1"
+      },
+      {
+        "path": "project.json",
+        "bytes": 763,
+        "sha256": "e1cfd14105188041bdd6b782a82accbeb94b57010e5ee5ea54fb281a959d43be"
+      }
+    ],
+    "paths": []
+  },
+  "dataset": {
+    "id": "GADBench Reddit 节点异常图",
+    "version": "官方 DGL 文件 SHA256 575caca42abdb659cda700174854f7c1542d0cb7f79f676612d4a8385142a0fa；三个官方 mask",
+    "evidenceId": null
+  },
+  "environment": {
+    "node": "v26.9.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "runner": "scienceprism-experiment-runner/1",
+    "packageLockSha256": null
+  },
+  "command": {
+    "adapter": "python",
+    "entrypoint": "experiments/reddit_gcn_explain.py",
+    "args": []
+  },
+  "commandNote": "使用官方 GADBench Reddit 图（10,984 节点、168,016 条原始有向边、64 维特征、366 个异常标签）及其 trial 0–2 的官方 train/validation/test mask。每个 trial 在训练节点拟合特征标准化；两层 GCN（隐藏宽度 32、Adam lr=0.01、权重衰减 5e-4、最多 60 epoch、验证 AUPRC 早停 10 epoch、训练集类别加权），对照仅特征逻辑回归（训练类别平衡，验证集选择 C=0.1/1/10）。测试仅用于 AUPRC/AUROC 评估。trial 0 从测试异常/正常节点分别固定随机抽 6 个，优化 35 步 GNNExplainer 风格边掩码；对每个节点删除 top-k（min(10, 10% 候选边)）与 20 个等量随机边集合比较预测类别 logit 下降。固定原图度归一化。记录跳过节点、数据 SHA、每划分结果和限制。只作单图探索性结论，无边级真值。",
+  "permissions": {
+    "plan": "recorded",
+    "approval": "human-required",
+    "execution": "human-approval-and-project-capability",
+    "archive": "runner-owned",
+    "interpretation": "source-artifact-bound"
+  },
+  "protocol": "使用官方 GADBench Reddit 图（10,984 节点、168,016 条原始有向边、64 维特征、366 个异常标签）及其 trial 0–2 的官方 train/validation/test mask。每个 trial 在训练节点拟合特征标准化；两层 GCN（隐藏宽度 32、Adam lr=0.01、权重衰减 5e-4、最多 60 epoch、验证 AUPRC 早停 10 epoch、训练集类别加权），对照仅特征逻辑回归（训练类别平衡，验证集选择 C=0.1/1/10）。测试仅用于 AUPRC/AUROC 评估。trial 0 从测试异常/正常节点分别固定随机抽 6 个，优化 35 步 GNNExplainer 风格边掩码；对每个节点删除 top-k（min(10, 10% 候选边)）与 20 个等量随机边集合比较预测类别 logit 下降。固定原图度归一化。记录跳过节点、数据 SHA、每划分结果和限制。只作单图探索性结论，无边级真值。",
+  "parameters": {},
+  "seed": null,
+  "resources": {
+    "timeoutMs": 600000,
+    "maxOutputBytes": 2097152,
+    "maxArtifactBytes": 52428800
+  },
+  "successCriteria": [],
+  "artifacts": [
+    {
+      "path": "results/metrics.json",
+      "kind": "metric",
+      "name": "metrics.json"
+    },
+    {
+      "path": "results/results.json",
+      "kind": "output",
+      "name": "results.json"
+    }
+  ],
+  "createdAt": "2026-09-26T10:06:14.972Z"
+}

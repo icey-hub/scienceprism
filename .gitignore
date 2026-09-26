@@ -12,6 +12,8 @@ apps/frontend/dist/
 apps/frontend/.vite/
 apps/backend/.cache/
 data/
+aidoc/*/datasets/
+aidoc/*/.scienceprism/
 
 # AGENTS.md is tracked: it carries this repo's agent working agreement.
 # Previously ignored, which made the governance record invisible to git.

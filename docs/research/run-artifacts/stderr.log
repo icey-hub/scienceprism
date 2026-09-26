@@ -1,0 +1,2 @@
+/var/folders/jx/xn_1s5351jd5pm121jdxsydw0000gn/T/scienceprism-experiment-UZq281/workspace/experiments/reddit_gcn_explain.py:141: DeprecationWarning: In future, it will be an error for 'np.bool_' scalars to be interpreted as an index
+  return nodes, index[int(node)], index_tensor, weights, torch.tensor(mapping), torch.tensor(active), pair_to_id

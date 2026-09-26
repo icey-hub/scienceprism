@@ -221,6 +221,12 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | --- | --- | --- | --- |
 | 067 | 加 | 用项目真实工作流生成中文 32 次写作门禁试点论文，并把单调的三组柱状图改为可编辑 SVG 机制框图：证据卡、结构化主张与引用、Ledger 校验、显式披露例外、单次修复回路及四臂配置。论文表格保留完整数值；图底部接受次数由实验 JSON 现算。结构门禁补识别中文「结果」节。 | `node scripts/build-experiment-figure.mjs` 生成 SVG/PDF；`tectonic main.tex` 成功、4 页 A4；实看第 3 页，无越界或遮挡；`node scripts/check-paper-structure.mjs` 为 `structure ok`；`npm run quality` exit 0（126 测试、类型检查、构建、6 图 0 布局缺陷）；`git diff --check` exit 0。实验数值仍为 pending，未独立复评。 |
 
+## GPT Image 2 与图异常检测研究（迭代 068）
+
+| # | 拍型 | 变更摘要 | 验证证据 |
+| --- | --- | --- | --- |
+| 068 | 加与验证 | 用户将研究方向调整为基于 GNN 可解释性的图异常检测后，使用项目自身工作流、`gpt-5.6-luna` 写作阶段和 SciencePrism 受控 Python Experiment Runner 完成 GADBench Reddit 单图探索性研究。比较同图三组官方 mask 上的两层 GCN 与特征逻辑回归，并在 trial 0 对固定小样本运行 GNNExplainer 风格边掩码与等预算随机删边对照；正文明确只作描述性结论。接入 GPT Image 2 编辑器生图功能，并通过项目编辑器生成 PNG。研究产物含可编辑 TikZ 流程图、数据驱动 PDF/SVG 结果图、脚本和仓库内六文件运行产物副本。 | `experiment-run-bca97a65-c447-4e18-87d0-e267623c78ec` 在 SciencePrism UI 中成功；仓库内运行副本与项目归档六个文件逐字节一致；论文最新源文件在 UI 内 Tectonic 编译成功。目视检查修订后的 2×2 矢量流程图和结果图；`node scripts/check-paper-structure.mjs` 为 `structure ok`；Python 源 AST 语法检查通过；修复投影可选字段回归后，`npm run quality` exit 0（134/134 后端测试、前端类型检查、构建、6 图 0 布局缺陷）；`git diff --check` 通过。运行限于一张 Reddit 图、三组共享拓扑的 mask 和 9 个成功解释实例；无边级解释真值。SciencePrism 内编译依赖本机中文字体；宿主 Tectonic CLI 缺 `STHeiti`，PDF 自动几何审计因环境无 Matplotlib/PyMuPDF 未运行，故只报告已做的应用预览与目视检查。 |
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。

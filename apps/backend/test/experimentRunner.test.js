@@ -57,6 +57,26 @@ test('Experiment Run requires approval and an explicit execution capability', as
   await assert.rejects(() => startExperimentRun(projectId, run.id, { wait: true }), (error) => error.code === 'EXPERIMENT_EXECUTION_DENIED');
 });
 
+test('Python Adapter accepts only project Python files and fails closed without a configured runtime', async () => {
+  const projectId = 'experiment-python-runtime';
+  const root = await createProject(projectId);
+  await writeFile(path.join(root, 'run.py'), 'print("python experiment")\n');
+  await assert.rejects(() => createExperimentRun(projectId, { plan: { ...plan(), execution: { adapter: 'python', entrypoint: 'run.mjs', args: [] } } }),
+    (error) => error.code === 'INVALID_EXECUTION_ENTRYPOINT');
+  const previous = process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
+  delete process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
+  try {
+    const run = await createExperimentRun(projectId, { plan: { ...plan(), execution: { adapter: 'python', entrypoint: 'run.py', args: [] }, artifacts: [] } });
+    await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+    const result = await startExperimentRun(projectId, run.id, { wait: true });
+    assert.equal(result.status, 'failed');
+    assert.equal(result.error?.code, 'PYTHON_RUNTIME_UNAVAILABLE');
+  } finally {
+    if (previous === undefined) delete process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
+    else process.env.SCIENCEPRISM_EXPERIMENT_PYTHON = previous;
+  }
+});
+
 test('Experiment Run routes expose the approval and start Interface', async () => {
   const projectId = 'experiment-routes';
   await createProject(projectId);

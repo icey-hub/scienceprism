@@ -1,0 +1,309 @@
+\documentclass[UTF8,11pt,a4paper]{ctexart}
+\usepackage[margin=2.0cm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,array,graphicx,tikz,float,hyperref}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,citecolor=blue!45!black,urlcolor=blue!45!black}
+\def\UrlBreaks{\do\/\do-\do\_\do\.\do\?\do\=\do\&}
+\setlength{\parskip}{0.28em}
+\setlength{\parindent}{2em}
+\graphicspath{{figures/}}
+
+\definecolor{ink}{HTML}{203247}
+\definecolor{muted}{HTML}{64778A}
+\definecolor{teal}{HTML}{247A78}
+\definecolor{orange}{HTML}{C56D54}
+\definecolor{bluegray}{HTML}{5575A5}
+\definecolor{pale}{HTML}{F4F7FA}
+\definecolor{violet}{HTML}{7357A6}
+\tikzset{
+  flowpanel/.style={draw=ink!20,fill=white,rounded corners=2.2mm,line width=.65pt},
+  paneltitle/.style={font=\sffamily\bfseries\small,text=ink},
+  panelsub/.style={font=\sffamily\scriptsize,text=muted},
+  flowarrow/.style={-{Stealth[length=2mm]},draw=ink!70,line width=1pt},
+  graphedge/.style={draw=bluegray!60,line width=.75pt},
+  focusedge/.style={draw=violet,line width=2.2pt},
+  graphnode/.style={circle,draw=white,line width=.8pt,minimum size=5.6mm,inner sep=0pt,fill=bluegray},
+  anomaly/.style={graphnode,fill=orange},
+  gcnnode/.style={circle,draw=teal!70,fill=white,line width=1pt,minimum size=5.4mm,inner sep=0pt},
+  explainernode/.style={circle,draw=violet!70,fill=white,line width=1pt,minimum size=5.2mm,inner sep=0pt}
+}
+
+\title{从检测性能到解释忠实度：GADBench Reddit 上图异常检测的探索性评估}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+图神经网络（GNN）可利用节点属性与邻域结构进行异常检测，但较高的检测分数并不自动意味着其局部解释忠实于模型，更不意味着解释揭示了异常的真实成因。本文在 GADBench 的 Reddit 节点异常图上，使用 SciencePrism 受控实验运行器，对两层图卷积网络（GCN）与仅使用节点特征的逻辑回归进行探索性比较，并对固定小样本开展边掩码删除扰动试验。三个官方划分上的 GCN 平均 AUPRC 为 $0.0620\pm0.0064$，特征逻辑回归为 $0.0605\pm0.0047$；AUROC 分别为 $0.6695\pm0.0197$ 与 $0.6594\pm0.0087$。差异较小，且划分共享同一张图，故这些结果只作描述性观察。解释试验从 trial 0 分层抽取 12 个测试节点，9 个成功生成解释；解释边相对 20 组等量随机删边的预测类 logit 降幅差值中位数为 $0.0025$，均值为 $0.4585$，但均值主要由 3 个正常标签节点约 $1.377$ 的大值驱动。该结果提示实例间高度异质，不能据总体均值断言解释稳定或可靠。本文进一步区分检测标签、模型预测扰动与解释真值，并讨论单图、传导式评估、解释样本小及删边分布偏移等限制。
+\end{abstract}
+
+\noindent\textbf{关键词：}图异常检测；图神经网络；局部解释；忠实度；GADBench；GNNExplainer
+
+\section{引言}
+异常节点检测通常面对类别极不平衡、属性与拓扑共同作用、以及异常定义依赖具体数据来源等问题。图神经网络可通过邻域消息传递联合使用节点特征和图结构；不过，在监督式图异常检测中，复杂 GNN 并不必然优于较简单的邻域聚合或特征基线。GADBench 对十个真实图数据集上的 29 种模型进行了系统比较，并指出简单树集成方法在若干任务上具有竞争力\cite{tang2023gadbench}。因此，对 GNN 的评价应由实测结果决定，而不应预设其优势。
+
+模型解释又引入了不同于检测性能的问题。GNNExplainer 将单个预测的解释表述为寻找紧凑子图与关键特征的优化问题\cite{ying2019gnnexplainer}。然而，解释器给出的高权重边只是模型内部的重要性线索；删除这些边后预测变化较大，最多说明这些边对当前模型输出具有较强影响，不能证明其对应真实异常机制。对图解释器的评估研究也指出，指标定义、解释对象和扰动分布会影响结论\cite{agarwal2022probing,zheng2024robust}。
+
+本研究利用 SciencePrism 项目内的受控运行器，在 GADBench Reddit 数据上开展一项范围有限的探索性评估，聚焦两个问题：
+\begin{enumerate}
+  \item 在相同官方划分上，两层 GCN 与仅使用节点特征的逻辑回归呈现怎样的 AUPRC 和 AUROC？
+  \item 对一组预先固定的测试节点，掩码排序得到的 top-$k$ 边删除，相较等量随机删边，会带来怎样的预测类 logit 变化？
+\end{enumerate}
+本文不提出新的检测器或解释器，也不把单图试验外推为对通用属性图的结论。特别地，数据集异常标签仅提供检测任务的节点级真值；本研究没有边级解释真值。
+
+\section{相关工作}
+\subsection{图异常检测}
+GCN 通过归一化邻接矩阵上的逐层传播整合节点属性和局部结构\cite{kipf2017gcn}。GADBench 将图异常检测视为基准问题，对多种监督式模型和真实数据集进行比较\cite{tang2023gadbench}。本文采用其中 Reddit 数据与官方 train/validation/test masks，并设置特征逻辑回归作为窄范围基线。该基线不代表 GADBench 的全部竞争方法，也不能据此重现该基准论文的模型排名。
+
+\subsection{GNN 局部解释与忠实度}
+GNNExplainer 通过学习边与特征掩码，为特定 GNN 预测提供紧凑解释\cite{ying2019gnnexplainer}。后续工作强调，解释结果需要明确所解释的对象、评估协议和对照机制；常见删除式忠实度指标可能受到扰动后图分布偏移的影响\cite{agarwal2022probing,zheng2024robust}。本文实现的是一个 GNNExplainer 风格的局部边掩码试点，并非原论文算法或官方实现的复现。其随机删除对照只用于比较对当前预测的影响，不提供解释正确性的外部标签。
+
+\section{方法}
+\subsection{数据与划分}
+研究使用 GADBench 官方仓库中的 DGL Reddit 图文件\cite{gadbenchrepo}。归档数据含 10,984 个节点、64 维节点特征、366 个异常标签，以及 168,016 条原始有向边记录；具体图语义与标签定义遵循数据源。实验脚本在读取时核对未压缩源文件 SHA-256：\texttt{\scriptsize 575caca4\allowbreak 2abdb659\allowbreak cda70017\allowbreak 4854f7c1\allowbreak 542d0cb7\allowbreak f79f6766\allowbreak 12d4a838\allowbreak 5142a0fa}。项目中实际传入运行器的压缩输入另有 SHA-256：\texttt{\scriptsize ce1ad69e\allowbreak a915d085\allowbreak 7495b7cc\allowbreak 75dc8853\allowbreak 5ac014b3\allowbreak 198f8213\allowbreak c7c35b09\allowbreak 347190d6}。这两个哈希对应不同文件层级，不能混用。
+
+使用数据文件提供的三个官方 mask 分别训练和测试。每次试验中，训练标签用于拟合，验证标签用于早停或基线超参数选择，测试标签仅用于最终计算 AUPRC 和 AUROC。三组 mask 作用于同一张图，因此不是三个独立数据集，也不是跨图泛化验证。节点特征变换仅在训练节点拟合；GCN 使用整张图进行传导式消息传递，测试节点的特征与拓扑在训练时可见，但测试标签不参与优化。
+
+\subsection{检测模型}
+GCN 使用两层结构，隐藏宽度 32，形式为
+\begin{equation}
+  H=\operatorname{ReLU}(\hat A X W_0),\qquad Z=\hat A H W_1,
+\end{equation}
+其中邻接矩阵先对称化、二值化并添加自环，再作对称度归一化。模型用类别加权交叉熵训练，优化器为 Adam（学习率 $0.01$，权重衰减 $5\times10^{-4}$），最多训练 60 个 epoch，并以验证集 AUPRC 连续 10 轮未改善作为早停条件。三个 trial 的随机种子分别为 17、18、19。
+
+对照为仅使用 64 维节点特征的逻辑回归。标准化器只在训练节点拟合，训练时使用类别平衡权重；$C\in\{0.1,1,10\}$ 由验证集 AUPRC 选择。两个模型使用相同划分，且测试集不参与模型选择。AUPRC 作为不平衡任务的主要排序指标，同时报告 AUROC；汇总值是三个 trial 的算术平均，$\pm$ 表示 trial 间样本标准差。鉴于 trial 共享同一张图且数目仅为 3，不进行显著性检验或独立样本推断。
+
+\subsection{局部边掩码与删除对照}
+解释试点仅在 trial 0 执行。以固定随机种子从测试异常节点与正常节点中各抽取至多 6 个，共 12 个候选节点。对每个节点构造两跳局部子图，在 35 步优化中学习共享于无向边对的可训练掩码；掩码目标保留原预测类别的输出，同时施加稀疏与熵正则。候选解释边限定为与目标节点一跳邻域相关的局部边。此处只实现了受 GNNExplainer 启发的边掩码变体，不包含原方法完整的特征掩码目标或官方实现。
+
+按掩码 logit 选取 $k=\min(10,\max(1,\operatorname{round}(0.1m)))$ 条边，其中 $m$ 为候选边数。对每个节点分别删除 top-$k$ 掩码边，以及 20 组等量随机边；两类删除均固定原图度归一化，并记录目标模型对其\emph{预测类别}的 logit 下降。定义
+\begin{equation}
+  \Delta_i = d_i^{\mathrm{mask}} - \frac{1}{20}\sum_{j=1}^{20}d_{ij}^{\mathrm{random}}.
+\end{equation}
+正值表示掩码排序边的删除比等量随机删除带来更大的预测类 logit 下降。$\Delta_i$ 是针对当前模型与该节点的扰动差值，不是解释真值准确率。若局部两跳子图超过 3,000 个节点、候选边超出上限或候选边太少，则跳过该节点。
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[x=1cm,y=1cm,font=\sffamily]
+  % A readable 2x2 sequence: audit -> compare -> explain -> perturb.
+  \draw[flowpanel] (0,4.8) rectangle (7.45,9.15);
+  \draw[flowpanel] (8,4.8) rectangle (15.45,9.15);
+  \draw[flowpanel] (8,0) rectangle (15.45,4.35);
+  \draw[flowpanel] (0,0) rectangle (7.45,4.35);
+  \draw[flowarrow] (7.52,6.95)--(7.92,6.95);
+  \draw[flowarrow] (11.72,4.75)--(11.72,4.40);
+  \draw[flowarrow] (7.92,2.12)--(7.52,2.12);
+
+  % A: audited graph and source facts.
+  \node[paneltitle,anchor=west] at (.35,8.78) {A\quad Dataset and label audit};
+  \node[panelsub,anchor=west] at (.36,8.43) {GADBench Reddit · one attributed graph};
+  \draw[graphedge] (.70,7.68)--(1.48,8.03)--(2.20,7.62)--(3.05,7.92);
+  \draw[graphedge] (.70,7.68)--(1.03,6.72)--(1.86,6.81)--(2.20,7.62);
+  \draw[graphedge] (1.48,8.03)--(1.86,6.81)--(2.72,6.48)--(3.05,7.92);
+  \draw[graphedge] (1.03,6.72)--(1.28,5.75)--(2.72,6.48);
+  \draw[focusedge] (1.86,6.81)--(2.20,7.62);
+  \node[graphnode] at (.70,7.68) {};
+  \node[graphnode] at (1.48,8.03) {};
+  \node[anomaly] at (2.20,7.62) {};
+  \node[graphnode] at (3.05,7.92) {};
+  \node[graphnode] at (1.03,6.72) {};
+  \node[graphnode] at (1.86,6.81) {};
+  \node[graphnode] at (2.72,6.48) {};
+  \node[anomaly] at (1.28,5.75) {};
+  \node[panelsub,anchor=west] at (.55,5.22) {Orange: labeled anomaly};
+
+  \draw[draw=teal!20,fill=teal!4,rounded corners=1mm] (3.65,7.45) rectangle (5.30,8.18);
+  \draw[draw=teal!20,fill=teal!4,rounded corners=1mm] (5.55,7.45) rectangle (7.20,8.18);
+  \draw[draw=bluegray!20,fill=bluegray!4,rounded corners=1mm] (3.65,6.40) rectangle (5.30,7.13);
+  \draw[draw=bluegray!20,fill=bluegray!4,rounded corners=1mm] (5.55,6.40) rectangle (7.20,7.13);
+  \node[font=\sffamily\bfseries\small,text=teal!80!black] at (4.475,7.98) {10,984};
+  \node[panelsub] at (4.475,7.59) {nodes};
+  \node[font=\sffamily\bfseries\small,text=teal!80!black] at (6.375,7.98) {64};
+  \node[panelsub] at (6.375,7.59) {features};
+  \node[font=\sffamily\bfseries\small,text=orange!85!black] at (4.475,6.93) {366};
+  \node[panelsub] at (4.475,6.56) {anomaly labels};
+  \node[font=\sffamily\bfseries\small,text=bluegray] at (6.375,6.93) {168,016};
+  \node[panelsub] at (6.375,6.56) {directed entries};
+  \draw[draw=ink!14,fill=pale,rounded corners=1mm] (3.65,5.18) rectangle (7.20,5.98);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (5.425,5.70) {Three official masks};
+  \node[panelsub,align=center] at (5.425,5.40) {Source hash checked pre-run};
+
+  % B: matched detector comparison.
+  \node[paneltitle,anchor=west] at (8.35,8.78) {B\quad Detection comparison};
+  \node[panelsub,anchor=west] at (8.36,8.43) {Same graph, official masks and held-out protocol};
+  \draw[draw=teal!22,fill=teal!4,rounded corners=1mm] (8.35,7.18) rectangle (15.10,8.20);
+  \draw[draw=bluegray!20,fill=bluegray!4,rounded corners=1mm] (8.35,5.87) rectangle (15.10,6.89);
+  \node[font=\sffamily\bfseries\small,text=teal!80!black,anchor=west] at (8.58,7.86) {GCN};
+  \node[panelsub,anchor=west] at (8.58,7.53) {graph + attributes};
+  \draw[draw=white,fill=white,rounded corners=1mm] (9.82,7.40) rectangle (10.78,8.00);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (10.30,7.70) {$X$ + $A$};
+  \draw[flowarrow] (10.81,7.70)--(11.12,7.70);
+  \draw[draw=teal!40,fill=white,rounded corners=1mm] (11.16,7.35) rectangle (12.95,8.05);
+  \node[font=\sffamily\bfseries\scriptsize,text=teal!80!black] at (12.055,7.82) {2-layer GCN};
+  \node[panelsub,align=center] at (12.055,7.55) {neighbor aggregation};
+  \draw[flowarrow] (12.98,7.70)--(13.27,7.70);
+  \draw[draw=teal!30,fill=white,rounded corners=1mm] (13.31,7.40) rectangle (14.82,8.00);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (14.065,7.70) {Score $s_{GCN}(v)$};
+
+  \node[font=\sffamily\bfseries\small,text=bluegray,anchor=west] at (8.58,6.55) {Logistic};
+  \node[panelsub,anchor=west] at (8.58,6.22) {attributes only};
+  \draw[draw=white,fill=white,rounded corners=1mm] (9.82,6.09) rectangle (10.78,6.69);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (10.30,6.39) {$X$};
+  \draw[flowarrow] (10.81,6.39)--(11.12,6.39);
+  \draw[draw=bluegray!35,fill=white,rounded corners=1mm] (11.16,6.04) rectangle (12.95,6.74);
+  \node[font=\sffamily\bfseries\scriptsize,text=bluegray,align=center] at (12.055,6.48) {Feature logistic};
+  \node[panelsub,align=center] at (12.055,6.20) {train-fitted scaling};
+  \draw[flowarrow] (12.98,6.39)--(13.27,6.39);
+  \draw[draw=bluegray!30,fill=white,rounded corners=1mm] (13.31,6.09) rectangle (14.82,6.69);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (14.065,6.39) {Score $s_{LR}(v)$};
+  \node[panelsub,align=center,text width=6.3cm] at (11.72,5.48) {Validation AUPRC: stopping / $C$ selection};
+  \node[panelsub,align=center,text width=6.3cm] at (11.72,5.12) {Test: AUPRC + AUROC · no test-time tuning};
+
+  % C: local explainer applied to a fixed, stratified test sample.
+  \node[paneltitle,anchor=west] at (8.35,3.98) {C\quad Local edge-mask explanation};
+  \node[panelsub,anchor=west] at (8.36,3.63) {Trial 0 · fixed stratified sample};
+  \draw[draw=violet!25,dashed,line width=.8pt] (9.88,2.22) ellipse (1.22 and 1.18);
+  \draw[graphedge] (8.85,2.95)--(9.48,3.20)--(10.04,2.58)--(10.90,2.88);
+  \draw[graphedge] (8.85,2.95)--(9.10,1.95)--(9.82,1.83)--(10.58,1.32);
+  \draw[graphedge] (9.48,3.20)--(9.82,1.83)--(10.04,2.58);
+  \draw[graphedge] (9.10,1.95)--(10.90,2.88);
+  \draw[focusedge] (9.48,3.20)--(10.04,2.58);
+  \draw[focusedge] (10.04,2.58)--(9.82,1.83);
+  \node[explainernode] at (8.85,2.95) {};
+  \node[explainernode] at (9.48,3.20) {};
+  \node[explainernode,minimum size=7mm,fill=violet,text=white,font=\bfseries\scriptsize] at (10.04,2.58) {$v$};
+  \node[explainernode] at (10.90,2.88) {};
+  \node[explainernode] at (9.10,1.95) {};
+  \node[explainernode] at (9.82,1.83) {};
+  \node[explainernode] at (10.58,1.32) {};
+  \node[panelsub,align=center] at (9.88,.68) {Two-hop neighborhood};
+
+  \draw[draw=violet!20,fill=violet!4,rounded corners=1mm] (11.55,2.63) rectangle (15.12,3.31);
+  \node[circle,draw=violet!45,fill=white,minimum size=5mm,inner sep=0pt,text=violet,font=\sffamily\bfseries\scriptsize] at (11.88,2.97) {1};
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,anchor=west] at (12.20,3.09) {Stratify test nodes};
+  \node[panelsub,anchor=west] at (12.20,2.80) {$\leq 6$ anomaly + $\leq 6$ normal};
+  \draw[draw=violet!20,fill=violet!4,rounded corners=1mm] (11.55,1.79) rectangle (15.12,2.47);
+  \node[circle,draw=violet!45,fill=white,minimum size=5mm,inner sep=0pt,text=violet,font=\sffamily\bfseries\scriptsize] at (11.88,2.13) {2};
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,anchor=west] at (12.20,2.25) {Optimize edge mask};
+  \node[panelsub,anchor=west] at (12.20,1.96) {35-step local mask optimization};
+  \draw[draw=violet!20,fill=violet!4,rounded corners=1mm] (11.55,.95) rectangle (15.12,1.63);
+  \node[circle,draw=violet!45,fill=white,minimum size=5mm,inner sep=0pt,text=violet,font=\sffamily\bfseries\scriptsize] at (11.88,1.29) {3};
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,anchor=west] at (12.20,1.41) {Rank candidate edges};
+  \node[panelsub,anchor=west] at (12.20,1.12) {$k=\min(10,\operatorname{round}(0.1m))$};
+  \draw[draw=orange!35,fill=orange!6,rounded corners=1mm] (11.55,.30) rectangle (15.12,.82);
+  \node[panelsub,align=center,text=orange!80!black] at (13.335,.56) {Skip if local graph exceeds 3,000 nodes};
+
+  % D: paired perturbation against equal-budget random deletion.
+  \node[paneltitle,anchor=west] at (.35,3.98) {D\quad Paired perturbation test};
+  \node[panelsub,anchor=west] at (.36,3.63) {At each explained node · fixed degree normalization};
+  \draw[draw=violet!28,fill=violet!5,rounded corners=1mm] (.40,2.60) rectangle (3.05,3.28);
+  \node[font=\sffamily\bfseries\scriptsize,text=violet,anchor=west] at (.62,3.08) {Top-$k$ mask edges};
+  \node[panelsub,anchor=west] at (.62,2.76) {delete $k$ selected edges};
+  \draw[draw=bluegray!25,fill=bluegray!5,rounded corners=1mm] (.40,1.55) rectangle (3.05,2.23);
+  \node[font=\sffamily\bfseries\scriptsize,text=bluegray,anchor=west] at (.62,2.03) {Random reference};
+  \node[panelsub,anchor=west] at (.62,1.69) {20 sets · $k$ edges per set};
+  \draw[flowarrow] (3.08,2.94)--(3.42,2.94);
+  \draw[flowarrow] (3.08,1.89)--(3.42,1.89);
+  \draw[draw=ink!22,fill=white,rounded corners=1mm] (3.46,2.62) rectangle (4.83,3.26);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (4.145,2.94) {$d_i^{mask}$};
+  \draw[draw=ink!22,fill=white,rounded corners=1mm] (3.46,1.57) rectangle (4.83,2.21);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (4.145,1.89) {$\bar d_i^{rand}$};
+  \draw[flowarrow] (4.86,2.94)--(5.12,2.63);
+  \draw[flowarrow] (4.86,1.89)--(5.12,2.43);
+  \draw[draw=teal!30,fill=teal!4,rounded corners=1mm] (4.98,2.12) rectangle (7.12,3.10);
+  \node[font=\sffamily\bfseries\scriptsize,text=ink,align=center] at (6.05,2.78) {Paired difference};
+  \node[font=\sffamily\bfseries\scriptsize,text=teal!80!black,align=center] at (6.05,2.40) {mask $-$ random mean};
+  \draw[draw=orange!35,fill=orange!6,rounded corners=1mm] (.40,.48) rectangle (7.08,1.14);
+  \node[font=\sffamily\bfseries\scriptsize,text=orange!80!black,align=center] at (3.74,.81) {Deletion sensitivity only · no edge-level explanation truth};
+\end{tikzpicture}%
+}
+\caption{研究流程与解释评价边界。A：核验后的 GADBench Reddit 输入；B：相同官方划分下比较传导式 GCN 与特征逻辑回归；C：在 trial 0 固定分层样本上优化局部边掩码；D：比较 top-$k$ 掩码边与等量随机删边对预测类别 logit 的影响。箭头表示分析顺序；扰动结果不等同于解释真值。}
+\label{fig:framework}
+\end{figure}
+
+\section{结果}
+\subsection{检测效能}
+表~\ref{tab:detection} 汇总三个官方划分的测试表现。trial 0 的测试集含 4,395 个节点，其中 147 个为异常（3.34\%）。GCN 的 AUPRC 在 trial 0 与 trial 2 高于逻辑回归，在 trial 1 较低；AUROC 呈现相同的逐划分方向变化。三个 trial 的平均差为 $0.0016$ AUPRC 和 $0.0101$ AUROC。由于只有三个共享底层图的划分，这些差异应理解为本次设置中的描述性数值，不构成 GCN 优越性的统计证据。
+
+\begin{table}[t]
+\centering
+\small
+\caption{官方划分上的检测指标。汇总行为三个 trial 的均值与样本标准差。}
+\label{tab:detection}
+\begin{tabular}{c r r r r}
+\toprule
+划分 & GCN AUPRC & 逻辑回归 AUPRC & GCN AUROC & 逻辑回归 AUROC\\
+\midrule
+Trial 0 & 0.0694 & 0.0610 & 0.6917 & 0.6669\\
+Trial 1 & 0.0588 & 0.0649 & 0.6541 & 0.6615\\
+Trial 2 & 0.0578 & 0.0555 & 0.6627 & 0.6499\\
+\midrule
+均值 $\pm$ SD & $0.0620\pm0.0064$ & $0.0605\pm0.0047$ & $0.6695\pm0.0197$ & $0.6594\pm0.0087$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{局部解释扰动}
+从 12 个固定抽样节点中，9 个解释优化成功，3 个因局部两跳子图超过 3,000 个节点而跳过。9 个成功节点包括 4 个异常标签和 5 个正常标签。对成功节点计算的 $\Delta_i$ 均值为 $0.4585$，样本标准差为 $0.6891$，中位数为 $0.0025$。异常标签节点的均值为 $-0.0015$（$n=4$）；正常标签节点的均值为 $0.8264$（$n=5$）。后一个均值受 3 个正常标签节点约 $1.377$ 的差值影响，而其余 6 个成功实例整体接近零。故整体均值不能代表典型节点效应，也不能被解读为普遍的解释忠实度。
+
+图~\ref{fig:results} 同时展示逐划分检测指标和逐节点扰动差值。面板 C 保留所有成功节点的完整数值范围，面板 D 对其余接近零的六个实例作独立尺度展开，避免少数大值压扁其余点。正差值表示删除掩码排序边比随机边引起更大的预测类 logit 下降；它仍只衡量该模型在指定扰动下的敏感性。
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figure2-gadbench-results.pdf}
+\caption{GADBench Reddit 的检测与局部扰动结果。A、B：三组官方 mask 下的 AUPRC 与 AUROC，连线仅连接同一模型的划分结果，不代表时间趋势或独立重复。C：九个成功解释节点的完整配对差值；D：绝对值小于 0.05 的六个节点放大显示，三项大值仍保留在 C。异常标签与正常标签采用不同颜色。扰动差值不是解释真值。}
+\label{fig:results}
+\end{figure}
+
+\section{讨论}
+本次检测结果显示，两层 GCN 与特征逻辑回归的平均指标接近，且 GCN 并未在每个划分上同时占优。这与 GADBench 强调应广泛评估简单基线的动机一致，但本文的单数据集比较远不足以支持关于 GADBench 模型排名的结论。尤其是 Reddit 异常比例低，AUPRC 对少数正类表现敏感；单看 AUROC 也可能掩盖低基准率下精确率的限制。
+
+解释试点进一步表明，掩码删除相对随机删边的差值在实例间高度偏斜。中位数接近零，而均值被三个正常标签节点的较大差值拉高；若只报告一个总体平均数，就会掩盖大多数实例的微弱变化。标签为正常并不表示模型预测必然为正常，本文的扰动始终针对模型当前预测类别的 logit，且没有使用节点标签来优化边掩码。观察到的差值既不说明异常机制，也不说明掩码解释在真实语义层面正确。
+
+解释基准还受实现与扰动协议限制。其优化目标是一个简化的 GNNExplainer 风格变体，而非原方法复现；试点只有 12 个预选节点，且 3 个因规模限制未能生成解释。所有删边均保持原图的度归一化系数不变，因此扰动图不再与重新归一化后的自然图分布一致。删除操作本身也可能制造训练分布之外的结构。后续研究需要扩大独立图数量和解释样本，使用稳健扰动协议，并在具备可信边级标注或合成机制真值的数据上，将模型忠实度与机制正确性分开评估。
+
+\section{局限性}
+本研究有五项主要限制。第一，实验只涉及一张 Reddit 图和单一两层 GCN 架构，无法代表通用属性图或图异常检测方法整体。第二，三个官方 mask 共享相同节点、特征和拓扑，trial 间标准差不是跨数据集不确定性，也不适合作为独立样本置信区间。第三，transductive 消息传递在训练过程中使用全图结构与测试节点特征；虽然测试标签不用于拟合，该设置仍不同于归纳式新图预测。第四，局部解释只覆盖 trial 0 的小型固定样本，且存在规模相关跳过。第五，数据集只提供检测标签而没有解释边真值，预测扰动只能衡量模型局部敏感性；固定度归一化与删边分布偏移也会影响该指标。因此，本文结论应限定为探索性观察。
+
+\section{结论}
+在 GADBench Reddit 的三个官方划分上，两层 GCN 与特征逻辑回归取得接近但逐划分有波动的检测指标。小规模掩码删边试点呈现接近零的中位差值及少数较大的正向离群值，说明实例层面分析比单一平均数更有信息。当前证据既不能确认 GCN 在该设置下稳定优于特征基线，也不能证明局部解释揭示真实异常原因。对可解释图异常检测的可靠结论仍需要更多独立图、充分的实例级核验和可信解释真值。
+
+\section*{数据与代码可用性}
+实验由本项目 SciencePrism 受控运行器执行，Run ID 为 \path{experiment-run-bca97a65-c447-4e18-87d0-e267623c78ec}。
+
+运行 manifest、环境说明、标准输出、标准错误、\texttt{metrics.json} 与 \texttt{results.json} 保存在项目归档目录 \path{.scienceprism/experiment-runs/}。
+
+仓库在 \path{docs/research/run-artifacts/} 附有该次运行的 manifest、环境说明、标准输出、标准错误、\texttt{metrics.json} 与 \texttt{results.json} 字节副本。结果图可由仓库脚本 \path{docs/research/plot-gadbench-results.py} 根据该目录中的 \texttt{results/results.json} 重绘。模型脚本与数据准备脚本分别位于 \path{experiments/reddit_gcn_explain.py} 和 \path{scripts/prepare-gadbench-reddit.py}。GADBench 来源代码与数据可从其官方仓库获取\cite{gadbenchrepo}。
+
+为避免在本文中重新分发原始数据副本，归档只记录项目使用的压缩输入及原始源文件哈希。数据许可及全部元数据未在本研究中单独完成法律审查。
+
+\begin{thebibliography}{9}
+\bibitem{tang2023gadbench}
+Tang J, Hua F, Gao Z, Zhao P, Li J. GADBench: Revisiting and Benchmarking Supervised Graph Anomaly Detection. In: \emph{Advances in Neural Information Processing Systems}; 2023.\newline
+\href{https://proceedings.neurips.cc/paper_files/paper/2023/hash/5eaafd67434a4cfb1cf829722c65f184-Abstract-Datasets_and_Benchmarks.html}{NeurIPS 2023 paper page}
+
+\bibitem{ying2019gnnexplainer}
+Ying Z, Bourgeois D, You J, Zitnik M, Leskovec J. GNNExplainer: Generating Explanations for Graph Neural Networks. In: \emph{Advances in Neural Information Processing Systems}; 2019.\newline
+\href{https://proceedings.neurips.cc/paper/2019/hash/d80b7040b773199015de6d3b4293c8ff-Abstract.html}{NeurIPS 2019 paper page}
+
+\bibitem{kipf2017gcn}
+Kipf TN, Welling M. Semi-Supervised Classification with Graph Convolutional Networks. In: \emph{International Conference on Learning Representations}; 2017.\newline
+\href{https://openreview.net/pdf?id=SJU4ayYgl}{ICLR 2017 paper PDF}
+
+\bibitem{agarwal2022probing}
+Agarwal C, Zitnik M, Lakkaraju H. Probing GNN Explainers: A Rigorous Theoretical and Empirical Analysis of GNN Explanation Methods. In: \emph{Proceedings of AISTATS}; 2022;151:8969--8996.\newline
+\href{https://proceedings.mlr.press/v151/agarwal22b.html}{PMLR paper page}
+
+\bibitem{zheng2024robust}
+Zheng X, Shirani F, Wang T, Cheng W, Chen Z, Chen H, Wei H, Luo D. Towards Robust Fidelity for Evaluating Explainability of Graph Neural Networks. In: \emph{International Conference on Learning Representations}; 2024.\newline
+\href{https://proceedings.iclr.cc/paper_files/paper/2024/hash/34293d684b1012ed45c3274b4a7edc00-Abstract-Conference.html}{ICLR 2024 paper page}
+
+\bibitem{gadbenchrepo}
+Tang J, et al. GADBench official code and dataset repository.\newline
+\url{https://github.com/squareRoot3/GADBench}
+\end{thebibliography}
+
+\end{document}

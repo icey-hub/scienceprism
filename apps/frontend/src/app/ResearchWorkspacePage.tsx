@@ -5,7 +5,7 @@ import {
   updateResearchWorkflowSkillBindings
 } from '../api/workflowAdapter';
 import { getEvidenceClaimMatrix, type ClaimEvidenceMatrix } from '../api/evidenceAdapter';
-import { getAgentRoles, type AgentRoleSummary } from '../api/client';
+import { getAgentRoles, type AgentRoleSummary, type LLMConfig } from '../api/client';
 import { listProjects, uploadFiles } from '../api/projectAdapter';
 import {
   cancelExperimentRun,
@@ -152,6 +152,7 @@ function selectedIdeaIds(workflow: UiWorkflow) { return (workflow.ideas || []).f
 export interface ResearchWorkspacePageProps {
   embedded?: boolean;
   onStateChange?: (state: ResearchWorkspaceState) => void;
+  llmConfig?: Partial<LLMConfig>;
 }
 
 export interface ResearchWorkspaceState {
@@ -167,7 +168,7 @@ export interface ResearchWorkspaceState {
   busy: boolean;
 }
 
-export default function ResearchWorkspacePage({ embedded = false, onStateChange }: ResearchWorkspacePageProps) {
+export default function ResearchWorkspacePage({ embedded = false, onStateChange, llmConfig }: ResearchWorkspacePageProps) {
   const { projectId = '', stage: rawStage } = useParams<{ projectId: string; stage?: string }>();
   const navigate = useNavigate();
   const stage: ResearchStageId = isResearchStageId(rawStage) ? rawStage : 'direction';
@@ -257,7 +258,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const runAction = useCallback(async (action: string, body: Record<string, unknown>, successMessage: string) => {
     setBusy(true); setError(''); setNotice('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body, llmConfig, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
       const next = commitWorkflow(payload);
       if (next.task?.status === 'failed') {
         setError(next.task.error?.message || '任务执行失败，请检查配置后重试。');
@@ -266,7 +267,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
       setNotice(successMessage); return next;
     } catch (requestError) { setError(`操作失败：${getErrorMessage(requestError)}`); return null; }
     finally { setBusy(false); }
-  }, [commitWorkflow, projectId, workflow.version]);
+  }, [commitWorkflow, llmConfig, projectId, workflow.version]);
 
   const patchStage = useCallback(async (stageId: ResearchStageId, data: Record<string, unknown>, successMessage: string) => {
     setBusy(true); setError('');
@@ -342,7 +343,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
   const createControlledExperimentRun = useCallback(async () => {
     setBusy(true); setError(''); setNotice('');
     try {
-      const result = await createProjectExperimentRun(projectId, { plan: { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' } });
+      const result = await createProjectExperimentRun(projectId, { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' });
       setExperimentRun(result.run); setNotice('受控 Run 已创建，等待人工批准。');
     } catch (requestError) { setError(`创建运行失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
@@ -376,17 +377,38 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange 
     finally { setBusy(false); }
   }, [commitWorkflow, navigate, projectId, workflow.replication?.note, workflow.version]);
   const prepareWriting = useCallback(async () => {
-    const next = await runAction('handoff-writing', { paperIds: selectedIds, ideas: (workflow.ideas || []).filter((idea) => idea.selected), method: workflow.method || {}, experiment: workflow.experiment || {} }, '研究材料已整理，可以打开论文写作工作台。');
+    const completedRun = experimentRun?.status === 'completed' ? experimentRun : null;
+    const experiment = completedRun ? {
+      ...workflow.experiment,
+      status: completedRun.status,
+      metrics: completedRun.metrics,
+      resultRun: {
+        id: completedRun.id,
+        status: completedRun.status,
+        codeSnapshotHash: completedRun.manifest.code.snapshotHash,
+        dataset: completedRun.manifest.dataset,
+        artifacts: completedRun.artifacts.map((artifact) => ({
+          id: artifact.id,
+          evidenceId: `experiment-${artifact.id}`,
+          name: artifact.name,
+          kind: artifact.kind,
+          path: artifact.path,
+          sha256: artifact.sha256
+        }))
+      }
+    } : workflow.experiment || {};
+    const next = await runAction('handoff-writing', { paperIds: selectedIds, ideas: (workflow.ideas || []).filter((idea) => idea.selected), method: workflow.method || {}, experiment }, '研究材料已整理，可以打开论文写作工作台。');
     const briefPath = next?.writing?.briefPath;
     if (next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
-  }, [navigate, projectId, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method]);
+  }, [experimentRun, navigate, projectId, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method]);
 
   const direction: ResearchDirection = { question: workflow.direction?.question || '', keywords: workflow.direction?.keywords || [], scope: workflow.direction?.scope || '', notes: workflow.direction?.notes || '' };
   const search: SearchRunSummary = { query: workflow.search?.query || '', candidateCount: workflow.search?.count || workflow.papers?.length || 0, selectedCount: selectedIds.length, lastRunAt: workflow.search?.lastRunAt, sources: workflow.search?.sources };
   const replication: ReplicationPlan = { repository: workflow.replication?.repository || '', environment: workflow.replication?.environment || '', dataset: workflow.replication?.dataset || '', note: workflow.replication?.note || '', status: workflow.replication?.status };
   const method: MethodDraft = { title: workflow.method?.title || '', hypothesis: workflow.method?.hypothesis || '', baselines: workflow.method?.baselines || [], ablations: workflow.method?.ablations || [] };
-  const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', execution: workflow.experiment?.execution, parameters: workflow.experiment?.parameters, seed: workflow.experiment?.seed, successCriteria: workflow.experiment?.successCriteria, artifacts: workflow.experiment?.artifacts, status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
-  const writing: WritingEvidenceSummary = { paperCount: selectedIds.length, innovationCount: selectedIdeas.length, metricCount: experiment.metrics.length, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '', claimMatrix: claimMatrix || undefined };
+  const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', execution: workflow.experiment?.execution, parameters: workflow.experiment?.parameters, seed: workflow.experiment?.seed, successCriteria: workflow.experiment?.successCriteria, artifacts: workflow.experiment?.artifacts, codePaths: workflow.experiment?.codePaths, resources: workflow.experiment?.resources, status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
+  const completedMetrics = experimentRun?.status === 'completed' ? experimentRun.metrics : [];
+  const writing: WritingEvidenceSummary = { paperCount: selectedIds.length, innovationCount: selectedIdeas.length, metricCount: completedMetrics.length || experiment.metrics.length, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '', claimMatrix: claimMatrix || undefined };
 
   useEffect(() => {
     onStateChange?.({

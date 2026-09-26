@@ -39,8 +39,8 @@ directory at `.scienceprism/experiment-runs/<run-id>/`. The Manifest records:
 - declared output paths and their Artifact kinds: log, metric, chart, table,
   checkpoint, environment, or output.
 
-The built-in production Adapter runs a project-relative `.js`, `.mjs`, or
-`.cjs` entrypoint through `process.execPath` with `shell: false`. The Runner
+The Node Adapter runs a project-relative `.js`, `.mjs`, or `.cjs` entrypoint
+through `process.execPath` with `shell: false`. The Runner
 prefers macOS `/usr/bin/sandbox-exec` when it can apply a profile; otherwise it
 uses Node's permission model when available. The Node permission model restricts
 Node file, subprocess, worker, and network APIs, but is a weaker boundary than
@@ -49,6 +49,17 @@ neither strategy is available, the Run fails with
 `EXPERIMENT_SANDBOX_UNAVAILABLE` before execution. The child receives a small
 non-secret environment with workspace-local `HOME` and `TMPDIR`. The Fake
 Adapter is test-only.
+
+The Python Adapter runs only project-relative `.py` files. The server operator
+must set `SCIENCEPRISM_EXPERIMENT_PYTHON` to the absolute path of a trusted
+virtual environment's Python interpreter. It requires an applicable macOS
+`sandbox-exec` profile and fails closed on other hosts or nested sandboxes;
+there is no Python permission-model fallback. The profile permits reads from
+the isolated project copy, configured virtual environment, Python runtime,
+and required macOS system libraries. Writes remain confined to the isolated
+copy and network access is denied. Python dependencies are supplied by that
+trusted virtual environment, not downloaded during a Run. The Run archives
+declared output files and metrics exactly like the Node Adapter.
 
 Immediately before execution, the Runner rehashes the selected code paths in
 the source Project and compares them with the Manifest. A mismatch fails with

@@ -1,0 +1,7 @@
+{
+  "node": "v26.9.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "runner": "scienceprism-experiment-runner/1",
+  "packageLockSha256": null
+}

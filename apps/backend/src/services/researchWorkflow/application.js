@@ -193,6 +193,7 @@ export async function runUiAction(projectId, body, actor) {
   }
   if (action === 'handoff-writing') {
     const workflow = await getResearchWorkflow(projectId);
+    const completedWorkflow = workflow.status === 'completed';
     const selectedStage = stageData(workflow, 'selection');
     const selectedPapers = selectedStage.selectedPapers || [];
     const ideas = (stageData(workflow, 'ideation').ideas || []).filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
@@ -227,7 +228,12 @@ export async function runUiAction(projectId, body, actor) {
     };
     const harness = await runResearchStage({ stage: 'writing', projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger'] });
-    if (!harness.ok || !harness.output) return updateStage(projectId, 'writing', { task, ready: false, harness: { ok: harness.ok, validation: harness.validation } }, body, actor);
+    if (!harness.ok || !harness.output) {
+      if (completedWorkflow) {
+        throw new ResearchWorkflowError(502, 'WRITING_HANDOFF_FAILED', 'SciencePrism could not refresh the writing brief.', { validation: harness.validation });
+      }
+      return updateStage(projectId, 'writing', { task, ready: false, harness: { ok: harness.ok, validation: harness.validation } }, body, actor);
+    }
     const brief = harness.output;
     for (const claim of brief.claims || []) {
       const claimId = `claim-${crypto.createHash('sha1').update(String(claim.id)).digest('hex').slice(0, 20)}`;
@@ -237,6 +243,10 @@ export async function runUiAction(projectId, body, actor) {
       }
     }
     const artifact = await writeWritingBriefArtifact(projectId, brief);
+    // A completed workflow is immutable, but researchers may need to refresh
+    // its derived writing brief after new Evidence is verified. Save the new
+    // artifact without reopening or rewriting the completed stage history.
+    if (completedWorkflow) return workflow;
     return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment }, task }, body, actor);
   }
   throw new ResearchWorkflowError(400, 'UNKNOWN_ACTION', `Unknown research workflow action: ${action}`);

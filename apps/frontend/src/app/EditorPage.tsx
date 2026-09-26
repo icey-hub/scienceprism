@@ -14,7 +14,7 @@ import { toggleComment } from '@codemirror/commands';
 import { foldKeymap, foldService, indentOnInput } from '@codemirror/language';
 import { createFolder as createFolderApi, deleteFile, getAllFiles, getFile, getProjectTree, listProjects, renamePath, updateFileOrder, uploadFiles, writeFile } from '../api/projectAdapter';
 import { createCollabInvite, flushCollabFile, getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
-import { arxivBibtex, arxivSearch, callLLM, compileProject, plotFromTable, runAgent, visionToLatex } from '../api/editorAdapter';
+import { arxivBibtex, arxivSearch, callLLM, compileProject, generateGptImage, plotFromTable, runAgent, visionToLatex } from '../api/editorAdapter';
 import type { ArxivPaper } from '../api/editorAdapter';
 import { createTwoFilesPatch } from 'diff';
 import type { CompileOutcome } from '../latex/engine';
@@ -931,6 +931,12 @@ export default function EditorPage() {
   const [plotStatus, setPlotStatus] = useState('');
   const [plotAssetPath, setPlotAssetPath] = useState('');
   const [plotAutoInsert, setPlotAutoInsert] = useState(true);
+  const [imagePrompt, setImagePrompt] = useState('');
+  const [imageSize, setImageSize] = useState<'1024x1024' | '1536x1024' | '1024x1536'>('1536x1024');
+  const [imageQuality, setImageQuality] = useState<'low' | 'medium' | 'high'>('medium');
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageStatus, setImageStatus] = useState('');
+  const [imageAssetPath, setImageAssetPath] = useState('');
   const [websearchQuery, setWebsearchQuery] = useState('');
   const [websearchLog, setWebsearchLog] = useState<string[]>([]);
   const [websearchBusy, setWebsearchBusy] = useState(false);
@@ -2030,6 +2036,26 @@ export default function EditorPage() {
       setPlotStatus(t('生成失败: {{error}}', { error: String(err) }));
     } finally {
       setPlotBusy(false);
+    }
+  };
+
+  const handleGptImageGenerate = async () => {
+    if (!projectId || !imagePrompt.trim()) {
+      setImageStatus(t('请输入图像描述。'));
+      return;
+    }
+    setImageBusy(true);
+    setImageStatus('');
+    try {
+      const result = await generateGptImage({ projectId, prompt: imagePrompt.trim(), size: imageSize, quality: imageQuality, llmConfig });
+      if (!result.ok || !result.assetPath) throw new Error(result.error || t('图像生成失败'));
+      setImageAssetPath(result.assetPath);
+      setImageStatus(t('图像已生成'));
+      await refreshTree();
+    } catch (error) {
+      setImageStatus(t('生成失败: {{error}}', { error: String(error) }));
+    } finally {
+      setImageBusy(false);
     }
   };
 
@@ -4468,6 +4494,43 @@ export default function EditorPage() {
                       </div>
                     )}
                   </div>
+                  <div className="tool-section">
+                    <div className="tool-title">GPT Image 2</div>
+                    <div className="muted">{t('生成论文示意图或视觉草稿；定量结果图请使用可复现数据绘图。')}</div>
+                    <div className="field">
+                      <label>{t('图像描述')}</label>
+                      <textarea className="input" value={imagePrompt} onChange={(event) => setImagePrompt(event.target.value)}
+                        placeholder={t('描述图中的对象、结构、布局和标注')} rows={5} />
+                    </div>
+                    <div className="field">
+                      <label>{t('尺寸')}</label>
+                      <select className="input" value={imageSize} onChange={(event) => setImageSize(event.target.value as typeof imageSize)}>
+                        <option value="1536x1024">1536 × 1024</option>
+                        <option value="1024x1024">1024 × 1024</option>
+                        <option value="1024x1536">1024 × 1536</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>{t('质量')}</label>
+                      <select className="input" value={imageQuality} onChange={(event) => setImageQuality(event.target.value as typeof imageQuality)}>
+                        <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                      </select>
+                    </div>
+                    <div className="row">
+                      <button className="btn" onClick={handleGptImageGenerate} disabled={imageBusy || !imagePrompt.trim()}>
+                        {imageBusy ? t('生成中...') : t('生成图像')}
+                      </button>
+                    </div>
+                    {imageStatus && <div className="muted">{imageStatus}</div>}
+                    {imageAssetPath && (
+                      <div className="vision-result">
+                        <div className="muted">{t('预览')}</div>
+                        <img src={`/api/projects/${projectId}/blob?path=${encodeURIComponent(imageAssetPath)}`} alt={imagePrompt}
+                          style={{ width: '100%', borderRadius: '8px' }} />
+                        <div className="row"><button className="btn ghost" onClick={() => insertFigureSnippet(imageAssetPath)}>{t('插入图模板')}</button></div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </>
             ) : activeSidebar === 'review' ? (
@@ -4676,7 +4739,7 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
         {researchMode ? (
           <>
             <section className="panel research-workspace-panel" data-testid="research-stage-content">
-              <ResearchWorkspacePage embedded onStateChange={handleResearchStateChange} />
+              <ResearchWorkspacePage embedded onStateChange={handleResearchStateChange} llmConfig={llmConfig} />
             </section>
 
             <div

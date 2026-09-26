@@ -1,0 +1,33 @@
+{
+  "metrics": [
+    {
+      "name": "gcn_auprc_mean",
+      "value": 0.062033436205260674,
+      "uncertainty": 0.006441006053973163
+    },
+    {
+      "name": "feature_logistic_auprc_mean",
+      "value": 0.060459176906868646,
+      "uncertainty": 0.004699199321563349
+    },
+    {
+      "name": "gcn_auroc_mean",
+      "value": 0.6694928599186065,
+      "uncertainty": 0.01968384549341392
+    },
+    {
+      "name": "feature_logistic_auroc_mean",
+      "value": 0.65943423822762,
+      "uncertainty": 0.008680482244193651
+    },
+    {
+      "name": "explainer_paired_logit_drop_mean",
+      "value": 0.4584514569077227,
+      "uncertainty": 0.6891280413034642
+    },
+    {
+      "name": "explained_nodes",
+      "value": 9
+    }
+  ]
+}

@@ -39,6 +39,8 @@ npm run dev
 
 后端的 `npm run dev` 不会自动读取仓库根目录的 `.env`。如果使用 `.env`，请先在 Shell 中加载；不要把密钥提交到 Git。编辑器 Agent Tools 的默认运行时是 Legacy LangChain；DeepSeek Harness 是可选运行时，需要单独配置 SDK，见 [DeepSeek Harness 说明](docs/deepseek-harness.md)。
 
+编辑器「绘图」侧栏现可用 GPT Image 2 根据文字描述生成 PNG 示意图，保存到当前项目的 `assets/images/`，并插入 LaTeX figure。默认使用编辑器中的模型端点与密钥；如需单独设置后端，可用 `SCIENCEPRISM_IMAGE_ENDPOINT` 和 `SCIENCEPRISM_IMAGE_API_KEY`。端点可填写 `https://example.com/v1` 形式的 OpenAI 兼容地址；后端向 `/v1/images/generations` 发送 `gpt-image-2` 请求。生成的插图是位图；定量科研结果仍应使用可复现的数据绘图。
+
 ## 实际工作流程
 
 研究流程依次包含方向、检索、筛选、可选复现、创新点、方法、实验和写作。当前论文检索实现了 arXiv 来源；检索结果和 AI 建议需要你确认。实验计划与实验运行分开，运行前还需要单独批准并授予项目执行能力。
@@ -55,6 +57,8 @@ npm run dev
 ## 数据与命令
 
 项目默认保存在仓库的 `data/`（已被 Git 忽略）；可在启动前用 `SCIENCEPRISM_DATA_DIR` 指定其他目录。项目的工作流、证据和运行记录保存在各项目的 `.scienceprism/` 下。仓库的 `aidoc/` 存放已提交的科研示例产物，与个人项目数据分开。
+
+仓库还包含一项由 SciencePrism 受控实验运行器执行的可解释图异常检测探索性研究：[可编辑论文](aidoc/028127fc-3b3a-4b4b-93ec-02beb626d776/main.tex)、[运行产物副本](docs/research/run-artifacts/)、[结果图生成脚本](docs/research/plot-gadbench-results.py)和 [GADBench 数据准备脚本](scripts/prepare-gadbench-reddit.py)。运行 `python3 docs/research/plot-gadbench-results.py docs/research/run-artifacts/results/results.json docs/research/figure2-gadbench-results` 可重绘结果图（需安装 Matplotlib 和 NumPy）。研究仅覆盖一张属性图和小规模解释试点，不能据此推断通用检测性能或解释有效性。
 
 | 命令 | 用途 |
 | --- | --- |

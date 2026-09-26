@@ -90,7 +90,10 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
     const paperEvidenceId = evidence.entries.find((entry) => entry.kind === 'paper')?.id;
     assert.ok(paperEvidenceId);
     const writingResponse = JSON.stringify({ stage: 'writing_brief', title: 'Grounded Retrieval', claims: [{ id: 'claim-1', text: 'The selected paper motivates evidence gating.', evidenceIds: [paperEvidenceId], confidence: 0.5 }], outline: ['Introduction', 'Method'], citationPaperIds: [stageData(workflow, 'selection').selectedPaperIds[0]], limitations: ['The experiment is only a plan.'], unsupportedClaims: [] });
-    workflow = await runUiAction(projectId, { action: 'handoff-writing', adapter: 'fake', fakeResponse: writingResponse }, 'human');
+    workflow = await runUiAction(projectId, {
+      action: 'handoff-writing', adapter: 'fake', fakeResponse: writingResponse,
+      experiment: { metrics: [{ name: 'gcn_auprc_mean', value: 0.062 }], resultRun: { id: 'run-1', codeSnapshotHash: 'snapshot-hash' } }
+    }, 'human');
     assert.equal(stageData(workflow, 'writing').ready, true);
     assert.equal(stageData(workflow, 'writing').briefPath, 'research/writing-brief.md');
     // The stage input must carry the Evidence Ledger. It used to carry selected
@@ -98,6 +101,8 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
     // experiment's Evidence as absent while it sat in the ledger the whole time.
     const writingInput = stageData(workflow, 'writing').task?.input;
     assert.ok(Array.isArray(writingInput?.evidenceLedger), 'the writing input must carry the Evidence Ledger');
+    assert.equal(writingInput?.experiment?.metrics?.[0]?.value, 0.062, 'the writing handoff must carry completed-run metrics');
+    assert.equal(writingInput?.experiment?.resultRun?.codeSnapshotHash, 'snapshot-hash', 'the writing handoff must carry run provenance');
     assert.ok(
       writingInput.evidenceLedger.every((entry) => typeof entry.id === 'string' && typeof entry.kind === 'string'),
       'ledger entries must carry id and kind so a claim can cite them precisely'
@@ -107,6 +112,17 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
     assert.match(brief, new RegExp(paperEvidenceId));
     const finalLedger = await getEvidenceLedger(projectId);
     assert.ok(finalLedger.entries.some((entry) => entry.kind === 'paper-claim'));
+
+    const completed = await approve(projectId, 'writing');
+    const completedVersion = completed.version;
+    const refreshed = await runUiAction(projectId, {
+      action: 'handoff-writing', adapter: 'fake',
+      fakeResponse: JSON.stringify({ ...JSON.parse(writingResponse), title: 'Grounded Retrieval — Updated Evidence' })
+    }, 'human');
+    assert.equal(refreshed.status, 'completed', 'refreshing an artifact must not reopen the completed workflow');
+    assert.equal(refreshed.version, completedVersion, 'artifact refresh must not rewrite immutable workflow history');
+    const refreshedBrief = await readFile(path.join(dataDir, projectId, 'research/writing-brief.md'), 'utf8');
+    assert.match(refreshedBrief, /Grounded Retrieval — Updated Evidence/, 'the derived brief should refresh from current Evidence');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -196,4 +212,3 @@ test('a failed ideation Harness Run leaves the stage empty instead of fabricatin
     globalThis.fetch = originalFetch;
   }
 });
-
