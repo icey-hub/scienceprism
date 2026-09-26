@@ -94,6 +94,7 @@ export async function runResearchHarnessStage({
   adapter,
   fakeResponse,
   fakeError,
+  existingRunId,
   runHarness = runHarnessRequest
 } = {}) {
   const normalizedStage = normalizeResearchStage(stage);
@@ -144,6 +145,8 @@ export async function runResearchHarnessStage({
   const attempt = async (repair) => {
     const harnessResult = await runHarness({
       ...baseRequest,
+      ...(!repair && existingRunId ? { existingRunId } : {}),
+      ...(repair && existingRunId ? { replayOf: existingRunId } : {}),
       prompt: buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills, repair })
     });
     const parsedValidation = parseResearchStageOutput(normalizedStage, harnessResult?.reply || '');

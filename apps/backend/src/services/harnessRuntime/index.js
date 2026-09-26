@@ -574,6 +574,17 @@ export async function listHarnessRuns(projectId, { status, stage, parentRunId, l
 export async function startHarnessRun(projectId, runId, { wait = false, request = {} } = {}) {
   const run = await getHarnessRun(projectId, runId);
   assertRunnableStatus(run);
+  if (run.parentRunId) {
+    const parent = await getHarnessRun(projectId, run.parentRunId);
+    if (parent.status !== 'created') {
+      throw new HarnessRuntimeError(409, 'INVALID_DELEGATION_PARENT', 'The parent Run must remain unstarted while a child executes.');
+    }
+  } else {
+    const children = await listHarnessRuns(projectId, { parentRunId: run.id, limit: 100 });
+    if (children.some((child) => !TERMINAL_HARNESS_RUN_STATUSES.includes(child.status))) {
+      throw new HarnessRuntimeError(409, 'DELEGATION_IN_PROGRESS', 'Finish or cancel child Runs before starting their parent.');
+    }
+  }
   if (run.capabilities.denied?.length) {
     const denied = await updateRun(projectId, runId, (current) => {
       current.status = 'failed';
@@ -749,8 +760,10 @@ export async function recordHarnessRunValidation(projectId, runId, validation) {
 
 export async function runHarnessRequest(request = {}) {
   if (!request.projectId) return { ok: false, reply: 'Missing project id.', patches: [], runtime: normalizeAdapter(request.adapter) };
-  const run = await createHarnessRun(request.projectId, request);
-  const result = await startHarnessRun(request.projectId, run.id, { wait: true });
+  const run = request.existingRunId
+    ? await getHarnessRun(request.projectId, request.existingRunId)
+    : await createHarnessRun(request.projectId, request);
+  const result = await startHarnessRun(request.projectId, run.id, { wait: true, request });
   return {
     ok: result.status === 'completed',
     reply: result.reply || '',
