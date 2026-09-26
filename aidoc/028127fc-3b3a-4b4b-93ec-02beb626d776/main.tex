@@ -36,53 +36,77 @@
 \maketitle
 
 \begin{abstract}
-Graph neural networks (GNNs) use node attributes and neighborhood structure for anomaly detection. However, predictive performance does not establish explanation fidelity or causal validity. We used the SciencePrism controlled experiment runner to compare a two-layer graph convolutional network (GCN) with feature-only logistic regression on the GADBench Reddit graph. We also conducted an edge-mask deletion pilot on a fixed, small sample. Across three official splits of the same graph, mean AUPRC was $0.0620\pm0.0064$ for the GCN and $0.0605\pm0.0047$ for logistic regression. Mean AUROC was $0.6695\pm0.0197$ and $0.6594\pm0.0087$, respectively. These differences are descriptive because the splits share one graph. In the explanation pilot, 9 of 12 stratified test nodes from split 0 yielded explanations. The median difference in predicted-class logit drop between mask-ranked edges and 20 equal-size random deletions was $0.0025$. The mean was $0.4585$, driven largely by values near $1.377$ for three nodes labeled as normal, indicating substantial instance-level heterogeneity and precluding a general claim of explanation reliability. We distinguish detection labels, model-prediction perturbations, and explanation ground truth, and discuss limits arising from a single graph, transductive evaluation, a small explanation sample, and deletion-induced distribution shift.
+Graph neural networks (GNNs) use node attributes and neighborhood structure for anomaly detection. However, predictive performance does not establish explanation fidelity or causal validity. We used the SciencePrism controlled experiment runner to compare a two-layer graph convolutional network (GCN) with feature-only logistic regression on the GADBench Reddit graph. We also conducted an edge-mask deletion pilot on a fixed, small sample. Across three official splits of the same graph, mean AUPRC was $0.0620\pm0.0064$ for the GCN and $0.0605\pm0.0047$ for logistic regression. Mean AUROC was $0.6695\pm0.0197$ and $0.6594\pm0.0087$, respectively. These differences are descriptive because the splits share one graph. In the explanation pilot, 9 of 12 stratified test nodes from split 0 yielded explanations. The median difference in predicted-class logit drop between mask-ranked edges and 20 equal-size random deletions was $0.0025$. The mean was $0.4585$, driven by three values near $1.377$ from nodes labeled and predicted as normal; the mean for anomaly-labeled cases was $-0.0015$. These results indicate instance-level heterogeneity and do not establish explanation reliability. We distinguish detection labels, model-prediction perturbations, and explanation ground truth, and discuss limits arising from a single graph, transductive evaluation, a small explanation sample, and deletion-induced distribution shift.
 \end{abstract}
 
 \noindent\textbf{Keywords:} graph anomaly detection; graph neural networks; local explanations; fidelity; GADBench; GNNExplainer
 
 \section{Introduction}
-Node anomaly detection is complicated by severe class imbalance, interactions between node attributes and graph topology, and data-specific definitions of anomalous behavior. Graph neural networks combine node features with neighborhood information through message passing. Yet more complex GNNs do not necessarily outperform simpler neighborhood-aggregation or feature-based baselines in supervised graph anomaly detection. GADBench systematically compared 29 models across ten real-world graph datasets and found that simple tree ensembles remained competitive on several tasks\cite{tang2023gadbench}. GNN performance should therefore be established empirically rather than assumed.
+Node anomaly detection combines a difficult ranking problem with an application-dependent definition of what counts as anomalous. An anomalous node may be unusual in its attributes, its structural position, or the agreement between those two views. Labels are also scarce in many settings, so methods trained from labeled anomalies and methods that infer outliers from reconstruction error address different information regimes. For example, DOMINANT learns node representations with a graph convolutional encoder and scores nodes using attribute and structure reconstruction errors\cite{ding2019dominant}. By contrast, GADBench defines a supervised static-graph benchmark and compares 29 models over ten real-world datasets\cite{tang2023gadbench}. It reports that tree ensembles with simple neighborhood aggregation can outperform GNNs tailored to graph anomaly detection. The benchmark therefore motivates direct comparisons rather than an assumption that message passing will help.
 
-Model explanations raise a question distinct from detection performance. GNNExplainer formulates the explanation of an individual prediction as an optimization problem over compact subgraphs and salient features\cite{ying2019gnnexplainer}. Highly weighted edges remain model-internal importance signals. A large prediction change after deleting them indicates sensitivity of the current output, but does not establish a causal anomaly mechanism. Studies of graph-explanation evaluation likewise show that conclusions depend on metric definitions, explanation targets, and perturbation distributions\cite{agarwal2022probing,zheng2024robust}.
+Detection performance is only one part of an explainable anomaly-detection claim. A post-hoc explainer usually describes why a fitted model produced a particular output; that output may or may not agree with the dataset label, and neither agreement nor an importance score identifies the real-world cause of an anomaly. GNNExplainer optimizes compact edge and feature masks for a particular prediction\cite{ying2019gnnexplainer}, while PGExplainer learns a parameterized explanation generator that can be applied across instances\cite{luo2020pgexplainer}. These methods make clear that a mask is an object of analysis in its own right. Its quality depends on which prediction is explained, how the mask is evaluated, and whether the perturbation used for evaluation is plausible. Systematic studies consequently distinguish fidelity dimensions and show that rankings can change with the evaluation protocol\cite{amara2022graphframex,agarwal2022probing,zheng2024robust}.
 
-Using the project-level SciencePrism controlled runner, we conducted a bounded exploratory evaluation on GADBench Reddit. We asked two questions:
-\begin{enumerate}
-  \item How do a two-layer GCN and feature-only logistic regression compare in AUPRC and AUROC under the same official splits?
-  \item For a fixed sample of test nodes, how does deleting the top-$k$ mask-ranked edges change the predicted-class logit relative to deleting the same number of random edges?
-\end{enumerate}
-This study proposes neither a new detector nor a new explainer, and its single-graph results are not generalized to attributed graphs broadly. Dataset labels provide node-level ground truth for detection only; no edge-level explanation ground truth was available.
+Here we use the SciencePrism controlled experiment runner to conduct a bounded evaluation on the GADBench Reddit graph. The first question is whether a two-layer graph convolutional network (GCN) improves anomaly ranking over a feature-only logistic-regression baseline under the same official data masks. The second is whether, for a prespecified small sample of test nodes, deleting the top-ranked edges from a local edge mask changes the model's predicted-class logit more than deleting an equal number of random candidate edges. The first question concerns detection performance; the second concerns local sensitivity of a fitted GCN. They are related but not interchangeable.
+
+This study contributes an auditable, single-graph case study rather than a new detector or explainer. It records source-data hashes and uses the benchmark's three official masks, reports the validation-based model-selection outcomes alongside test metrics, and exposes the node-level explanation perturbations instead of relying on one aggregate. The explanation pilot is deliberately interpreted as exploratory: a positive deletion difference is evidence about the model's response to that particular perturbation, not evidence that the selected edges are the cause of anomalous behavior.
+
+Dataset labels provide node-level ground truth for detection only; no edge-level explanation ground truth was available. All conclusions are therefore restricted to this graph, these model implementations, and the recorded perturbation protocol.
 
 \section{Related Work}
 \subsection{Graph Anomaly Detection}
-Graph convolutional networks (GCNs) combine node attributes and local structure through layer-wise propagation over a normalized adjacency matrix\cite{kipf2017gcn}. GADBench benchmarks supervised graph anomaly detection across multiple models and real-world datasets\cite{tang2023gadbench}. We use its Reddit data and official train, validation, and test masks, with feature-only logistic regression as a narrow baseline. This comparison does not cover the full set of GADBench competitors and cannot reproduce the benchmark paper's model rankings.
+Graph anomaly detectors differ in the supervision available and in how they define abnormality. Reconstruction-based approaches can operate without node labels: DOMINANT, for example, combines graph convolution with a deep autoencoder and uses attribute- and structure-reconstruction errors to score nodes\cite{ding2019dominant}. Supervised approaches instead learn to separate labeled anomalous and normal nodes, which makes their results dependent on the label definition and split protocol. GADBench provides a broad evaluation of this supervised setting, comparing 29 models on ten real-world datasets and finding that simple tree ensembles with neighborhood aggregation can be highly competitive\cite{tang2023gadbench}. These families answer different questions, so this paper does not treat a supervised GCN as a proxy for graph anomaly detection as a whole.
+
+The present comparison uses a two-layer GCN, which aggregates normalized neighborhood information together with node attributes\cite{kipf2017gcn}, and a feature-only logistic-regression baseline. The latter provides a transparent check on whether the tested GCN improves on a linear decision rule over the same node attributes. It is intentionally narrower than the tree-ensemble and neighborhood-aggregation baselines emphasized by GADBench, and the experiment does not re-run its full benchmark. Accordingly, the results should be read as a within-dataset comparison of two specified models rather than a new ranking of anomaly-detection methods.
 
 \subsection{Local GNN Explanations and Fidelity}
-GNNExplainer learns edge and feature masks to provide compact explanations for individual GNN predictions\cite{ying2019gnnexplainer}. Subsequent work emphasizes the need to specify the explanation target, evaluation protocol, and controls. Deletion-based fidelity metrics can also be affected by distribution shift in the perturbed graph\cite{agarwal2022probing,zheng2024robust}. Our local edge-mask pilot is inspired by GNNExplainer, but is neither a reproduction of the original method nor its official implementation. Random deletions serve only as a control for effects on the current prediction; they do not provide external labels for explanation correctness.
+GNNExplainer formulates explanation as an optimization problem and identifies compact subgraphs and feature subsets that retain information about a particular GNN prediction\cite{ying2019gnnexplainer}. PGExplainer takes a different route: it learns a parameterized generator so that explanations can be produced collectively for multiple instances\cite{luo2020pgexplainer}. Both methods concern model outputs, but the per-instance optimization and the shared explanation generator have different computational and generalization assumptions. The present pilot uses a single optimized edge mask per selected node; it is inspired by GNNExplainer and is neither a reproduction of that method nor an implementation of PGExplainer.
+
+Evaluation must also separate the model's behavior from the phenomenon a user hopes to understand. GraphFramEx organizes explanation evaluation around user needs and distinguishes necessary explanations, whose removal affects a prediction, from sufficient explanations, whose retained content preserves it\cite{amara2022graphframex}. The deletion control used here asks only a necessity-like question for the model's current predicted class: does removal of the highest-ranked edge set reduce that class logit more than an equal-budget random deletion? It does not test whether the selected edges alone are sufficient, and it does not compare the mask with annotated anomaly mechanisms. Broader analyses of GNN explainers similarly examine faithfulness, stability, and other properties rather than treating one perturbation score as a universal quality measure\cite{agarwal2022probing}.
+
+Finally, deletion is not a neutral operation on a graph. Removing edges can alter message-passing pathways and can move the input away from the distribution on which the model was fitted; a fidelity score can therefore depend on the construction of the perturbed graph and its reference distribution\cite{zheng2024robust}. Our equal-size random control estimates a useful within-node contrast, but both deletion conditions preserve the original degree-normalization coefficients. This makes the comparison reproducible while leaving sensitivity to re-normalization and distribution shift unresolved. The distinction matters when interpreting the signed differences reported below.
 
 \section{Methods}
 \subsection{Data and Splits}
-We used the DGL Reddit graph file from the official GADBench repository\cite{gadbenchrepo}. The archived data contain 10,984 nodes, 64-dimensional node features, 366 anomaly labels, and 168,016 raw directed edge records. Graph semantics and label definitions follow the data source. The experiment script verifies the SHA-256 hash of the uncompressed source file on loading: \texttt{\scriptsize 575caca4\allowbreak 2abdb659\allowbreak cda70017\allowbreak 4854f7c1\allowbreak 542d0cb7\allowbreak f79f6766\allowbreak 12d4a838\allowbreak 5142a0fa}. The compressed input passed to the runner has a separate SHA-256 hash: \texttt{\scriptsize ce1ad69e\allowbreak a915d085\allowbreak 7495b7cc\allowbreak 75dc8853\allowbreak 5ac014b3\allowbreak 198f8213\allowbreak c7c35b09\allowbreak 347190d6}. These hashes refer to different file layers and should not be interchanged.
+We used the DGL Reddit graph distributed by the official GADBench repository\cite{gadbenchrepo}. It contains 10,984 nodes, 64-dimensional node features, 366 anomalous-node labels (3.33\% of nodes), and 168,016 raw directed edge records. The source labels and graph construction were not altered. Before modeling, the experiment script checks the SHA-256 digest of the uncompressed source file: \texttt{\scriptsize 575caca4\allowbreak 2abdb659\allowbreak cda70017\allowbreak 4854f7c1\allowbreak 542d0cb7\allowbreak f79f6766\allowbreak 12d4a838\allowbreak 5142a0fa}. The compressed input sent to the controlled runner has a separate digest, \texttt{\scriptsize ce1ad69e\allowbreak a915d085\allowbreak 7495b7cc\allowbreak 75dc8853\allowbreak 5ac014b3\allowbreak 198f8213\allowbreak c7c35b09\allowbreak 347190d6}; these values identify different file layers.
 
-We trained and evaluated models separately under the three official train, validation, and test masks. Each mask-specific run used training labels for fitting, validation labels for early stopping or baseline selection, and test labels only for final AUPRC and AUROC calculation. We refer to these runs as split-level trials 0–2; random seeds 17–19 were assigned in order. Because all masks apply to the same graph, they are neither independent datasets nor evidence of cross-graph generalization. Feature transformations were fitted on training nodes only. The GCN used the full graph for transductive message passing, so test-node features and topology were visible during training, but test labels were not used for optimization.
+For message passing, we converted the source adjacency to an undirected binary matrix by taking the union with its transpose, added self-loops, and used symmetric degree normalization. The three official train, validation, and test masks were checked for overlap and applied as supplied. Each mask-specific run fitted feature standardization on training nodes only; training labels were used for model fitting, validation labels for early stopping or hyperparameter selection, and test labels only for final evaluation. We call these mask-specific runs split-level trials 0--2 and assigned seeds 17--19 in order. All three trials reuse one graph, so their dispersion describes sensitivity to the official masks and seeds, not variability across independent graphs.
+
+The GCN follows a transductive protocol. During training, the full graph structure and the feature vectors of test nodes participate in message passing, while test labels remain excluded from optimization and model selection. This setting is appropriate to the supplied fixed-graph masks but differs from predicting nodes on an unseen graph or under an inductive split. We retain this distinction throughout the interpretation.
 
 \subsection{Detection Models}
-The GCN had two layers and a hidden width of 32:
+For graph $G=(V,E)$ with feature matrix $X$, we trained a two-layer GCN with hidden width 32. Let $A$ denote the symmetrized, binarized adjacency after adding self-loops and let $D$ be its degree matrix. The normalized adjacency is $\tilde A=D^{-1/2}AD^{-1/2}$. The forward pass is
 \begin{equation}
-  H=\operatorname{ReLU}(\hat A X W_0),\qquad Z=\hat A H W_1,
+  H=\operatorname{ReLU}(\tilde A X W_0),\qquad Z=\tilde A H W_1+b_1,
 \end{equation}
-The adjacency matrix was symmetrized, binarized, and augmented with self-loops before symmetric degree normalization. We trained the model with class-weighted cross-entropy and Adam (learning rate, $0.01$; weight decay, $5\times10^{-4}$). Training stopped after at most 60 epochs, with early stopping after ten consecutive epochs without improved validation AUPRC. The three split-level trials used seeds 17, 18, and 19, respectively.
+where $W_0$ and $W_1$ are learned weight matrices and $b_1$ is the output bias. The model outputs two class logits per node; the anomaly score is the softmax probability of class 1. We minimized class-weighted cross-entropy on training nodes, with normal-class weight 1 and anomaly-class weight equal to the training-set negative-to-positive ratio. Adam used learning rate $0.01$ and weight decay $5\times10^{-4}$. Training ran for at most 60 epochs. After each epoch, validation AUPRC was calculated; the checkpoint with the highest validation AUPRC was retained, and optimization stopped after ten consecutive epochs without an improvement greater than $10^{-5}$. The seed-specific best epochs and stopping epochs are reported in Appendix~A.
 
-As a comparator, the baseline was logistic regression using node features only. The scaler was fitted on training nodes, and class-balanced weights were used during fitting. We selected $C\in\{0.1,1,10\}$ by validation AUPRC. Both models used the same masks, and test data did not inform model selection. We report AUPRC as the primary ranking metric for this imbalanced task and also report AUROC. Summary values are arithmetic means across the three split-level trials; $\pm$ denotes the sample standard deviation across masks. Because the trials share one graph and number only three, we performed no significance tests or independent-sample inference.
+The comparison model was logistic regression using node features only. For each split, the standard scaler was fitted to training features, and logistic regression used balanced class weights with at most 500 solver iterations. We selected $C$ from $\{0.1,1,10\}$ by validation AUPRC and retained the corresponding test scores. Thus both models used the same official masks, and test labels did not inform checkpoint or hyperparameter selection. This baseline tests whether the GCN improves on a linear feature-only rule; it does not isolate the causal contribution of topology from all other architectural differences.
+
+We report average precision (AUPRC) as the primary ranking metric because anomalies are rare, and area under the receiver operating characteristic curve (AUROC) as a complementary pairwise-ranking measure. Metrics were computed on each test mask without selecting a binary decision threshold. We report the arithmetic mean and sample standard deviation across the three split-level trials. Since those trials share the same graph and there are only three of them, the summary is descriptive; we do not treat its standard deviation as an independent-sample confidence interval and perform no significance test.
 
 \subsection{Local Edge Masks and Deletion Controls}
-The explanation pilot was restricted to split-level trial 0. Using a fixed random seed, we selected up to six anomalous and six normal test nodes, for a maximum of 12 candidates. For each node, we constructed a two-hop local subgraph and optimized a trainable mask shared across undirected edge pairs for 35 steps. The mask objective preserved the original predicted-class output while applying sparsity and entropy regularization. Candidate explanation edges were restricted to local edges incident to the target node's one-hop neighborhood. This implementation is an edge-mask variant inspired by GNNExplainer; it does not include the original method's full feature-mask objective or its official implementation.
+The explanation pilot used the split-0 GCN and a fixed, label-stratified sample of up to six anomalous and six normal test nodes. Labels were used only to form this balanced pilot sample, not in mask optimization. Sampling used random seed 2026; each node's mask and random-deletion controls used seed $1000+v$, where $v$ is the node identifier. This design gives both label groups representation but is not a prevalence-representative sample and was not intended to estimate population-level explanation quality.
 
-We selected $k=\min(10,\max(1,\operatorname{round}(0.1m)))$ edges by mask logit, where $m$ is the number of candidate edges. For each node, we deleted the top-$k$ mask-ranked edges and 20 sets of the same number of randomly selected edges. Both deletion conditions retained the original graph's degree-normalization coefficients. We recorded the drop in the target model's logit for its \emph{predicted class}. We defined
+For each selected target node $v$, we extracted its two-hop induced subgraph. Candidate mask variables were assigned to non-self-loop undirected edge pairs in that subgraph that had at least one endpoint in the target's one-hop neighborhood; each parameter was shared by the two directed entries for the same pair. All other local edges and all node features remained fixed. If $m_v$ denotes the number of candidate pairs and $M_e=\sigma(\omega_e)$ the mask probability for pair $e$, the optimization objective was
 \begin{equation}
-  \Delta_i = d_i^{\mathrm{mask}} - \frac{1}{20}\sum_{j=1}^{20}d_{ij}^{\mathrm{random}}.
+  \mathcal{L}_{\mathrm{mask}}(\omega)=-\log p_{\theta}(c_v\mid G_v(M),X_v)
+  +0.05\,\frac{1}{m_v}\sum_e M_e
+  +0.01\,\frac{1}{m_v}\sum_e h(M_e),
 \end{equation}
-Positive values indicate a larger predicted-class logit drop after deleting mask-ranked edges than after equal-size random deletion. $\Delta_i$ measures perturbation sensitivity for the current model and node; it is not explanation accuracy against ground truth. We skipped nodes when their two-hop subgraphs exceeded 3,000 nodes, the candidate-edge limit was exceeded, or too few candidate edges were available.
+where $c_v$ is the class predicted for $v$ on the unmasked local graph, $p_{\theta}$ is the fitted GCN's softmax output, and $h(q)=-q\log q-(1-q)\log(1-q)$ is Bernoulli entropy. Mask logits were initialized to zero and optimized for 35 steps with Adam at learning rate 0.15. The first term preserves the model's original predicted class, while the two regularizers favor a sparse, low-entropy mask. This lightweight implementation does not include the original GNNExplainer feature-mask objective or all details of its mutual-information formulation.
+
+We ranked candidate pairs by learned mask logit and set $k_v=\min(10,\max(1,\operatorname{round}(0.1m_v)))$. For each target, one perturbation deleted the top-$k_v$ pairs; 20 controls independently sampled the same number of candidate pairs without replacement within each control. Deleting an undirected pair removed both directed entries. The local graph retained the full graph's original degree-normalization coefficients in every perturbation, so degrees were not recomputed after edge removal. Targets were skipped if fewer than three candidate pairs were available, the local graph exceeded 3,000 nodes, or the candidate count exceeded 20,000.
+
+For a target with original predicted class $c_v$, let $z_{v,c_v}(G_v)$ be its logit on the unmasked local graph and $z_{v,c_v}(G_v\setminus S)$ its logit after deleting edge set $S$. We measured
+\begin{equation}
+  d^{\mathrm{mask}}_v=z_{v,c_v}(G_v)-z_{v,c_v}(G_v\setminus S^{\mathrm{mask}}_v),\qquad
+  d^{\mathrm{rand}}_{vj}=z_{v,c_v}(G_v)-z_{v,c_v}(G_v\setminus S^{\mathrm{rand}}_{vj}),
+\end{equation}
+and defined the paired difference
+\begin{equation}
+  \Delta_v=d^{\mathrm{mask}}_v-\frac{1}{20}\sum_{j=1}^{20}d^{\mathrm{rand}}_{vj}.
+\end{equation}
+Positive $\Delta_v$ means that deleting the mask-ranked set reduced the current predicted-class logit more than the mean equal-size random deletion did. A negative value means that the random deletions produced the larger mean reduction. The quantity is expressed in logit units and summarizes one target, one fitted model, and one perturbation protocol. It does not measure probability change, explanation sufficiency, semantic correctness, or causal effect on the labeled phenomenon.
 
 \begin{figure}[t]
 \centering
@@ -192,7 +216,7 @@ Positive values indicate a larger predicted-class logit drop after deleting mask
   \draw[draw=violet!20,fill=violet!4,rounded corners=1mm] (11.55,.95) rectangle (15.12,1.63);
   \node[circle,draw=violet!45,fill=white,minimum size=5mm,inner sep=0pt,text=violet,font=\sffamily\bfseries\scriptsize] at (11.88,1.29) {3};
   \node[font=\sffamily\bfseries\scriptsize,text=ink,anchor=west] at (12.20,1.41) {Rank candidate edges};
-  \node[panelsub,anchor=west] at (12.20,1.12) {$k=\min(10,\operatorname{round}(0.1m))$};
+  \node[panelsub,anchor=west] at (12.20,1.12) {$k=\min(10,\max(1,\operatorname{round}(0.1m)))$};
   \draw[draw=orange!35,fill=orange!6,rounded corners=1mm] (11.55,.30) rectangle (15.12,.82);
   \node[panelsub,align=center,text=orange!80!black] at (13.335,.56) {Skip if local graph exceeds 3,000 nodes};
 
@@ -226,7 +250,9 @@ Positive values indicate a larger predicted-class logit drop after deleting mask
 
 \section{Results}
 \subsection{Detection Performance}
-Table~\ref{tab:detection} summarizes test performance across the three official splits. The test set in split-level trial 0 contained 4,395 nodes, including 147 anomalies (3.34\%). GCN AUPRC was higher than logistic-regression AUPRC in trials 0 and 2, but lower in trial 1. AUROC showed the same direction of split-wise variation. The mean differences across trials were $0.0016$ in AUPRC and $0.0101$ in AUROC. Because the three splits share one underlying graph, these differences are descriptive and do not provide statistical evidence of GCN superiority.
+Table~\ref{tab:detection} summarizes test performance across the three official splits. Each test mask contained 4,395 nodes, including 147 anomalies (3.34\%). GCN AUPRC was higher than logistic-regression AUPRC in trials 0 and 2, but lower in trial 1. AUROC showed the same direction of split-wise variation. The mean differences across trials were $0.0016$ in AUPRC and $0.0101$ in AUROC. Because the three splits share one underlying graph, these differences are descriptive and do not provide statistical evidence of GCN superiority.
+
+Model selection was performed separately on each validation mask. The GCN's best checkpoints occurred at epochs 27, 11, and 9; training stopped at epochs 37, 21, and 19, respectively. Logistic-regression regularization was selected as $C=10$, $C=10$, and $C=0.1$. Appendix~A reports the corresponding validation AUPRC values and test-set counts so that the reported test comparison can be read alongside, rather than conflated with, the model-selection record.
 
 \begin{table}[t]
 \centering
@@ -247,9 +273,11 @@ Mean $\pm$ SD & $0.0620\pm0.0064$ & $0.0605\pm0.0047$ & $0.6695\pm0.0197$ & $0.6
 \end{table}
 
 \subsection{Local Explanation Perturbations}
-Explanation optimization succeeded for 9 of the 12 sampled nodes. Three nodes were skipped because their two-hop subgraphs exceeded 3,000 nodes. Four of the nine successfully explained nodes carried anomaly labels, and five carried normal labels. Across these nodes, the mean $\Delta_i$ was $0.4585$ (sample SD, $0.6891$), and the median was $0.0025$. Mean $\Delta_i$ was $-0.0015$ for anomaly-labeled nodes ($n=4$) and $0.8264$ for nodes labeled as normal ($n=5$). Three nodes labeled as normal contributed values near $1.377$; the other six successful cases were close to zero. The overall mean therefore does not represent a typical node effect and should not be interpreted as general explanation fidelity.
+Explanation optimization succeeded for 9 of the 12 sampled nodes; the three skipped cases all exceeded the 3,000-node local-subgraph limit. Four successful cases had anomaly labels and five had normal labels. The model predicted the anomaly class for two of the four labeled anomalies and for one of the five labeled normal nodes. Thus six of the nine sampled labels agreed with the model's predicted class, but this label-stratified pilot is too small and deliberately non-representative to estimate classification accuracy. The full node-level outcomes are listed in Appendix~B.
 
-Figure~\ref{fig:results} shows split-wise detection metrics alongside node-wise perturbation differences. Panel C retains the full range across all successful cases. Panel D expands the scale for the six remaining near-zero cases so that three large values do not compress the other points. A positive difference indicates a larger predicted-class logit drop after deleting mask-ranked edges than after random deletion. It measures sensitivity of this model to the specified perturbation only.
+Across the nine successful explanations, mean $\Delta_v$ was $0.4585$ (sample SD, $0.6891$) and the median was $0.0025$. The mean was $-0.0015$ among anomaly-labeled nodes ($n=4$) and $0.8264$ among normal-labeled nodes ($n=5$). All three values near $1.377$ came from normal-labeled nodes that the model also predicted as normal; the remaining six node-level differences were within $0.016$ of zero. Among the four explained anomaly-labeled nodes, the largest positive $\Delta_v$ was $0.0069$. Appendix~C reports each mask-ranked logit drop and its 20-control random-deletion summary.
+
+Figure~\ref{fig:results} shows split-wise detection metrics alongside node-wise perturbation differences. Panel C retains the full range across all successful cases. Panel D expands the scale for the six remaining near-zero cases so that three large values do not compress the other points. A positive difference indicates a larger predicted-class logit drop after deleting mask-ranked edges than after random deletion. It measures sensitivity of this model to the specified perturbation only. The fact that the large effects occur on correctly predicted normal nodes illustrates why anomaly labels, GCN predictions, and explanation-ground-truth labels must remain distinct.
 
 \begin{figure}[t]
 \centering
@@ -259,17 +287,94 @@ Figure~\ref{fig:results} shows split-wise detection metrics alongside node-wise 
 \end{figure}
 
 \section{Discussion}
-The two-layer GCN and feature-only logistic regression had similar mean metrics, and the GCN did not lead on every split. This observation is consistent with GADBench's rationale for evaluating simple baselines broadly. However, a comparison on one dataset cannot support conclusions about model rankings across GADBench. Reddit has a low anomaly prevalence, making AUPRC sensitive to performance on the minority class. AUROC alone may also obscure precision constraints at low prevalence.
+The detector comparison does not show a stable advantage for neighborhood aggregation over the feature-only baseline. The GCN had the higher test AUPRC on two masks and the lower value on one; the mean gap was small relative to the observed split-wise spread. This pattern is compatible with the broader motivation of GADBench, where simple neighborhood-aware tree ensembles can compete with specialized GNNs, but our experiment did not include those stronger baseline families\cite{tang2023gadbench}. It therefore cannot answer whether a GCN is preferable to the best available supervised detector. Nor is the GCN-versus-logistic comparison a controlled topology ablation: the models differ in both their function class and their access to edges.
 
-The explanation pilot showed a strongly skewed distribution of differences between mask-ranked and random deletions. The median was close to zero, whereas three large values from nodes labeled as normal raised the mean. Reporting only the aggregate mean would therefore obscure the small effects in most cases. A normal label does not imply a normal model prediction. Our perturbations targeted the model's current predicted-class logit, and node labels were not used to optimize edge masks. The observed differences establish neither an anomaly mechanism nor the semantic correctness of the masks.
+The explanation pilot's median difference was close to zero, while three large positive values pulled the mean upward. The node-level records show that those values occurred for normal-labeled nodes whose predicted class was also normal. Conversely, two of the four explained anomaly-labeled nodes were predicted as normal and had near-zero deletion differences. These cases concern two different questions: whether the model's output depends on a selected edge set, and whether the model's output captures the labeled anomaly phenomenon. A mask can be sensitive for a correct normal prediction without identifying an anomaly mechanism; a mask on a mistaken anomaly prediction explains model behavior rather than the missed phenomenon. GraphFramEx makes this target distinction explicit in its evaluation framework\cite{amara2022graphframex}.
 
-The explanation benchmark is also limited by its implementation and perturbation protocol. Its objective is a simplified GNNExplainer-inspired variant, not a reproduction of the original method. The pilot included only 12 prespecified nodes, and three explanations could not be generated because of local-subgraph size limits. All deletions retained the original degree-normalization coefficients, so perturbed graphs differed from graphs that would be obtained by recomputing normalization. Deletion may also create structures outside the training distribution. Future studies could evaluate more independent graphs and explanation instances using robust perturbation protocols. They could also separate model fidelity from mechanistic correctness using data with trusted edge annotations or synthetic ground truth.
+The measured deletion contrast is also narrower than a complete explanation-fidelity assessment. It is a necessity-like test on the model's predicted class, using an edge mask optimized to preserve that same class. It does not test sufficiency by retaining only the selected edges, compare edge rankings against trusted labels, or measure stability across explainer initializations. Its 20 random controls provide a within-node reference distribution, but the reported sample standard deviation describes only those random edge sets. Graph-explanation evaluations have shown that fidelity can depend on perturbation construction and reference distribution\cite{agarwal2022probing,zheng2024robust}; here, fixed degree normalization leaves the behavior under re-normalized graphs unknown.
+
+Two follow-up tests would resolve the most consequential uncertainties. First, an evaluation across several benchmark graphs should compare the GCN with neighborhood-aggregation tree ensembles and repeat explanation optimization across seeds, reporting results separately for correct and incorrect predictions. This would reveal whether the present split and node heterogeneity recurs beyond one graph. Second, controlled graphs with planted anomalous motifs and known explanatory edges could test whether an explanation recovers the phenomenon, while matched perturbations and re-normalized adjacency test whether the mask's apparent necessity is robust to the deletion protocol. These tests would distinguish model sensitivity from semantic explanation quality, which the current labels and run cannot do.
 
 \section{Limitations}
-Five limitations bound the conclusions. First, the experiment used one Reddit graph and one two-layer GCN, so it does not represent attributed graphs or graph anomaly-detection methods broadly. Second, the three official masks share the same nodes, features, and topology. Their across-split standard deviation is not cross-dataset uncertainty and should not be treated as a confidence interval from independent samples. Third, transductive message passing exposed the model to full-graph structure and test-node features during training. Test labels were withheld, but this setting differs from inductive prediction on new graphs. Fourth, local explanations covered a small, fixed sample from split-level trial 0, with size-related exclusions. Fifth, the dataset provides detection labels but no edge-level explanation ground truth. Perturbation therefore measures local model sensitivity only, and fixed degree normalization plus deletion-induced distribution shift may affect that measure. The findings should consequently be interpreted as exploratory.
+Several limitations bound these conclusions. The detector study uses one graph, one supervised GCN, and a feature-only logistic-regression comparator; it does not include the strongest neighborhood-aggregation or tree-ensemble baselines from the wider benchmark. The three official masks reuse the same graph and are not independent replications, so their standard deviation cannot represent cross-graph uncertainty. The transductive protocol also exposes test-node features and topology to message passing, even though test labels are withheld.
+
+The explanation study covers 12 selected candidates and yields nine masks, all from split 0. Two anomaly-labeled nodes and one normal-labeled node were excluded by the size limit. Each explanation uses one mask initialization and a fixed top-10 deletion budget; no repeated-seed stability estimate or sufficiency test was produced. The dataset has no edge-level explanation ground truth. As a result, the perturbation score measures local sensitivity of this GCN to one specified intervention, not the correctness of the edge mask as an explanation of anomalous behavior. Finally, retaining the original degree-normalization coefficients after deletion and the possibility of out-of-distribution perturbed inputs may change the measured sensitivity. The source dataset's label-generation process and licensing terms were not independently audited in this study.
 
 \section{Conclusion}
-Across the three official GADBench Reddit splits, the two-layer GCN and feature-only logistic regression achieved similar detection metrics with split-wise variation. The small mask-deletion pilot had a near-zero median difference and a few large positive outliers, illustrating why instance-level results are more informative than a single mean. The evidence neither establishes consistent GCN superiority under this setting nor shows that local explanations reveal real anomaly causes. Reliable conclusions about explainable graph anomaly detection require more independent graphs, broader instance-level evaluation, and trusted explanation ground truth.
+Across the three official GADBench Reddit splits, the two-layer GCN and feature-only logistic regression achieved similar detection metrics, with the leading model varying by split. In a nine-node explanation pilot, most mask-versus-random deletion differences were close to zero and three large effects came from predicted-normal nodes. This study therefore supports a narrow methodological point: detector scores, model-prediction sensitivity, and explanations of the anomaly phenomenon require separate evidence. The recorded run does not establish consistent GCN superiority or that local edge masks recover real anomaly causes. Resolving those questions will require stronger supervised baselines, multiple independent graphs, repeated explanation runs, and datasets with trusted edge-level ground truth.
+
+\appendix
+\section{Model-Selection and Training Records}
+Table~\ref{tab:selection} gives the validation quantities that determined the saved GCN checkpoints and logistic-regression regularization. The GCN stopping epoch is the actual last epoch run after ten consecutive epochs without a validation AUPRC improvement greater than $10^{-5}$. These values document the selection path; they are not additional test outcomes.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Per-split model selection and training record. GCN validation AUPRC is measured at its retained best epoch; LR denotes feature-only logistic regression.}
+\label{tab:selection}
+\begin{tabular}{c r r c r c r}
+\toprule
+Trial & Test nodes & Test anomalies & GCN epoch (best/stop) & GCN validation AUPRC & LR $C$ & LR validation AUPRC\\
+\midrule
+0 & 4,395 & 147 & 27/37 & 0.1027 & 10 & 0.1042\\
+1 & 4,395 & 147 & 11/21 & 0.0858 & 10 & 0.0808\\
+2 & 4,395 & 147 & 9/19 & 0.0631 & 0.1 & 0.0694\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Node-Level Pilot Selection and Completion}
+Table~\ref{tab:pilotselection} lists all 12 nodes selected by label-stratified sampling. Labels and predicted classes use 1 for anomaly and 0 for normal. Candidate edge pairs exclude self-loops. The three skipped nodes exceeded the 3,000-node local-subgraph limit; their predictions and perturbation scores were not evaluated by the explainer.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Selected explanation-pilot nodes and completion status. Node identifiers are the original dataset indices.}
+\label{tab:pilotselection}
+\begin{tabular}{r c c r r l}
+\toprule
+Node & Label $y$ & Prediction $\hat y$ & Local nodes & Candidate pairs & Status\\
+\midrule
+7044 & 1 & -- & 3,569 & 8,150 & Skipped ($>3,000$ local nodes)\\
+8416 & 1 & 1 & 373 & 536 & Explained\\
+5341 & 1 & 1 & 1,370 & 1,562 & Explained\\
+425 & 1 & -- & 4,316 & 7,517 & Skipped ($>3,000$ local nodes)\\
+2591 & 1 & 0 & 538 & 1,644 & Explained\\
+9481 & 1 & 0 & 1,653 & 1,842 & Explained\\
+9944 & 0 & 0 & 2,556 & 2,555 & Explained\\
+9408 & 0 & 1 & 1,086 & 1,085 & Explained\\
+1920 & 0 & 0 & 1,097 & 1,096 & Explained\\
+7752 & 0 & 0 & 1,097 & 1,096 & Explained\\
+8646 & 0 & 0 & 1,097 & 1,096 & Explained\\
+7913 & 0 & -- & 4,248 & 6,615 & Skipped ($>3,000$ local nodes)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Per-Node Deletion Measurements}
+For each successfully explained node, the candidate-edge count $m_v$ exceeded 100, so the protocol removed $k_v=10$ undirected edge pairs in each mask-ranked and random perturbation. Table~\ref{tab:nodeeffects} reports the predicted-class logit drop for the mask-ranked deletion, the mean and sample standard deviation over the 20 random controls, and their difference. The random-control standard deviation describes variation among those 20 edge sets only; it does not include model, split, or explainer-seed uncertainty.
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Node-level local perturbation measurements (logit units). $d^{\mathrm{rand}}$ is shown as the mean across 20 equal-size random deletions with its sample standard deviation in parentheses.}
+\label{tab:nodeeffects}
+\begin{tabular}{r c c r r r}
+\toprule
+Node & Label $y$ & Prediction $\hat y$ & $d^{\mathrm{mask}}$ & $d^{\mathrm{rand}}$ mean (SD) & $\Delta_v$\\
+\midrule
+8416 & 1 & 1 & 0.0023 & 0.0174 (0.0075) & -0.0151\\
+5341 & 1 & 1 & 0.0005 & 0.0010 (0.0013) & -0.0005\\
+2591 & 1 & 0 & -0.0032 & -0.0101 (0.0253) & 0.0069\\
+9481 & 1 & 0 & 0.0022 & -0.0004 (0.0031) & 0.0025\\
+9944 & 0 & 0 & 0.0012 & -0.0006 (0.0006) & 0.0017\\
+9408 & 0 & 1 & 0.0004 & 0.0017 (0.0014) & -0.0013\\
+1920 & 0 & 0 & 1.3896 & 0.0127 (0.0024) & 1.3769\\
+7752 & 0 & 0 & 1.3896 & 0.0123 (0.0023) & 1.3773\\
+8646 & 0 & 0 & 1.3896 & 0.0120 (0.0025) & 1.3775\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section*{Data and Code Availability}
 The experiment was executed with the SciencePrism controlled runner. The run ID is \path{experiment-run-bca97a65-c447-4e18-87d0-e267623c78ec}.
@@ -280,7 +385,7 @@ Byte-identical copies of the manifest, environment record, standard output, stan
 
 To avoid redistributing the raw dataset, the archive records hashes for the compressed project input and the original source file. This study did not independently conduct a legal review of the dataset license or all associated metadata.
 
-\begin{thebibliography}{9}
+\begin{thebibliography}{99}
 \bibitem{tang2023gadbench}
 Tang J, Hua F, Gao Z, Zhao P, Li J. GADBench: Revisiting and Benchmarking Supervised Graph Anomaly Detection. In: \emph{Advances in Neural Information Processing Systems}; 2023.\newline
 \href{https://proceedings.neurips.cc/paper_files/paper/2023/hash/5eaafd67434a4cfb1cf829722c65f184-Abstract-Datasets_and_Benchmarks.html}{NeurIPS 2023 paper page}
@@ -304,6 +409,18 @@ Zheng X, Shirani F, Wang T, Cheng W, Chen Z, Chen H, Wei H, Luo D. Towards Robus
 \bibitem{gadbenchrepo}
 Tang J, et al. GADBench official code and dataset repository.\newline
 \url{https://github.com/squareRoot3/GADBench}
+
+\bibitem{ding2019dominant}
+Ding K, Li J, Bhanushali R, Liu H. Deep Anomaly Detection on Attributed Networks. In: \emph{Proceedings of the 2019 SIAM International Conference on Data Mining}; 2019:594--602.\newline
+\href{https://doi.org/10.1137/1.9781611975673.67}{https://doi.org/10.1137/1.9781611975673.67}
+
+\bibitem{luo2020pgexplainer}
+Luo D, Cheng W, Xu D, Yu W, Zong B, Chen H, Zhang X. Parameterized Explainer for Graph Neural Network. In: \emph{Advances in Neural Information Processing Systems}; 2020.\newline
+\href{https://proceedings.neurips.cc/paper/2020/hash/e37b08dd3015330dcbb5d6663667b8b8-Abstract.html}{NeurIPS 2020 paper page}
+
+\bibitem{amara2022graphframex}
+Amara K, Ying Z, Zhang Z, Han Z, Zhao Y, Shan Y, Brandes U, Schemm S, Zhang C. GraphFramEx: Towards Systematic Evaluation of Explainability Methods for Graph Neural Networks. In: \emph{Proceedings of the First Learning on Graphs Conference}; 2022;198:44:1--44:23.\newline
+\href{https://proceedings.mlr.press/v198/amara22a.html}{PMLR paper page}
 \end{thebibliography}
 
 \end{document}
