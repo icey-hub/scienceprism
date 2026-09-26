@@ -58,7 +58,7 @@ npm run dev
 
 项目默认保存在仓库的 `data/`（已被 Git 忽略）；可在启动前用 `SCIENCEPRISM_DATA_DIR` 指定其他目录。项目的工作流、证据和运行记录保存在各项目的 `.scienceprism/` 下。仓库的 `aidoc/` 存放已提交的科研示例产物，与个人项目数据分开。
 
-仓库还包含一项由 SciencePrism 受控实验运行器执行的可解释图异常检测探索性研究：[可编辑论文](aidoc/028127fc-3b3a-4b4b-93ec-02beb626d776/main.tex)、[运行产物副本](docs/research/run-artifacts/)、[结果图生成脚本](docs/research/plot-gadbench-results.py)和 [GADBench 数据准备脚本](scripts/prepare-gadbench-reddit.py)。运行 `python3 docs/research/plot-gadbench-results.py docs/research/run-artifacts/results/results.json docs/research/figure2-gadbench-results` 可重绘结果图（需安装 Matplotlib 和 NumPy）。研究仅覆盖一张属性图和小规模解释试点，不能据此推断通用检测性能或解释有效性。
+仓库还包含一项由 SciencePrism 受控实验运行器执行的可解释图异常检测探索性研究，论文正文为英文：[可编辑论文](aidoc/028127fc-3b3a-4b4b-93ec-02beb626d776/main.tex)、[运行产物副本](docs/research/run-artifacts/)、[结果图生成脚本](docs/research/plot-gadbench-results.py)和 [GADBench 数据准备脚本](scripts/prepare-gadbench-reddit.py)。运行 `python3 docs/research/plot-gadbench-results.py docs/research/run-artifacts/results/results.json docs/research/figure2-gadbench-results` 可重绘结果图（需安装 Matplotlib 和 NumPy）。研究仅覆盖一张属性图和小规模解释试点，不能据此推断通用检测性能或解释有效性。
 
 | 命令 | 用途 |
 | --- | --- |

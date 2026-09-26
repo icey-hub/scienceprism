@@ -1,4 +1,4 @@
-\documentclass[UTF8,11pt,a4paper]{ctexart}
+\documentclass[11pt,a4paper]{article}
 \usepackage[margin=2.0cm]{geometry}
 \usepackage{amsmath,amssymb,booktabs,array,graphicx,tikz,float,hyperref}
 \usetikzlibrary{arrows.meta,positioning,calc}
@@ -28,7 +28,7 @@
   explainernode/.style={circle,draw=violet!70,fill=white,line width=1pt,minimum size=5.2mm,inner sep=0pt}
 }
 
-\title{从检测性能到解释忠实度：GADBench Reddit 上图异常检测的探索性评估}
+\title{From Detection Performance to Explanation Fidelity: An Exploratory Evaluation on the GADBench Reddit Graph}
 \author{}
 \date{}
 
@@ -36,53 +36,53 @@
 \maketitle
 
 \begin{abstract}
-图神经网络（GNN）可利用节点属性与邻域结构进行异常检测，但较高的检测分数并不自动意味着其局部解释忠实于模型，更不意味着解释揭示了异常的真实成因。本文在 GADBench 的 Reddit 节点异常图上，使用 SciencePrism 受控实验运行器，对两层图卷积网络（GCN）与仅使用节点特征的逻辑回归进行探索性比较，并对固定小样本开展边掩码删除扰动试验。三个官方划分上的 GCN 平均 AUPRC 为 $0.0620\pm0.0064$，特征逻辑回归为 $0.0605\pm0.0047$；AUROC 分别为 $0.6695\pm0.0197$ 与 $0.6594\pm0.0087$。差异较小，且划分共享同一张图，故这些结果只作描述性观察。解释试验从 trial 0 分层抽取 12 个测试节点，9 个成功生成解释；解释边相对 20 组等量随机删边的预测类 logit 降幅差值中位数为 $0.0025$，均值为 $0.4585$，但均值主要由 3 个正常标签节点约 $1.377$ 的大值驱动。该结果提示实例间高度异质，不能据总体均值断言解释稳定或可靠。本文进一步区分检测标签、模型预测扰动与解释真值，并讨论单图、传导式评估、解释样本小及删边分布偏移等限制。
+Graph neural networks (GNNs) use node attributes and neighborhood structure for anomaly detection. However, predictive performance does not establish explanation fidelity or causal validity. We used the SciencePrism controlled experiment runner to compare a two-layer graph convolutional network (GCN) with feature-only logistic regression on the GADBench Reddit graph. We also conducted an edge-mask deletion pilot on a fixed, small sample. Across three official splits of the same graph, mean AUPRC was $0.0620\pm0.0064$ for the GCN and $0.0605\pm0.0047$ for logistic regression. Mean AUROC was $0.6695\pm0.0197$ and $0.6594\pm0.0087$, respectively. These differences are descriptive because the splits share one graph. In the explanation pilot, 9 of 12 stratified test nodes from split 0 yielded explanations. The median difference in predicted-class logit drop between mask-ranked edges and 20 equal-size random deletions was $0.0025$. The mean was $0.4585$, driven largely by values near $1.377$ for three nodes labeled as normal, indicating substantial instance-level heterogeneity and precluding a general claim of explanation reliability. We distinguish detection labels, model-prediction perturbations, and explanation ground truth, and discuss limits arising from a single graph, transductive evaluation, a small explanation sample, and deletion-induced distribution shift.
 \end{abstract}
 
-\noindent\textbf{关键词：}图异常检测；图神经网络；局部解释；忠实度；GADBench；GNNExplainer
+\noindent\textbf{Keywords:} graph anomaly detection; graph neural networks; local explanations; fidelity; GADBench; GNNExplainer
 
-\section{引言}
-异常节点检测通常面对类别极不平衡、属性与拓扑共同作用、以及异常定义依赖具体数据来源等问题。图神经网络可通过邻域消息传递联合使用节点特征和图结构；不过，在监督式图异常检测中，复杂 GNN 并不必然优于较简单的邻域聚合或特征基线。GADBench 对十个真实图数据集上的 29 种模型进行了系统比较，并指出简单树集成方法在若干任务上具有竞争力\cite{tang2023gadbench}。因此，对 GNN 的评价应由实测结果决定，而不应预设其优势。
+\section{Introduction}
+Node anomaly detection is complicated by severe class imbalance, interactions between node attributes and graph topology, and data-specific definitions of anomalous behavior. Graph neural networks combine node features with neighborhood information through message passing. Yet more complex GNNs do not necessarily outperform simpler neighborhood-aggregation or feature-based baselines in supervised graph anomaly detection. GADBench systematically compared 29 models across ten real-world graph datasets and found that simple tree ensembles remained competitive on several tasks\cite{tang2023gadbench}. GNN performance should therefore be established empirically rather than assumed.
 
-模型解释又引入了不同于检测性能的问题。GNNExplainer 将单个预测的解释表述为寻找紧凑子图与关键特征的优化问题\cite{ying2019gnnexplainer}。然而，解释器给出的高权重边只是模型内部的重要性线索；删除这些边后预测变化较大，最多说明这些边对当前模型输出具有较强影响，不能证明其对应真实异常机制。对图解释器的评估研究也指出，指标定义、解释对象和扰动分布会影响结论\cite{agarwal2022probing,zheng2024robust}。
+Model explanations raise a question distinct from detection performance. GNNExplainer formulates the explanation of an individual prediction as an optimization problem over compact subgraphs and salient features\cite{ying2019gnnexplainer}. Highly weighted edges remain model-internal importance signals. A large prediction change after deleting them indicates sensitivity of the current output, but does not establish a causal anomaly mechanism. Studies of graph-explanation evaluation likewise show that conclusions depend on metric definitions, explanation targets, and perturbation distributions\cite{agarwal2022probing,zheng2024robust}.
 
-本研究利用 SciencePrism 项目内的受控运行器，在 GADBench Reddit 数据上开展一项范围有限的探索性评估，聚焦两个问题：
+Using the project-level SciencePrism controlled runner, we conducted a bounded exploratory evaluation on GADBench Reddit. We asked two questions:
 \begin{enumerate}
-  \item 在相同官方划分上，两层 GCN 与仅使用节点特征的逻辑回归呈现怎样的 AUPRC 和 AUROC？
-  \item 对一组预先固定的测试节点，掩码排序得到的 top-$k$ 边删除，相较等量随机删边，会带来怎样的预测类 logit 变化？
+  \item How do a two-layer GCN and feature-only logistic regression compare in AUPRC and AUROC under the same official splits?
+  \item For a fixed sample of test nodes, how does deleting the top-$k$ mask-ranked edges change the predicted-class logit relative to deleting the same number of random edges?
 \end{enumerate}
-本文不提出新的检测器或解释器，也不把单图试验外推为对通用属性图的结论。特别地，数据集异常标签仅提供检测任务的节点级真值；本研究没有边级解释真值。
+This study proposes neither a new detector nor a new explainer, and its single-graph results are not generalized to attributed graphs broadly. Dataset labels provide node-level ground truth for detection only; no edge-level explanation ground truth was available.
 
-\section{相关工作}
-\subsection{图异常检测}
-GCN 通过归一化邻接矩阵上的逐层传播整合节点属性和局部结构\cite{kipf2017gcn}。GADBench 将图异常检测视为基准问题，对多种监督式模型和真实数据集进行比较\cite{tang2023gadbench}。本文采用其中 Reddit 数据与官方 train/validation/test masks，并设置特征逻辑回归作为窄范围基线。该基线不代表 GADBench 的全部竞争方法，也不能据此重现该基准论文的模型排名。
+\section{Related Work}
+\subsection{Graph Anomaly Detection}
+Graph convolutional networks (GCNs) combine node attributes and local structure through layer-wise propagation over a normalized adjacency matrix\cite{kipf2017gcn}. GADBench benchmarks supervised graph anomaly detection across multiple models and real-world datasets\cite{tang2023gadbench}. We use its Reddit data and official train, validation, and test masks, with feature-only logistic regression as a narrow baseline. This comparison does not cover the full set of GADBench competitors and cannot reproduce the benchmark paper's model rankings.
 
-\subsection{GNN 局部解释与忠实度}
-GNNExplainer 通过学习边与特征掩码，为特定 GNN 预测提供紧凑解释\cite{ying2019gnnexplainer}。后续工作强调，解释结果需要明确所解释的对象、评估协议和对照机制；常见删除式忠实度指标可能受到扰动后图分布偏移的影响\cite{agarwal2022probing,zheng2024robust}。本文实现的是一个 GNNExplainer 风格的局部边掩码试点，并非原论文算法或官方实现的复现。其随机删除对照只用于比较对当前预测的影响，不提供解释正确性的外部标签。
+\subsection{Local GNN Explanations and Fidelity}
+GNNExplainer learns edge and feature masks to provide compact explanations for individual GNN predictions\cite{ying2019gnnexplainer}. Subsequent work emphasizes the need to specify the explanation target, evaluation protocol, and controls. Deletion-based fidelity metrics can also be affected by distribution shift in the perturbed graph\cite{agarwal2022probing,zheng2024robust}. Our local edge-mask pilot is inspired by GNNExplainer, but is neither a reproduction of the original method nor its official implementation. Random deletions serve only as a control for effects on the current prediction; they do not provide external labels for explanation correctness.
 
-\section{方法}
-\subsection{数据与划分}
-研究使用 GADBench 官方仓库中的 DGL Reddit 图文件\cite{gadbenchrepo}。归档数据含 10,984 个节点、64 维节点特征、366 个异常标签，以及 168,016 条原始有向边记录；具体图语义与标签定义遵循数据源。实验脚本在读取时核对未压缩源文件 SHA-256：\texttt{\scriptsize 575caca4\allowbreak 2abdb659\allowbreak cda70017\allowbreak 4854f7c1\allowbreak 542d0cb7\allowbreak f79f6766\allowbreak 12d4a838\allowbreak 5142a0fa}。项目中实际传入运行器的压缩输入另有 SHA-256：\texttt{\scriptsize ce1ad69e\allowbreak a915d085\allowbreak 7495b7cc\allowbreak 75dc8853\allowbreak 5ac014b3\allowbreak 198f8213\allowbreak c7c35b09\allowbreak 347190d6}。这两个哈希对应不同文件层级，不能混用。
+\section{Methods}
+\subsection{Data and Splits}
+We used the DGL Reddit graph file from the official GADBench repository\cite{gadbenchrepo}. The archived data contain 10,984 nodes, 64-dimensional node features, 366 anomaly labels, and 168,016 raw directed edge records. Graph semantics and label definitions follow the data source. The experiment script verifies the SHA-256 hash of the uncompressed source file on loading: \texttt{\scriptsize 575caca4\allowbreak 2abdb659\allowbreak cda70017\allowbreak 4854f7c1\allowbreak 542d0cb7\allowbreak f79f6766\allowbreak 12d4a838\allowbreak 5142a0fa}. The compressed input passed to the runner has a separate SHA-256 hash: \texttt{\scriptsize ce1ad69e\allowbreak a915d085\allowbreak 7495b7cc\allowbreak 75dc8853\allowbreak 5ac014b3\allowbreak 198f8213\allowbreak c7c35b09\allowbreak 347190d6}. These hashes refer to different file layers and should not be interchanged.
 
-使用数据文件提供的三个官方 mask 分别训练和测试。每次试验中，训练标签用于拟合，验证标签用于早停或基线超参数选择，测试标签仅用于最终计算 AUPRC 和 AUROC。三组 mask 作用于同一张图，因此不是三个独立数据集，也不是跨图泛化验证。节点特征变换仅在训练节点拟合；GCN 使用整张图进行传导式消息传递，测试节点的特征与拓扑在训练时可见，但测试标签不参与优化。
+We trained and evaluated models separately under the three official train, validation, and test masks. Each mask-specific run used training labels for fitting, validation labels for early stopping or baseline selection, and test labels only for final AUPRC and AUROC calculation. We refer to these runs as split-level trials 0–2; random seeds 17–19 were assigned in order. Because all masks apply to the same graph, they are neither independent datasets nor evidence of cross-graph generalization. Feature transformations were fitted on training nodes only. The GCN used the full graph for transductive message passing, so test-node features and topology were visible during training, but test labels were not used for optimization.
 
-\subsection{检测模型}
-GCN 使用两层结构，隐藏宽度 32，形式为
+\subsection{Detection Models}
+The GCN had two layers and a hidden width of 32:
 \begin{equation}
   H=\operatorname{ReLU}(\hat A X W_0),\qquad Z=\hat A H W_1,
 \end{equation}
-其中邻接矩阵先对称化、二值化并添加自环，再作对称度归一化。模型用类别加权交叉熵训练，优化器为 Adam（学习率 $0.01$，权重衰减 $5\times10^{-4}$），最多训练 60 个 epoch，并以验证集 AUPRC 连续 10 轮未改善作为早停条件。三个 trial 的随机种子分别为 17、18、19。
+The adjacency matrix was symmetrized, binarized, and augmented with self-loops before symmetric degree normalization. We trained the model with class-weighted cross-entropy and Adam (learning rate, $0.01$; weight decay, $5\times10^{-4}$). Training stopped after at most 60 epochs, with early stopping after ten consecutive epochs without improved validation AUPRC. The three split-level trials used seeds 17, 18, and 19, respectively.
 
-对照为仅使用 64 维节点特征的逻辑回归。标准化器只在训练节点拟合，训练时使用类别平衡权重；$C\in\{0.1,1,10\}$ 由验证集 AUPRC 选择。两个模型使用相同划分，且测试集不参与模型选择。AUPRC 作为不平衡任务的主要排序指标，同时报告 AUROC；汇总值是三个 trial 的算术平均，$\pm$ 表示 trial 间样本标准差。鉴于 trial 共享同一张图且数目仅为 3，不进行显著性检验或独立样本推断。
+As a comparator, the baseline was logistic regression using node features only. The scaler was fitted on training nodes, and class-balanced weights were used during fitting. We selected $C\in\{0.1,1,10\}$ by validation AUPRC. Both models used the same masks, and test data did not inform model selection. We report AUPRC as the primary ranking metric for this imbalanced task and also report AUROC. Summary values are arithmetic means across the three split-level trials; $\pm$ denotes the sample standard deviation across masks. Because the trials share one graph and number only three, we performed no significance tests or independent-sample inference.
 
-\subsection{局部边掩码与删除对照}
-解释试点仅在 trial 0 执行。以固定随机种子从测试异常节点与正常节点中各抽取至多 6 个，共 12 个候选节点。对每个节点构造两跳局部子图，在 35 步优化中学习共享于无向边对的可训练掩码；掩码目标保留原预测类别的输出，同时施加稀疏与熵正则。候选解释边限定为与目标节点一跳邻域相关的局部边。此处只实现了受 GNNExplainer 启发的边掩码变体，不包含原方法完整的特征掩码目标或官方实现。
+\subsection{Local Edge Masks and Deletion Controls}
+The explanation pilot was restricted to split-level trial 0. Using a fixed random seed, we selected up to six anomalous and six normal test nodes, for a maximum of 12 candidates. For each node, we constructed a two-hop local subgraph and optimized a trainable mask shared across undirected edge pairs for 35 steps. The mask objective preserved the original predicted-class output while applying sparsity and entropy regularization. Candidate explanation edges were restricted to local edges incident to the target node's one-hop neighborhood. This implementation is an edge-mask variant inspired by GNNExplainer; it does not include the original method's full feature-mask objective or its official implementation.
 
-按掩码 logit 选取 $k=\min(10,\max(1,\operatorname{round}(0.1m)))$ 条边，其中 $m$ 为候选边数。对每个节点分别删除 top-$k$ 掩码边，以及 20 组等量随机边；两类删除均固定原图度归一化，并记录目标模型对其\emph{预测类别}的 logit 下降。定义
+We selected $k=\min(10,\max(1,\operatorname{round}(0.1m)))$ edges by mask logit, where $m$ is the number of candidate edges. For each node, we deleted the top-$k$ mask-ranked edges and 20 sets of the same number of randomly selected edges. Both deletion conditions retained the original graph's degree-normalization coefficients. We recorded the drop in the target model's logit for its \emph{predicted class}. We defined
 \begin{equation}
   \Delta_i = d_i^{\mathrm{mask}} - \frac{1}{20}\sum_{j=1}^{20}d_{ij}^{\mathrm{random}}.
 \end{equation}
-正值表示掩码排序边的删除比等量随机删除带来更大的预测类 logit 下降。$\Delta_i$ 是针对当前模型与该节点的扰动差值，不是解释真值准确率。若局部两跳子图超过 3,000 个节点、候选边超出上限或候选边太少，则跳过该节点。
+Positive values indicate a larger predicted-class logit drop after deleting mask-ranked edges than after equal-size random deletion. $\Delta_i$ measures perturbation sensitivity for the current model and node; it is not explanation accuracy against ground truth. We skipped nodes when their two-hop subgraphs exceeded 3,000 nodes, the candidate-edge limit was exceeded, or too few candidate edges were available.
 
 \begin{figure}[t]
 \centering
@@ -220,65 +220,65 @@ GCN 使用两层结构，隐藏宽度 32，形式为
   \node[font=\sffamily\bfseries\scriptsize,text=orange!80!black,align=center] at (3.74,.81) {Deletion sensitivity only · no edge-level explanation truth};
 \end{tikzpicture}%
 }
-\caption{研究流程与解释评价边界。A：核验后的 GADBench Reddit 输入；B：相同官方划分下比较传导式 GCN 与特征逻辑回归；C：在 trial 0 固定分层样本上优化局部边掩码；D：比较 top-$k$ 掩码边与等量随机删边对预测类别 logit 的影响。箭头表示分析顺序；扰动结果不等同于解释真值。}
+\caption{Study workflow and the scope of explanation evaluation. (A) Audited GADBench Reddit input. (B) Transductive GCN and feature-only logistic regression evaluated under the same official splits. (C) Local edge-mask optimization on a fixed, stratified sample from split-level trial 0. (D) Effects on the predicted-class logit after deleting the top-$k$ mask-ranked edges or the same number of random edges. Arrows indicate the analysis sequence. Perturbation effects are not explanation ground truth.}
 \label{fig:framework}
 \end{figure}
 
-\section{结果}
-\subsection{检测效能}
-表~\ref{tab:detection} 汇总三个官方划分的测试表现。trial 0 的测试集含 4,395 个节点，其中 147 个为异常（3.34\%）。GCN 的 AUPRC 在 trial 0 与 trial 2 高于逻辑回归，在 trial 1 较低；AUROC 呈现相同的逐划分方向变化。三个 trial 的平均差为 $0.0016$ AUPRC 和 $0.0101$ AUROC。由于只有三个共享底层图的划分，这些差异应理解为本次设置中的描述性数值，不构成 GCN 优越性的统计证据。
+\section{Results}
+\subsection{Detection Performance}
+Table~\ref{tab:detection} summarizes test performance across the three official splits. The test set in split-level trial 0 contained 4,395 nodes, including 147 anomalies (3.34\%). GCN AUPRC was higher than logistic-regression AUPRC in trials 0 and 2, but lower in trial 1. AUROC showed the same direction of split-wise variation. The mean differences across trials were $0.0016$ in AUPRC and $0.0101$ in AUROC. Because the three splits share one underlying graph, these differences are descriptive and do not provide statistical evidence of GCN superiority.
 
 \begin{table}[t]
 \centering
 \small
-\caption{官方划分上的检测指标。汇总行为三个 trial 的均值与样本标准差。}
+\caption{Detection metrics across the official splits. The summary row reports the mean and sample standard deviation across three split-level trials. LR denotes feature-only logistic regression.}
 \label{tab:detection}
 \begin{tabular}{c r r r r}
 \toprule
-划分 & GCN AUPRC & 逻辑回归 AUPRC & GCN AUROC & 逻辑回归 AUROC\\
+Split-level trial & GCN AUPRC & LR AUPRC & GCN AUROC & LR AUROC\\
 \midrule
 Trial 0 & 0.0694 & 0.0610 & 0.6917 & 0.6669\\
 Trial 1 & 0.0588 & 0.0649 & 0.6541 & 0.6615\\
 Trial 2 & 0.0578 & 0.0555 & 0.6627 & 0.6499\\
 \midrule
-均值 $\pm$ SD & $0.0620\pm0.0064$ & $0.0605\pm0.0047$ & $0.6695\pm0.0197$ & $0.6594\pm0.0087$\\
+Mean $\pm$ SD & $0.0620\pm0.0064$ & $0.0605\pm0.0047$ & $0.6695\pm0.0197$ & $0.6594\pm0.0087$\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{局部解释扰动}
-从 12 个固定抽样节点中，9 个解释优化成功，3 个因局部两跳子图超过 3,000 个节点而跳过。9 个成功节点包括 4 个异常标签和 5 个正常标签。对成功节点计算的 $\Delta_i$ 均值为 $0.4585$，样本标准差为 $0.6891$，中位数为 $0.0025$。异常标签节点的均值为 $-0.0015$（$n=4$）；正常标签节点的均值为 $0.8264$（$n=5$）。后一个均值受 3 个正常标签节点约 $1.377$ 的差值影响，而其余 6 个成功实例整体接近零。故整体均值不能代表典型节点效应，也不能被解读为普遍的解释忠实度。
+\subsection{Local Explanation Perturbations}
+Explanation optimization succeeded for 9 of the 12 sampled nodes. Three nodes were skipped because their two-hop subgraphs exceeded 3,000 nodes. Four of the nine successfully explained nodes carried anomaly labels, and five carried normal labels. Across these nodes, the mean $\Delta_i$ was $0.4585$ (sample SD, $0.6891$), and the median was $0.0025$. Mean $\Delta_i$ was $-0.0015$ for anomaly-labeled nodes ($n=4$) and $0.8264$ for nodes labeled as normal ($n=5$). Three nodes labeled as normal contributed values near $1.377$; the other six successful cases were close to zero. The overall mean therefore does not represent a typical node effect and should not be interpreted as general explanation fidelity.
 
-图~\ref{fig:results} 同时展示逐划分检测指标和逐节点扰动差值。面板 C 保留所有成功节点的完整数值范围，面板 D 对其余接近零的六个实例作独立尺度展开，避免少数大值压扁其余点。正差值表示删除掩码排序边比随机边引起更大的预测类 logit 下降；它仍只衡量该模型在指定扰动下的敏感性。
+Figure~\ref{fig:results} shows split-wise detection metrics alongside node-wise perturbation differences. Panel C retains the full range across all successful cases. Panel D expands the scale for the six remaining near-zero cases so that three large values do not compress the other points. A positive difference indicates a larger predicted-class logit drop after deleting mask-ranked edges than after random deletion. It measures sensitivity of this model to the specified perturbation only.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figure2-gadbench-results.pdf}
-\caption{GADBench Reddit 的检测与局部扰动结果。A、B：三组官方 mask 下的 AUPRC 与 AUROC，连线仅连接同一模型的划分结果，不代表时间趋势或独立重复。C：九个成功解释节点的完整配对差值；D：绝对值小于 0.05 的六个节点放大显示，三项大值仍保留在 C。异常标签与正常标签采用不同颜色。扰动差值不是解释真值。}
+\caption{Detection and local perturbation results on GADBench Reddit. (A,B) AUPRC and AUROC under the three official masks. Lines connect split-wise results for the same model and do not represent a temporal trend or independent replication. (C) Full paired differences for nine successfully explained nodes. (D) Expanded view of the six nodes with absolute differences below 0.05; the three larger values remain visible in C. Colors distinguish anomaly and normal labels. Perturbation differences are not explanation ground truth.}
 \label{fig:results}
 \end{figure}
 
-\section{讨论}
-本次检测结果显示，两层 GCN 与特征逻辑回归的平均指标接近，且 GCN 并未在每个划分上同时占优。这与 GADBench 强调应广泛评估简单基线的动机一致，但本文的单数据集比较远不足以支持关于 GADBench 模型排名的结论。尤其是 Reddit 异常比例低，AUPRC 对少数正类表现敏感；单看 AUROC 也可能掩盖低基准率下精确率的限制。
+\section{Discussion}
+The two-layer GCN and feature-only logistic regression had similar mean metrics, and the GCN did not lead on every split. This observation is consistent with GADBench's rationale for evaluating simple baselines broadly. However, a comparison on one dataset cannot support conclusions about model rankings across GADBench. Reddit has a low anomaly prevalence, making AUPRC sensitive to performance on the minority class. AUROC alone may also obscure precision constraints at low prevalence.
 
-解释试点进一步表明，掩码删除相对随机删边的差值在实例间高度偏斜。中位数接近零，而均值被三个正常标签节点的较大差值拉高；若只报告一个总体平均数，就会掩盖大多数实例的微弱变化。标签为正常并不表示模型预测必然为正常，本文的扰动始终针对模型当前预测类别的 logit，且没有使用节点标签来优化边掩码。观察到的差值既不说明异常机制，也不说明掩码解释在真实语义层面正确。
+The explanation pilot showed a strongly skewed distribution of differences between mask-ranked and random deletions. The median was close to zero, whereas three large values from nodes labeled as normal raised the mean. Reporting only the aggregate mean would therefore obscure the small effects in most cases. A normal label does not imply a normal model prediction. Our perturbations targeted the model's current predicted-class logit, and node labels were not used to optimize edge masks. The observed differences establish neither an anomaly mechanism nor the semantic correctness of the masks.
 
-解释基准还受实现与扰动协议限制。其优化目标是一个简化的 GNNExplainer 风格变体，而非原方法复现；试点只有 12 个预选节点，且 3 个因规模限制未能生成解释。所有删边均保持原图的度归一化系数不变，因此扰动图不再与重新归一化后的自然图分布一致。删除操作本身也可能制造训练分布之外的结构。后续研究需要扩大独立图数量和解释样本，使用稳健扰动协议，并在具备可信边级标注或合成机制真值的数据上，将模型忠实度与机制正确性分开评估。
+The explanation benchmark is also limited by its implementation and perturbation protocol. Its objective is a simplified GNNExplainer-inspired variant, not a reproduction of the original method. The pilot included only 12 prespecified nodes, and three explanations could not be generated because of local-subgraph size limits. All deletions retained the original degree-normalization coefficients, so perturbed graphs differed from graphs that would be obtained by recomputing normalization. Deletion may also create structures outside the training distribution. Future studies could evaluate more independent graphs and explanation instances using robust perturbation protocols. They could also separate model fidelity from mechanistic correctness using data with trusted edge annotations or synthetic ground truth.
 
-\section{局限性}
-本研究有五项主要限制。第一，实验只涉及一张 Reddit 图和单一两层 GCN 架构，无法代表通用属性图或图异常检测方法整体。第二，三个官方 mask 共享相同节点、特征和拓扑，trial 间标准差不是跨数据集不确定性，也不适合作为独立样本置信区间。第三，transductive 消息传递在训练过程中使用全图结构与测试节点特征；虽然测试标签不用于拟合，该设置仍不同于归纳式新图预测。第四，局部解释只覆盖 trial 0 的小型固定样本，且存在规模相关跳过。第五，数据集只提供检测标签而没有解释边真值，预测扰动只能衡量模型局部敏感性；固定度归一化与删边分布偏移也会影响该指标。因此，本文结论应限定为探索性观察。
+\section{Limitations}
+Five limitations bound the conclusions. First, the experiment used one Reddit graph and one two-layer GCN, so it does not represent attributed graphs or graph anomaly-detection methods broadly. Second, the three official masks share the same nodes, features, and topology. Their across-split standard deviation is not cross-dataset uncertainty and should not be treated as a confidence interval from independent samples. Third, transductive message passing exposed the model to full-graph structure and test-node features during training. Test labels were withheld, but this setting differs from inductive prediction on new graphs. Fourth, local explanations covered a small, fixed sample from split-level trial 0, with size-related exclusions. Fifth, the dataset provides detection labels but no edge-level explanation ground truth. Perturbation therefore measures local model sensitivity only, and fixed degree normalization plus deletion-induced distribution shift may affect that measure. The findings should consequently be interpreted as exploratory.
 
-\section{结论}
-在 GADBench Reddit 的三个官方划分上，两层 GCN 与特征逻辑回归取得接近但逐划分有波动的检测指标。小规模掩码删边试点呈现接近零的中位差值及少数较大的正向离群值，说明实例层面分析比单一平均数更有信息。当前证据既不能确认 GCN 在该设置下稳定优于特征基线，也不能证明局部解释揭示真实异常原因。对可解释图异常检测的可靠结论仍需要更多独立图、充分的实例级核验和可信解释真值。
+\section{Conclusion}
+Across the three official GADBench Reddit splits, the two-layer GCN and feature-only logistic regression achieved similar detection metrics with split-wise variation. The small mask-deletion pilot had a near-zero median difference and a few large positive outliers, illustrating why instance-level results are more informative than a single mean. The evidence neither establishes consistent GCN superiority under this setting nor shows that local explanations reveal real anomaly causes. Reliable conclusions about explainable graph anomaly detection require more independent graphs, broader instance-level evaluation, and trusted explanation ground truth.
 
-\section*{数据与代码可用性}
-实验由本项目 SciencePrism 受控运行器执行，Run ID 为 \path{experiment-run-bca97a65-c447-4e18-87d0-e267623c78ec}。
+\section*{Data and Code Availability}
+The experiment was executed with the SciencePrism controlled runner. The run ID is \path{experiment-run-bca97a65-c447-4e18-87d0-e267623c78ec}.
 
-运行 manifest、环境说明、标准输出、标准错误、\texttt{metrics.json} 与 \texttt{results.json} 保存在项目归档目录 \path{.scienceprism/experiment-runs/}。
+The run manifest, environment record, standard output, standard error, \texttt{metrics.json}, and \texttt{results.json} are stored in the project archive at \path{.scienceprism/experiment-runs/}.
 
-仓库在 \path{docs/research/run-artifacts/} 附有该次运行的 manifest、环境说明、标准输出、标准错误、\texttt{metrics.json} 与 \texttt{results.json} 字节副本。结果图可由仓库脚本 \path{docs/research/plot-gadbench-results.py} 根据该目录中的 \texttt{results/results.json} 重绘。模型脚本与数据准备脚本分别位于 \path{experiments/reddit_gcn_explain.py} 和 \path{scripts/prepare-gadbench-reddit.py}。GADBench 来源代码与数据可从其官方仓库获取\cite{gadbenchrepo}。
+Byte-identical copies of the manifest, environment record, standard output, standard error, \texttt{metrics.json}, and \texttt{results.json} are included in the repository under \path{docs/research/run-artifacts/}. The results figure can be regenerated from \texttt{results/results.json} with \path{docs/research/plot-gadbench-results.py}. The model and data-preparation scripts are available at \path{experiments/reddit_gcn_explain.py} and \path{scripts/prepare-gadbench-reddit.py}, respectively. GADBench source code and data are available from the official repository\cite{gadbenchrepo}.
 
-为避免在本文中重新分发原始数据副本，归档只记录项目使用的压缩输入及原始源文件哈希。数据许可及全部元数据未在本研究中单独完成法律审查。
+To avoid redistributing the raw dataset, the archive records hashes for the compressed project input and the original source file. This study did not independently conduct a legal review of the dataset license or all associated metadata.
 
 \begin{thebibliography}{9}
 \bibitem{tang2023gadbench}
