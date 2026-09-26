@@ -1,0 +1,14 @@
+{
+  "capabilities": [
+    "project.read",
+    "patch.propose"
+  ],
+  "allowedPaths": [],
+  "networkAllowlist": [],
+  "fallback": true,
+  "maxTokens": 49152,
+  "timeoutMs": 600000,
+  "maxConcurrent": 1,
+  "retryLimit": 1,
+  "contextTokenBudget": 12000
+}

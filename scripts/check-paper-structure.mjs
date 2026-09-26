@@ -59,7 +59,7 @@ const captions = [...source.matchAll(/\\caption\{/g)].length;
 const problems = [];
 
 // Rule 1: a results section.
-const results = sections.find((section) => /^Results\b/i.test(section.title));
+const results = sections.find((section) => /^Results\b/i.test(section.title) || section.title === '结果');
 if (!results) {
   problems.push('no Results section: an empirical paper must report its results');
 }

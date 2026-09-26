@@ -1,5 +1,16 @@
 {
   "id": "aidoc-research-document",
   "name": "aidoc research document",
-  "createdAt": "2026-09-24T07:32:24.514Z"
+  "createdAt": "2026-09-24T07:32:24.514Z",
+  "researchQuestion": "Does requiring every claim to cite retrieved evidence reduce unsupported assertions in a generated research brief?",
+  "researchScope": "A small, exploratory ablation of prompt instructions and code-enforced evidence validation in SciencePrism, using the recorded four-arm experiment (8 generations per arm).",
+  "researchKeywords": [
+    "evidence grounding",
+    "evidence ledger",
+    "claim validation",
+    "research brief"
+  ],
+  "model": "deepseek-chat",
+  "setupCompletedAt": "2026-09-25T15:14:53.505Z",
+  "updatedAt": "2026-09-25T15:14:53.505Z"
 }

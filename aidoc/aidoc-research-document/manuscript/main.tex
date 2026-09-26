@@ -1,112 +1,157 @@
-\documentclass[11pt]{article}
-\usepackage[margin=1in]{geometry}
-\usepackage{amsmath}
-\usepackage{graphicx}
+\documentclass[UTF8]{ctexart}
+
+\usepackage{geometry}
+\geometry{a4paper, margin=2.5cm}
+
 \usepackage{booktabs}
-\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage[hyphens]{url}
+\usepackage{hyperref}
 \usepackage{microtype}
-\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
 
-\setlength{\emergencystretch}{2em}
+\setlength{\emergencystretch}{3em}
 
-\title{Prompting Condition Barely Changes Outcomes for a Reasoning Model: Direct, Chain-of-Thought, and Explicit-Format Prompting on 200 GSM8K Test Questions}
-\author{Prepared from an approved research brief}
-\date{}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue,
+  citecolor=black
+}
+
+\title{有证据与无证据时，写作门禁如何改变结构化输出：一次 32 次生成试点}
+\author{SciencePrism 内部工程报告}
+\date{2026 年 9 月}
 
 \begin{document}
+
 \maketitle
 
 \begin{abstract}
-This study compares three prompting conditions---direct, chain-of-thought, and an explicit answer format---for a reasoning model over 200 GSM8K test questions at temperature 0, for 600 generations in total. Every empirical number reported here rests on an experiment record that is not yet confirmed in this project: the declared accuracies, the per-item pairing counts, the hidden-trace disagreement counts, and the grading discrepancy are unverified pending human confirmation. The work is therefore presented as a proposal and as an interpretation of an unconfirmed record, not as a confirmed result.
+\noindent\textbf{背景：} 本研究关注检索增强生成中的主张溯源问题：如何让写作阶段生成的每条主张都指向可核验来源。现有写作门禁由两个代码机制组成：\path{validateStageEvidence} 会把 Paper Claim 的 Evidence id 解析到项目 Ledger，通常拒绝缺失或未核验的证据，但允许已在 \path{unsupportedClaims} 中显式披露的写作 claim 继续流转；\path{runResearchHarnessStage} 在解析或 Evidence 校验失败时，对已成功传输的响应重试一次，并把校验错误与不得虚构 id 的指令传给修复尝试。
+
+\noindent\textbf{方法：} 本文报告一次小规模工程试点，在同一研究问题、同一模型（\path{global:deepseek-v4.1-flash}）上比较四臂各 8 次生成：A 为 no-gate（移除提示规则、事后测量），B 为 prompt-only（有规则但不拦截），C 为 enforced（有规则、校验、最多一次修复），D 为 enforced-no-evidence（不给 Evidence 上下文）。观测指标包括有效 JSON、被接受比例、claim-evidence 覆盖率、未知引用 id 数与模型自报 \path{unsupportedClaims} 数。
+
+\noindent\textbf{结果：} A/B/C 三臂有效 JSON 与接受率均为 8/8，覆盖率 1.00，未知 id 为 0；模型自报 \path{unsupportedClaims} 平均为 0.38/2.50/2.25，B-A=+2.12（约 6.6 倍），C-B=-0.25。D 臂有效 JSON 5/8、接受 1/8，6 个引用全部不在 Ledger 中；唯一被接受的 rep5 引用了不存在的 ``none''，但因该 claim 被显式登记为 unsupported 而按披露路径放行。上述数字均来自尚未独立核验的实验记录，且自报字段没有人工真值；覆盖率只度量 ID 是否出现，可以在所有 ID 均无效时仍为 1.00。
+
+\noindent\textbf{结论：} 本文结论只限于本次工具行为。门禁的设计目标是披露与拦截并行，而不是零容忍伪引用拦截；本次试点不能用于声称真实 unsupported assertions 减少，也不能用于声称门禁可阻止伪造引用。全部实验数字仍待独立核验。
 \end{abstract}
 
-\section{Introduction}
-The question this study frames is whether the prompting condition changes outcomes for a model that already reasons in a hidden channel. For conventional language models, generating a chain of intermediate reasoning steps substantially improves complex reasoning \path{paper-wei-2022-cot}, and a single zero-shot trigger phrase can elicit such reasoning without exemplars \path{paper-kojima-2022-zero-shot}. A reasoning model such as DeepSeek-R1, by contrast, is trained to produce long reasoning traces through reinforcement learning, so reasoning already occurs in a hidden channel \path{paper-deepseek-2025-r1}. If that hidden channel is already active, an explicit chain-of-thought instruction may add little. The background this result speaks to is therefore the chain-of-thought literature, the zero-shot reasoning literature, self-consistency decoding, the GSM8K benchmark, and work on reasoning models.
+\section{动机与问题}
 
-\section{Related Work}
-Cobbe et al. introduce GSM8K as a dataset of 8.5K grade-school math word problems on which even the largest transformer models fail to reach high test performance \path{paper-cobbe-2021-gsm8k}. Wei et al. report that generating a chain of intermediate reasoning steps substantially improves complex reasoning \path{paper-wei-2022-cot}. Kojima et al. show that a single zero-shot trigger phrase elicits chain-of-thought reasoning without exemplars, which motivates varying only the instruction rather than adding demonstrations (claim \path{claim-zeroshot-background}; evidence \path{paper-kojima-2022-zero-shot}; confidence 0.8). Wang et al. propose self-consistency as a decoding strategy that replaces greedy decoding in chain-of-thought prompting and improves reasoning accuracy, making it a candidate next lever if prompt-level changes prove inert (claim \path{claim-selfconsistency-background}; evidence \path{paper-wang-2022-self-consistency}; confidence 0.8). DeepSeek-R1 is trained to produce long reasoning traces through reinforcement learning, so reasoning already occurs in a hidden channel \path{paper-deepseek-2025-r1}.
+研究问题是如何让检索增强生成把每条生成的主张追溯到可核验来源。本项目已有的写作门禁由两个代码机制组成。
 
-\section{Method}
-The design compares three conditions---direct, chain-of-thought, and an explicit \#\#\#\# answer format---on the GSM8K test split, at temperature 0, with one generation per item, graded by exact match plus a numeric-equivalence check. Cobbe et al. introduce GSM8K as a dataset of 8.5K grade-school math word problems on which even the largest transformer models fail to reach high test performance. An experiment record not yet confirmed in this project reports running 200 GSM8K test questions under three prompting conditions at temperature 0, with 600 generations in total; that configuration is unverified here (claim \path{claim-study-design}; evidence \path{paper-cobbe-2021-gsm8k}; confidence 0.3).
+其一，\path{validateStageEvidence}（位于 \path{apps/backend/src/services/evidenceLedger/index.js}）会把 Paper Claim 的 Evidence id 解析到项目 Ledger，通常拒绝缺失或未核验的证据，但允许已在 \path{unsupportedClaims} 中显式披露的写作 claim 继续流转。其二，\path{runResearchHarnessStage}（位于 \path{apps/backend/src/services/researchResearch/harnessAdapter.js}）在解析或 Evidence 校验失败时，对已成功传输的响应重试一次，并把校验错误与不得虚构 id 的指令传给修复尝试。
 
-\section{Results (pending verification)}
-Wei et al. report that generating a chain of intermediate reasoning steps substantially improves complex reasoning. The unverified experiment record reports declared accuracy of 0.955 for direct, 0.955 for chain-of-thought, and 0.945 for an explicit answer format, which would mean no measurable chain-of-thought gain and a 0.010 cost from the format requirement; those numbers are not confirmed (claim \path{claim-accuracy-null}; evidence \path{paper-wei-2022-cot}, \path{paper-deepseek-2025-r1}; confidence 0.3). Table~\ref{tab:accuracy} restates these declared accuracies, and Table~\ref{tab:pairing} restates the item-level pairing; both are drawn from the unverified record.
+本试点要问的是：把这两类机制组合进写作阶段后，结构化输出的有效性与引用行为会怎样改变，以及在没有 Evidence 上下文时会发生什么。需要预先说明，本文的全部实验数字转述自尚未独立核验的实验记录 \path{evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50}，该记录状态为 pending。
+
+\section{方法}
+
+\subsection{实验设计}
+
+本试点为四臂消融，每臂 8 次生成，同一研究问题，模型固定为 \path{global:deepseek-v4.1-flash}。
+
+\begin{itemize}[leftmargin=1.6em]
+  \item A 为 no-gate：移除提示中的证据规则，只在事后测量；
+  \item B 为 prompt-only：提示中包含规则但不做拦截；
+  \item C 为 enforced：提示含规则、进行校验，并最多触发一次修复；
+  \item D 为 enforced-no-evidence：保留 enforced 机制但不向模型提供 Evidence 上下文。
+\end{itemize}
+
+共 32 次初始生成，D 臂另发生 7 次修复，总 attempts 为 39。
+
+\subsection{观测指标}
+
+观测指标为：有效 JSON 次数、被接受次数、claim-evidence 覆盖率、未知引用 id 数、模型自报 \path{unsupportedClaims} 数。需要强调，本试点没有独立重复与随机种子设计，分析单位是单次生成，比较只描述本次工具运行。\path{unsupportedClaims} 是模型自报字段，不是人工标注的真值；覆盖率只检查 ID 是否出现，不检查 ID 是否有效。
+
+\section{结果}
+
+以下数字转述自 \path{aidoc/experiment-evidence-gate.json}，该实验记录尚未独立核验。
+
+A/B/C 三臂的有效 JSON 均为 8/8，接受率均为 8/8，覆盖率均为 1.00，未知 id 均为 0。模型自报 \path{unsupportedClaims} 平均每次为 0.38（A）、2.50（B）、2.25（C）；B 相对 A 上升 +2.12（约 6.6 倍），C 相对 B 下降 -0.25。这些自报字段反映模型在文本中声明的未支持主张数量，不是人工核验后的真值，不能解读为真实 unsupported assertions 的减少或增加。
+
+D 臂有效 JSON 为 5/8，接受率为 1/8，6 个引用全部在 Ledger 中不存在。唯一被接受的 D 输出 rep5 引用了不存在的 ``none''，但由于对应 claim 被显式登记为 unsupported，代码按披露路径允许其继续流转；这不应被描述为“引用通过验证”或“已验证引用”。D 臂 7 次重试后没有任何失败结果转为接受，rep5 是首轮通过。
+
+D 臂覆盖率 1.00 只表示输出里出现了 ID，不代表 ID 有效；覆盖率与接受率是不同量纲的指标，不能相互替代。换言之，即使所有 ID 都无效，覆盖率仍可为 1.00。
 
 \begin{table}[t]
-\centering
-\begin{tabular}{lc}
-\toprule
-Prompting condition & Declared accuracy \\
-\midrule
-Direct & 0.955 \\
-Chain-of-thought & 0.955 \\
-Explicit answer format & 0.945 \\
-\bottomrule
-\end{tabular}
-\caption{Declared accuracy by prompting condition on the 200 GSM8K test questions, as reported in the unverified experiment record. These values are not confirmed.}
-\label{tab:accuracy}
+  \centering
+  \footnotesize
+  \setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{lrrrrrrrrr}
+    \toprule
+    臂 & 生成 & 有效JSON & 接受 & 平均claims & 覆盖率 & 引用/次 & 伪造id & 自报unsup. & 平均秒 \\
+    \midrule
+    A（no-gate） & 8 & 8/8 & 8/8 & 3.63 & 1.00 & 7.25 & 0 & 0.38 & 25.76 \\
+    B（prompt-only） & 8 & 8/8 & 8/8 & 3.63 & 1.00 & 7.50 & 0 & 2.50 & 19.14 \\
+    C（enforced） & 8 & 8/8 & 8/8 & 3.75 & 1.00 & 7.00 & 0 & 2.25 & 18.15 \\
+    D（enforced-no-evidence） & 8 & 5/8 & 1/8 & 0.75 & 1.00 & 0.75 & 6 & 1.13 & 49.05 \\
+    \bottomrule
+  \end{tabular}
+  \caption{四臂原始汇总指标。D 臂另有 7 次修复，总 attempts 为 39。覆盖率列仅度量 ID 是否出现，不度量 ID 是否有效；``自报unsup.'' 列为模型自报未支持项均值，不是人工真值。数据尚未独立核验。}
+  \label{tab:four-arms}
 \end{table}
-
-The unverified experiment record reports per-item pairing on the same 200 questions: 190 were answered correctly by both direct and chain-of-thought, 1 by direct alone, 1 by chain-of-thought alone, 8 by neither, and only 4 questions changed outcome across conditions at all. This item-level pairing is not confirmed (claim \path{claim-pairing}; evidence \path{paper-cobbe-2021-gsm8k}, \path{paper-wei-2022-cot}; confidence 0.25).
-
-\begin{table}[t]
-\centering
-\begin{tabular}{lc}
-\toprule
-Per-item outcome & Questions \\
-\midrule
-Correct under both direct and chain-of-thought & 190 \\
-Correct under direct only & 1 \\
-Correct under chain-of-thought only & 1 \\
-Correct under neither & 8 \\
-\midrule
-Changed outcome across conditions & 4 \\
-\bottomrule
-\end{tabular}
-\caption{Per-item outcome pairing across the same 200 GSM8K test questions, as reported in the unverified experiment record. These counts are not confirmed.}
-\label{tab:pairing}
-\end{table}
-
-DeepSeek-R1 is trained to produce long reasoning traces through reinforcement learning, so reasoning already occurs in a hidden channel. The unverified experiment record reports that the hidden reasoning trace was a worse answer source than the visible answer: 25 generations had a correct answer but a wrong last number in the reasoning, against 1 in the other direction (claim \path{claim-trace}; evidence \path{paper-deepseek-2025-r1}; confidence 0.3).
-
-GSM8K was introduced by Cobbe et al. as a dataset of 8.5K grade-school math word problems. The unverified experiment record reports that exact-match grading under-counted accuracy by 1.0 percentage points because 6 responses were numerically equal but textually different (for example 12 against 12.00) and 1 failed to parse (claim \path{claim-grading}; evidence \path{paper-cobbe-2021-gsm8k}; confidence 0.25).
 
 \begin{figure}[t]
-\centering
-\includegraphics[width=0.98\linewidth]{figures/cot-results.pdf}
-\caption{Reported results of the prompting-condition comparison, as given in the unverified experiment record. Left panel: declared accuracy for each of the three prompting conditions---direct, chain-of-thought, and explicit answer format---over the 200 GSM8K test questions. Right panel: per-item outcome pairing across the same questions, showing how many items were answered correctly under both conditions, under direct only, under chain-of-thought only, and under neither, together with the number of items whose outcome changed across conditions. All values shown are unverified.}
-\label{fig:cot-results}
+  \centering
+  \includegraphics[width=0.96\linewidth]{figures/experiment-results.pdf}
+  \caption{证据门禁的结构化写作路径及四臂干预。主流程表示 C/D 的代码校验与最多一次修复；A/B 仅作为无代码拦截的对照。显式披露的未支持主张可按例外路径放行，因此「接受」不代表引用 ID 有效。底部接受次数来自尚未独立核验的试点记录。}
+  \label{fig:experiment-results}
 \end{figure}
 
-\section{Analysis}
-Read against the background that chain-of-thought prompting helps conventional LLMs (Wei et al.) while a reasoning model such as DeepSeek-R1 already reasons in a hidden channel, the unverified experiment record suggests that for a reasoning model the prompting condition barely changes the outcome and that the dominant measured error sources are item difficulty and the grading rule rather than the prompt. This conclusion is an interpretation of an unverified record, not a confirmed result (claim \path{claim-conclusion}; evidence \path{paper-deepseek-2025-r1}, \path{paper-wei-2022-cot}; confidence 0.25).
+\section{解释与讨论}
 
-A plausible mechanism, not demonstrated in this project, is that because a reasoning model is trained to produce hidden reasoning traces, an explicit chain-of-thought instruction adds little. Kojima et al. show a single zero-shot trigger phrase elicits reasoning without exemplars, and Wang et al. propose self-consistency decoding as a strategy that improves reasoning accuracy, making it a candidate next lever; neither the mechanism nor the prompting result is confirmed here (claim \path{claim-mechanism}; evidence \path{paper-deepseek-2025-r1}, \path{paper-kojima-2022-zero-shot}, \path{paper-wang-2022-self-consistency}; confidence 0.2).
+两个代码机制解释了观察到的行为。
 
-\section{Limitations and Threats to Validity}
-\begin{itemize}[leftmargin=*]
-\item One model (\path{global:deepseek-v4.1-flash}), one dataset (GSM8K test split), one temperature (0), and one generation per item, so the results characterise that configuration and do not estimate a population.
-\item Every empirical number depends on an experiment record (\path{evidence-cot-gsm8k-experiment}) that is not present as confirmed Evidence in this project's evidence graph; those numbers remain unverified pending human confirmation.
-\item No confidence intervals, repeated sampling, or per-item difficulty model are available, so no uncertainty estimate accompanies the reported accuracy figures.
-\item Exact-match and numeric-equivalence grading were applied post hoc; the one parse failure occurred in the direct condition.
-\item The background papers address conventional prompting, datasets, and reasoning models, not retrieval-augmented-generation provenance, so they can frame but cannot confirm any claim about claim-to-source traceability.
-\item The study design, the direction, and the conclusion are the human's approved framing; the assistant has not independently verified the run or the experiment command.
-\item No dataset, code, or run artifacts were supplied with the stage input, so data and code availability cannot be asserted.
+其一，校验器对缺失或未核验证据通常拒绝，但对显式披露的不支持 claim 放行，因此门禁不是零容忍的伪引用拦截。D 臂 rep5 的放行正是这一披露路径的体现，而不是对不存在 id 的通过。该输出引用的 ``none'' 并不在 Ledger 中，不能被视为有效引用。
+
+其二，修复重试只对已成功传输的响应生效，它携带校验错误与不得虚构 id 的指令，但无法给模型提供可引用的证据，因此对无证据可引用的 D 臂没有产生任何把失败转为接受的效果。D 臂 7 次重试后没有失败结果转为接受，rep5 是首轮通过。
+
+A/B/C 三臂的高覆盖率与零未知 id 说明在证据上下文存在时，本次运行没有观察到引用成本；但这不等于真实世界的引用正确性，因为这里的覆盖率只检查 ID 是否出现，接受也只检查门禁是否放行。模型自报 \path{unsupportedClaims} 在 B、C 两臂高于 A 臂，这一差异来自自报字段，不能解读为真实未支持主张的增加或减少。
+
+\section{局限}
+
+\begin{itemize}[leftmargin=1.6em]
+  \item 每臂仅 8 次生成，样本量很小，无法支撑统计推断。
+  \item 只覆盖一个研究问题，无法评估跨问题稳定性。
+  \item 只使用一个模型 \path{global:deepseek-v4.1-flash}，不能推广到其他模型。
+  \item 原始回复未留存，无法进行二次判读、错误归类或独立复评。
+  \item \path{unsupportedClaims} 为模型自报字段，没有人工真值，不能作为真实未支持主张率。
+  \item A--C 上下文中的 3 个已确认 paper id 与研究问题相关性有限，可能影响引用行为。
+  \item 结果仅反映本次工具行为，不能推广到其他任务、门禁实现或真实 RAG 系统。
+  \item 不能据此声称真实 unsupported assertions 减少，也不能声称门禁可阻止伪造引用。
+  \item 实验记录 \path{evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50} 仍为 pending，本文中引用它的每条 claim 都只是转述未核验记录。
+  \item 未报告随机种子、置信区间或显著性检验，且这些设计事实在本次试点中并未提供。
 \end{itemize}
 
-\section{Data and Code Availability}
-The experiment command and the dataset are stated in the approved plan, but no dataset, code, or run artifacts were supplied to this brief. Data and code availability therefore cannot be asserted here.
+\section{结论}
 
-\section{Unverified Claims}
-\begin{itemize}[leftmargin=*]
-\item \path{claim-study-design}: the 200-question, three-condition, temperature-0, 600-generation configuration comes from an experiment record (\path{evidence-cot-gsm8k-experiment}) that is not present as confirmed Evidence in this project's evidence graph; the configuration is unverified.
-\item \path{claim-accuracy-null}: the declared accuracies 0.955 direct, 0.955 chain-of-thought, and 0.945 explicit format, the reading of no measurable chain-of-thought gain, and the 0.010 format cost are unverified; their experiment-run Evidence entry is not in the confirmed evidence graph.
-\item \path{claim-pairing}: the per-item pairing of 190 both-correct, 1 direct-only, 1 chain-of-thought-only, 8 neither, and 4 changed questions is unverified.
-\item \path{claim-trace}: the 25 generations with a correct answer but a wrong last reasoning number against 1 in the other direction are unverified.
-\item \path{claim-grading}: the 1.0 percentage-point exact-match under-count, the 6 numerically equal but textually different responses (for example 12 against 12.00), and the one parse failure are unverified.
-\item \path{claim-conclusion}: the conclusion that prompting barely changes the outcome and that item difficulty and the grading rule dominate measured error is an interpretation of an unverified record, not a confirmed result.
-\item \path{claim-mechanism}: the proposed hidden-channel explanation for why explicit chain-of-thought adds little is a hypothesis, not a demonstrated result.
-\item Unstated metadata: venue, venueLevel, peerReviewed, citationCount, hasCode, and doi are null for the three stage-input papers, and no project evidence entry confirms them.
+在本次 32 次初始生成、D 臂 7 次修复的试点中，证据门禁在证据上下文存在时保持了 8/8 的有效 JSON、8/8 的接受率与 1.00 的覆盖率，并伴随模型自报未支持主张的增加；在无 Evidence 上下文时，接受率降至 1/8，全部引用均不在 Ledger 中，且唯一被接受项是经显式披露后放行的。该门禁的设计目标是披露与拦截并行，而不是零容忍伪引用拦截；上述全部实验数字仍待独立核验。
+
+\section{可复现性与数据/代码可用性}
+
+\subsection{运行命令与数据文件}
+
+运行命令为：
+
+\path{node scripts/experiment-evidence-gate.mjs 8}
+
+数据文件为：\path{aidoc/experiment-evidence-gate.json}。
+
+本次成稿没有重跑 32 次模型实验；表格和图根据现存 JSON 数据及逐次记录整理，原始模型回复没有留档，实验 Evidence 状态仍为 pending，因此未进行独立复评。
+
+\subsection{内部来源}
+
+本文涉及的主要内部来源如下：
+
+\begin{itemize}[leftmargin=1.6em]
+  \item 实验脚本：\path{scripts/experiment-evidence-gate.mjs}
+  \item 实验数据：\path{aidoc/experiment-evidence-gate.json}
+  \item 证据校验机制：\path{evidenceLedger/index.js}
+  \item 实验记录：Evidence Ledger 中的四臂记录（pending）
+  \item 代码机制证据 id：\path{code-writing-evidence-validator}、\path{code-writing-repair-retry}
 \end{itemize}
+
+本报告不引用外部文献，也不对未在内部来源中出现的机制或结果作额外断言。数据与代码可用性以本次内部工程记录为限；在独立核验完成前，表~\ref{tab:four-arms} 与图~\ref{fig:experiment-results} 中的数值仅应视为试点转述。
 
 \end{document}

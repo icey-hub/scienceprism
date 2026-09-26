@@ -215,6 +215,12 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 | --- | --- | --- | --- |
 | 066 | 文档校对 | 重写中英文根 README 为本地个人使用说明；明确浏览器设置存储、后端环境变量、项目数据位置与质量命令。治理 README 改为真实当前状态，保留旧计划为历史；需求状态明确 R-04 尚未实现。修正研究流程中 UI 与 API 的不同默认 Adapter、实验运行器的 Node 权限模型回退，以及 AGENTS.md 的历史红测描述。 | 对照 `package.json`、Vite 配置、后端常量、设置持久化、Harness Adapter 和 Runner 实现逐项核对；所改 10 份文档相对链接检查无缺失；`npm run quality` exit 0（126 测试、类型检查、构建、6 图 0 布局缺陷）；`git diff --check` exit 0。 |
 
+## 科研示例论文与机制框图（迭代 067）
+
+| # | 拍型 | 变更摘要 | 验证证据 |
+| --- | --- | --- | --- |
+| 067 | 加 | 用项目真实工作流生成中文 32 次写作门禁试点论文，并把单调的三组柱状图改为可编辑 SVG 机制框图：证据卡、结构化主张与引用、Ledger 校验、显式披露例外、单次修复回路及四臂配置。论文表格保留完整数值；图底部接受次数由实验 JSON 现算。结构门禁补识别中文「结果」节。 | `node scripts/build-experiment-figure.mjs` 生成 SVG/PDF；`tectonic main.tex` 成功、4 页 A4；实看第 3 页，无越界或遮挡；`node scripts/check-paper-structure.mjs` 为 `structure ok`；`npm run quality` exit 0（126 测试、类型检查、构建、6 图 0 布局缺陷）；`git diff --check` exit 0。实验数值仍为 pending，未独立复评。 |
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。

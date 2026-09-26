@@ -1,8 +1,377 @@
 {
   "schemaVersion": 1,
   "projectId": "aidoc-research-document",
-  "version": 81,
+  "version": 107,
   "entries": [
+    {
+      "id": "claim-d44ae56d91972e001d1a",
+      "kind": "paper-claim",
+      "title": "claim-coverage-caveat",
+      "summary": "D 臂覆盖率 1.00 只表示输出中出现了 ID，不代表 ID 有效；覆盖率与接受率是不同量纲的指标，不能相互替代。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.730Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.730Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-e3628415841ba3f410f5",
+      "kind": "paper-claim",
+      "title": "claim-retry-no-repair",
+      "summary": "D 臂 7 次重试后没有任何失败结果转为接受，rep5 是首轮通过；这与修复重试对无证据可引用的模型没有修复能力的机制描述方向一致，但该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.727Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "code-writing-repair-retry",
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.35
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.727Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-d4ac4c96ac9d2778c23a",
+      "kind": "paper-claim",
+      "title": "claim-not-zero-tolerance",
+      "summary": "因此该门禁不是零容忍的伪引用拦截：它允许被显式披露的不支持主张继续流转；这是对本次代码行为的描述，不是对真实伪引用率的估计。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.724Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "code-writing-evidence-validator",
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.35
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.724Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-f6c0e3701125cec5af76",
+      "kind": "paper-claim",
+      "title": "claim-d-rep5-disclosure",
+      "summary": "D 臂 rep5 是唯一被接受的输出，它引用了不存在的“none”，但因该 claim 被显式登记为 unsupported，代码按披露路径允许其继续流转。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.719Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+          "code-writing-evidence-validator"
+        ],
+        "confidence": 0.35
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.719Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-968112392134b72ca40f",
+      "kind": "paper-claim",
+      "title": "claim-d-validity",
+      "summary": "D 臂有效 JSON 为 5/8，接受率为 1/8，其 6 个引用全部在 Ledger 中不存在。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.716Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.716Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-a46cc72172bc1ba5aeaf",
+      "kind": "paper-claim",
+      "title": "claim-selfreport-delta",
+      "summary": "A/B/C 三臂自报 unsupportedClaims 平均每次为 0.38 / 2.50 / 2.25，B-A=+2.12（约 6.6 倍），C-B=-0.25；这些数字是模型自报字段，而非人工核验的真值。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.713Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.713Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-003a378590b899d6da01",
+      "kind": "paper-claim",
+      "title": "claim-abc-validity",
+      "summary": "在 A/B/C 三臂中，有效 JSON 均为 8/8，接受率均为 8/8，claim-evidence 覆盖率均为 1.00，未知 id 均为 0。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.709Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.709Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-47e9a10c4b11faa28a52",
+      "kind": "paper-claim",
+      "title": "claim-pilot-attempts",
+      "summary": "试点共产生 32 次初始生成，D 臂另发生 7 次修复，总 attempts 为 39。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.706Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.706Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-3385d41410606d739b62",
+      "kind": "paper-claim",
+      "title": "claim-pilot-arm-design",
+      "summary": "本次试点为四臂消融，每臂 8 次生成、同一研究问题、模型为 global:deepseek-v4.1-flash：A 为 no-gate（移除提示规则、事后测量），B 为 prompt-only（有规则但不拦截），C 为 enforced（有规则、校验、最多一次修复），D 为 enforced-no-evidence（不给 Evidence 上下文）。该实验记录尚未独立核验。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.703Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50"
+        ],
+        "confidence": 0.3
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.703Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "claim-385850ab53ca712a42e8",
+      "kind": "paper-claim",
+      "title": "claim-gate-code-design",
+      "summary": "代码门禁由两个已静态核验的机制构成：validateStageEvidence 会把每条 Paper Claim 的 Evidence id 解析到项目 Ledger，通常拒绝缺失或未核验的证据，但对已在 unsupportedClaims 中显式披露的写作 claim 予以放行；runResearchHarnessStage 在解析或 Evidence 校验失败时，对已成功传输的响应重试一次，并把校验错误与不得虚构 id 的指令传给修复尝试。",
+      "source": {
+        "url": null,
+        "path": null,
+        "provider": null,
+        "locator": null
+      },
+      "sourceUrl": null,
+      "sourcePath": null,
+      "acquiredAt": "2026-09-25T15:26:43.697Z",
+      "verifiedAt": null,
+      "verificationStatus": "pending",
+      "version": null,
+      "sha256": null,
+      "location": null,
+      "tags": [],
+      "metadata": {
+        "evidenceIds": [
+          "code-writing-evidence-validator",
+          "code-writing-repair-retry"
+        ],
+        "confidence": 0.8
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:26:43.697Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "code-writing-repair-retry",
+      "kind": "code",
+      "title": "Writing-stage single validation repair attempt",
+      "summary": "Static source verification: runResearchHarnessStage retries a successfully transported response once when parsing or Evidence validation fails, passing validation errors and a no-invented-id instruction to the repair attempt. The function returns the second response and its validation result.",
+      "source": {
+        "url": null,
+        "path": "apps/backend/src/services/researchResearch/harnessAdapter.js",
+        "provider": "local-source",
+        "locator": "apps/backend/src/services/researchResearch/harnessAdapter.js#runResearchHarnessStage"
+      },
+      "sourceUrl": null,
+      "sourcePath": "apps/backend/src/services/researchResearch/harnessAdapter.js",
+      "acquiredAt": "2026-09-25T15:20:40.849Z",
+      "verifiedAt": "2026-09-25T15:20:40.849Z",
+      "verificationStatus": "verified",
+      "version": null,
+      "sha256": null,
+      "location": "apps/backend/src/services/researchResearch/harnessAdapter.js#runResearchHarnessStage",
+      "tags": [
+        "source-code",
+        "retry",
+        "writing"
+      ],
+      "metadata": {
+        "verificationMethod": "static inspection of runResearchHarnessStage and validationRepairInstructions"
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:20:40.857Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
+    {
+      "id": "code-writing-evidence-validator",
+      "kind": "code",
+      "title": "Writing-brief Evidence validation and explicit uncertainty handling",
+      "summary": "Static source verification: validateStageEvidence resolves each Paper Claim Evidence id against the project ledger. Missing or unverified evidence is ordinarily rejected, but a writing claim that is explicitly named in unsupportedClaims is permitted as a disclosed uncertainty. This is a disclosure-aware gate, not a universal hard block on every unsupported claim or placeholder id.",
+      "source": {
+        "url": null,
+        "path": "apps/backend/src/services/evidenceLedger/index.js",
+        "provider": "local-source",
+        "locator": "apps/backend/src/services/evidenceLedger/index.js#validateStageEvidence"
+      },
+      "sourceUrl": null,
+      "sourcePath": "apps/backend/src/services/evidenceLedger/index.js",
+      "acquiredAt": "2026-09-25T15:20:40.849Z",
+      "verifiedAt": "2026-09-25T15:20:40.849Z",
+      "verificationStatus": "verified",
+      "version": null,
+      "sha256": null,
+      "location": "apps/backend/src/services/evidenceLedger/index.js#validateStageEvidence",
+      "tags": [
+        "source-code",
+        "evidence-validation",
+        "writing"
+      ],
+      "metadata": {
+        "verificationMethod": "static inspection of validateStageEvidence, checkClaimEvidence, and evaluateClaim",
+        "relatedSourcePaths": [
+          "apps/backend/src/services/evidenceLedger/schema.js"
+        ]
+      },
+      "evidenceVersions": {},
+      "createdAt": "2026-09-25T15:20:40.855Z",
+      "updatedAt": "2026-09-25T15:26:43.730Z"
+    },
     {
       "id": "claim-75a766fc3c139c261c0d",
       "kind": "paper-claim",
@@ -31,7 +400,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.968Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-0c55fc4c496f9c14afd7",
@@ -61,7 +430,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.966Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-a2ebe51de652e62e33f8",
@@ -93,7 +462,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.963Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-27c1bb32b06084e3ed5c",
@@ -124,7 +493,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.960Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-5d2409982458e7bd085b",
@@ -154,7 +523,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.958Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-d17ee68d2a3837ff7bd7",
@@ -184,7 +553,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.956Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-d30f1f256d016c161f01",
@@ -215,7 +584,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.953Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-d1bd3be07e1bdfc3498b",
@@ -246,7 +615,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.950Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-8f72fcafd0133ee1bd2b",
@@ -276,7 +645,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:41:57.949Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-deepseek-2025-r1",
@@ -306,7 +675,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:40:21.308Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-kojima-2022-zero-shot",
@@ -336,7 +705,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:40:21.307Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-wang-2022-self-consistency",
@@ -366,7 +735,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:40:21.306Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-wei-2022-cot",
@@ -396,7 +765,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:40:21.304Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-cobbe-2021-gsm8k",
@@ -426,7 +795,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:40:21.301Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "evidence-cot-gsm8k-experiment",
@@ -560,7 +929,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T07:40:21.299Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-8492eda87c391d43492d",
@@ -592,7 +961,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.756Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-89713ddef496c5bb0d07",
@@ -622,7 +991,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.754Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-ba56ab8c3907a52ec8f2",
@@ -652,7 +1021,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.753Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-d4755366979f8f3f6fc9",
@@ -682,7 +1051,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:43:15.740Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-bc8f5e5a906037cdd0aa",
@@ -712,7 +1081,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.269Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-8453d30b7e0a6b928e3d",
@@ -742,7 +1111,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.268Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-8de0a24311da72c7babf",
@@ -772,7 +1141,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.266Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-923da3444d100df692d2",
@@ -802,7 +1171,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.264Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-d239dbd09859304e7f8e",
@@ -832,7 +1201,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.263Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-8f99c894e4d840737e1a",
@@ -862,7 +1231,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.261Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-6e6e850e5cf5381be02b",
@@ -892,7 +1261,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:40:59.257Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
@@ -979,7 +1348,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-25T04:38:47.117Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-9ff9b69229ca2816720e",
@@ -1010,7 +1379,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.652Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-71794ff674d5ad53cbd1",
@@ -1040,7 +1409,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.651Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-9a38a90b08d28c0812fb",
@@ -1070,7 +1439,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.650Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-dff2b75b796925cc9560",
@@ -1100,7 +1469,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.649Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-c001966d011cc22f31df",
@@ -1130,7 +1499,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.648Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "claim-121f1d5e47b0b6f5f148",
@@ -1160,7 +1529,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:33:55.646Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-b2b2f01594862b01e12f",
@@ -1217,7 +1586,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:32:43.799Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-bcc49f7513ed61be3a1f",
@@ -1272,7 +1641,7 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:32:43.798Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     },
     {
       "id": "paper-50abf243f9f4e962403b",
@@ -1330,10 +1699,150 @@
       },
       "evidenceVersions": {},
       "createdAt": "2026-09-24T07:32:43.797Z",
-      "updatedAt": "2026-09-25T07:41:57.968Z"
+      "updatedAt": "2026-09-25T15:26:43.730Z"
     }
   ],
   "relations": [
+    {
+      "id": "relation-1790350003731-c82fe6b87b2af8",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-d44ae56d91972e001d1a",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.731Z"
+    },
+    {
+      "id": "relation-1790350003729-472c713d1c2038",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-e3628415841ba3f410f5",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.729Z"
+    },
+    {
+      "id": "relation-1790350003728-213e29e713aed8",
+      "type": "supports",
+      "fromId": "code-writing-repair-retry",
+      "toId": "claim-e3628415841ba3f410f5",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.728Z"
+    },
+    {
+      "id": "relation-1790350003726-f67fb4f42865c",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-d4ac4c96ac9d2778c23a",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.726Z"
+    },
+    {
+      "id": "relation-1790350003725-e0b8fa90268e78",
+      "type": "supports",
+      "fromId": "code-writing-evidence-validator",
+      "toId": "claim-d4ac4c96ac9d2778c23a",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.725Z"
+    },
+    {
+      "id": "relation-1790350003723-640d501dc0404",
+      "type": "supports",
+      "fromId": "code-writing-evidence-validator",
+      "toId": "claim-f6c0e3701125cec5af76",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.723Z"
+    },
+    {
+      "id": "relation-1790350003721-4b7f20a5d57598",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-f6c0e3701125cec5af76",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.721Z"
+    },
+    {
+      "id": "relation-1790350003717-f691c5c7fdbc28",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-968112392134b72ca40f",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.717Z"
+    },
+    {
+      "id": "relation-1790350003714-f0236745166988",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-a46cc72172bc1ba5aeaf",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.714Z"
+    },
+    {
+      "id": "relation-1790350003711-d59280dc7aec2",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-003a378590b899d6da01",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.711Z"
+    },
+    {
+      "id": "relation-1790350003707-881e0e019767f8",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-47e9a10c4b11faa28a52",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.707Z"
+    },
+    {
+      "id": "relation-1790350003704-94c5f975a51ce8",
+      "type": "supports",
+      "fromId": "evidence-19e177ec-9a6c-4bac-b897-03c7a6f61b50",
+      "toId": "claim-3385d41410606d739b62",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.704Z"
+    },
+    {
+      "id": "relation-1790350003701-0b53eb264b3088",
+      "type": "supports",
+      "fromId": "code-writing-repair-retry",
+      "toId": "claim-385850ab53ca712a42e8",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.701Z"
+    },
+    {
+      "id": "relation-1790350003699-b663778d5a8c38",
+      "type": "supports",
+      "fromId": "code-writing-evidence-validator",
+      "toId": "claim-385850ab53ca712a42e8",
+      "evidenceIds": [],
+      "note": "",
+      "actor": "human",
+      "createdAt": "2026-09-25T15:26:43.699Z"
+    },
     {
       "id": "relation-1790322117969-c2f50fed009b38",
       "type": "supports",
@@ -1675,5 +2184,5 @@
       "createdAt": "2026-09-24T07:33:55.647Z"
     }
   ],
-  "updatedAt": "2026-09-25T07:41:57.969Z"
+  "updatedAt": "2026-09-25T15:26:43.731Z"
 }

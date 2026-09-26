@@ -1,52 +1,120 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="940" height="470" viewBox="0 0 940 470">
-<rect width="940" height="470" fill="#ffffff"/>
-<text x="30" y="30" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="16" font-weight="700" text-anchor="start" fill="#1e293b">四臂消融：证据门禁是否改变产出（n=8 次/臂，模型 global:deepseek-v4.1-flash）</text>
-<text x="30" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">伪造的证据 id</text>
-<text x="287.3333333333333" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">个 / 全臂</text>
-<path d="M 30 318 L 287.3333333333333 318" stroke="#cbd5e1" stroke-width="1"/>
-<text x="62.166666666666664" y="311" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0</text>
-<text x="62.166666666666664" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">A 无指令</text>
-<text x="126.5" y="311" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0</text>
-<text x="126.5" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">B 仅指令</text>
-<text x="190.83333333333331" y="311" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0</text>
-<text x="190.83333333333331" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">C 强制</text>
-<rect x="239.1" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#b91c1c"/>
-<text x="255.16666666666666" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">6</text>
-<text x="255.16666666666666" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">D 强制</text>
-<text x="255.16666666666666" y="347" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">无证据</text>
-<text x="313.3333333333333" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">被接受率</text>
-<text x="570.6666666666666" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">比例</text>
-<path d="M 313.3333333333333 318 L 570.6666666666666 318" stroke="#cbd5e1" stroke-width="1"/>
-<rect x="329.4" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
-<text x="345.5" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">1.00</text>
-<text x="345.5" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">A 无指令</text>
-<rect x="393.8" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
-<text x="409.8333333333333" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">1.00</text>
-<text x="409.8333333333333" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">B 仅指令</text>
-<rect x="458.1" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
-<text x="474.1666666666667" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">1.00</text>
-<text x="474.1666666666667" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">C 强制</text>
-<rect x="522.4" y="287.8" width="32.166666666666664" height="30.2" rx="3" fill="#b91c1c"/>
-<text x="538.5" y="280.84" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">0.13</text>
-<text x="538.5" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">D 强制</text>
-<text x="538.5" y="347" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">无证据</text>
-<text x="596.6666666666666" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="13" font-weight="700" text-anchor="start" fill="#1e293b">声明的不确定性</text>
-<text x="854" y="66" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11" font-weight="500" text-anchor="end" fill="#64748b">均值 / 次</text>
-<path d="M 596.6666666666666 318 L 854 318" stroke="#cbd5e1" stroke-width="1"/>
-<rect x="612.7" y="282.7" width="32.166666666666664" height="35.3" rx="3" fill="#1d4ed8"/>
-<text x="628.8333333333333" y="275.736" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">0.38</text>
-<text x="628.8333333333333" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">A 无指令</text>
-<rect x="677.1" y="86.0" width="32.166666666666664" height="232.0" rx="3" fill="#1d4ed8"/>
-<text x="693.1666666666666" y="79" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">2.50</text>
-<text x="693.1666666666666" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">B 仅指令</text>
-<rect x="741.4" y="109.2" width="32.166666666666664" height="208.8" rx="3" fill="#1d4ed8"/>
-<text x="757.4999999999999" y="102.19999999999999" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#1d4ed8">2.25</text>
-<text x="757.4999999999999" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#64748b">C 强制</text>
-<rect x="805.7" y="213.1" width="32.166666666666664" height="104.9" rx="3" fill="#b91c1c"/>
-<text x="821.8333333333333" y="206.13600000000002" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12" font-weight="700" text-anchor="middle" fill="#b91c1c">1.13</text>
-<text x="821.8333333333333" y="334" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">D 强制</text>
-<text x="821.8333333333333" y="347" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="middle" fill="#b91c1c">无证据</text>
-<text x="30" y="392" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12.5" font-weight="500" text-anchor="start" fill="#64748b">A/B/C 的输入里有 3 篇 human-confirmed 论文可引；D 的输入里没有任何证据。只有 D 存在伪造的可能。</text>
-<text x="30" y="412" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="12.5" font-weight="700" text-anchor="start" fill="#b91c1c">D 臂：6 个引用 id 全部伪造，门禁拒绝 7/8 次，修复重试触发 7 次但修好 0 次。</text>
-<text x="30" y="440" font-family="Hiragino Sans GB, PingFang SC, Heiti SC, sans-serif" font-size="11.5" font-weight="500" text-anchor="start" fill="#64748b">来源：aidoc/experiment-evidence-gate.json（scripts/experiment-evidence-gate.mjs 产出，严格串行）</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="675" viewBox="0 0 1000 675" role="img" aria-label="结构化写作中的证据门禁机制框图">
+<title>结构化写作中的证据门禁</title>
+<desc>证据上下文经结构化草稿进入代码校验；无效引用可触发一次修复，显式披露的未支持主张可按例外路径放行。下方对比四臂干预与接受记录。</desc>
+<defs>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#345d8b"/></marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#147b82"/></marker>
+    <marker id="arrow-coral" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#bd4d3e"/></marker>
+  </defs>
+<rect width="1000" height="675" fill="#ffffff"/>
+<rect x="41" y="31" width="5" height="50" rx="2.5" fill="#147b82"/>
+<text x="61" y="59" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="29" font-weight="700" fill="#172d3d" text-anchor="start">结构化写作中的证据门禁</text>
+<text x="61" y="86" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="16" font-weight="400" fill="#536d7c" text-anchor="start">C/D 的代码门禁路径：输入证据 → 生成主张 → 校验 → 接受或修复；A/B 为对照</text>
+<path d="M 41 108 H 959" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="42" y="130" width="199" height="276" rx="12" fill="#edf3f9" stroke="#dbe5ef" stroke-width="1.5"/>
+<rect x="267" y="130" width="208" height="276" rx="12" fill="#f8fbfc" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="501" y="130" width="230" height="276" rx="12" fill="#f8fbfc" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="757" y="130" width="201" height="276" rx="12" fill="#e9f5f3" stroke="#cde4e1" stroke-width="1.5"/>
+<rect x="57" y="145" width="100" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="107" y="164" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">01  INPUT</text>
+<rect x="282" y="145" width="110" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="337" y="164" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">02  DRAFT</text>
+<rect x="516" y="145" width="105" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="568.5" y="164" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">03  CHECK</text>
+<rect x="772" y="145" width="125" height="27" rx="13" fill="#d8edeb" stroke="#d8edeb" stroke-width="1.5"/>
+<text x="834.5" y="164" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#0d5962" text-anchor="middle">04  OUTCOME</text>
+<text x="60" y="200" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#172d3d" text-anchor="start">Evidence Ledger</text>
+<text x="284" y="200" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#172d3d" text-anchor="start">结构化草稿</text>
+<text x="518" y="200" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#172d3d" text-anchor="start">代码侧校验</text>
+<text x="773" y="200" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#172d3d" text-anchor="start">流转结果</text>
+<g opacity="0.78"><rect x="66" y="224" width="92" height="89" rx="7" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+    <path d="M 79 262 H 140 M 79 275 H 136 M 79 288 H 124" stroke="#c9d8de" stroke-width="3" stroke-linecap="round"/>
+    <rect x="77" y="233" width="35" height="27" rx="13" fill="#e9f5f3" stroke="#e9f5f3" stroke-width="1.5"/>
+<text x="94.5" y="252" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#0d5962" text-anchor="middle">P3</text>
+  </g>
+<g opacity="0.88"><rect x="84" y="212" width="92" height="89" rx="7" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+    <path d="M 97 250 H 158 M 97 263 H 154 M 97 276 H 142" stroke="#c9d8de" stroke-width="3" stroke-linecap="round"/>
+    <rect x="95" y="221" width="35" height="27" rx="13" fill="#e9f5f3" stroke="#e9f5f3" stroke-width="1.5"/>
+<text x="112.5" y="240" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#0d5962" text-anchor="middle">P2</text>
+  </g>
+<g opacity="1"><rect x="102" y="202" width="92" height="89" rx="7" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+    <path d="M 115 240 H 176 M 115 253 H 172 M 115 266 H 160" stroke="#c9d8de" stroke-width="3" stroke-linecap="round"/>
+    <rect x="113" y="211" width="35" height="27" rx="13" fill="#e9f5f3" stroke="#e9f5f3" stroke-width="1.5"/>
+<text x="130.5" y="230" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#0d5962" text-anchor="middle">P1</text>
+  </g>
+<text x="61" y="329" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="600" fill="#345d8b" text-anchor="start">A–C：3 篇已确认论文</text>
+<rect x="61" y="346" width="160" height="41" rx="7" fill="#ffffff" stroke="#bd4d3e" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="141" y="372" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="650" fill="#bd4d3e" text-anchor="middle">D：无可用证据</text>
+<rect x="289" y="218" width="165" height="163" rx="8" fill="#ffffff" stroke="#bacbd3" stroke-width="1.5"/>
+<path d="M 289 245 H 454" stroke="#c9d8de" stroke-width="1.5"/>
+<circle cx="311" cy="233" r="6" fill="#147b82"/>
+<text x="326" y="238" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="700" fill="#172d3d" text-anchor="start">JSON draft</text>
+<rect x="302" y="260" width="96" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="350" y="279" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">claims[]</text>
+<rect x="302" y="297" width="137" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="370.5" y="316" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">evidenceIds[]</text>
+<rect x="302" y="337" width="146" height="27" rx="13" fill="#fff0eb" stroke="#fff0eb" stroke-width="1.5"/>
+<text x="375" y="356" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#bd4d3e" text-anchor="middle">unsupportedClaims[]</text>
+<path d="M 399 273 C 425 273 414 307 438 307" fill="none" stroke="#147b82" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="289" y="399" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">主张与引用关联</text>
+<rect x="521" y="222" width="190" height="47" rx="8" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="532" y="232" width="27" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="545.5" y="251" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">1</text>
+<text x="573" y="252" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="16" font-weight="600" fill="#172d3d" text-anchor="start">解析引用 ID</text>
+<path d="M 616 271 V 283" fill="none" stroke="#345d8b" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-blue)"/>
+<rect x="521" y="287" width="190" height="47" rx="8" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="532" y="297" width="27" height="27" rx="13" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="545.5" y="316" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#345d8b" text-anchor="middle">2</text>
+<text x="573" y="317" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="16" font-weight="600" fill="#172d3d" text-anchor="start">对照 Ledger</text>
+<path d="M 616 336 V 348" fill="none" stroke="#345d8b" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-blue)"/>
+<rect x="521" y="352" width="190" height="39" rx="8" fill="#fff0eb" stroke="#f2c5bc" stroke-width="1.5"/>
+<text x="616" y="377" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="600" fill="#bd4d3e" text-anchor="middle">例外：明确披露未支持主张</text>
+<rect x="778" y="223" width="159" height="69" rx="9" fill="#ffffff" stroke="#b9d9d4" stroke-width="1.5"/>
+<circle cx="800" cy="245" r="11" fill="#147b82"/>
+<text x="800" y="251" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="16" font-weight="700" fill="#ffffff" text-anchor="middle">✓</text>
+<text x="821" y="251" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="17" font-weight="700" fill="#0d5962" text-anchor="start">接受草稿</text>
+<text x="790" y="277" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">有效引用 / 明确披露</text>
+<rect x="778" y="313" width="159" height="69" rx="9" fill="#ffffff" stroke="#efc4bc" stroke-width="1.5"/>
+<circle cx="800" cy="335" r="11" fill="#bd4d3e"/>
+<text x="800" y="341" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="17" font-weight="700" fill="#ffffff" text-anchor="middle">!</text>
+<text x="821" y="341" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="17" font-weight="700" fill="#bd4d3e" text-anchor="start">校验失败</text>
+<text x="790" y="367" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">最多一次修复尝试</text>
+<path d="M 243 274 H 262" fill="none" stroke="#345d8b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-blue)"/>
+<path d="M 477 274 H 496" fill="none" stroke="#345d8b" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-blue)"/>
+<path d="M 733 260 H 752" fill="none" stroke="#147b82" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-teal)"/>
+<path d="M 733 349 H 752" fill="none" stroke="#bd4d3e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-coral)"/>
+<path d="M 858 385 V 428 H 371 V 410" fill="none" stroke="#bd4d3e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#arrow-coral)"/>
+<rect x="486" y="414" width="126" height="27" rx="13" fill="#fff0eb" stroke="#fff0eb" stroke-width="1.5"/>
+<text x="549" y="433" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="650" fill="#bd4d3e" text-anchor="middle">失败后修复一次</text>
+<rect x="42" y="457" width="916" height="58" rx="8" fill="#fff0eb" stroke="#f3d5ce" stroke-width="1.5"/>
+<rect x="42" y="457" width="5" height="58" rx="2.5" fill="#bd4d3e"/>
+<text x="61" y="483" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="16" font-weight="600" fill="#172d3d" text-anchor="start">D 臂例外：唯一接受稿引用了不存在的 “none”，因对应主张列入 unsupportedClaims 而放行。</text>
+<text x="61" y="504" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="400" fill="#bd4d3e" text-anchor="start">因此，接受并不等于引用 ID 有效；D 臂 7 次修复均未把失败生成变成接受。</text>
+<text x="43" y="550" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="18" font-weight="700" fill="#172d3d" text-anchor="start">四臂干预与观测  ·  每臂 8 次生成</text>
+<rect x="42" y="565" width="223" height="83" rx="8" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="53" y="579" width="34" height="34" rx="7" fill="#e9f5f3" stroke="#e9f5f3" stroke-width="1.5"/>
+<text x="70" y="603" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700" fill="#147b82" text-anchor="middle">A</text>
+<text x="95" y="591" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="650" fill="#172d3d" text-anchor="start">无提示 · 无校验</text>
+<text x="95" y="612" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">证据输入：有</text>
+<text x="55" y="636" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#147b82" text-anchor="start">接受 8/8</text>
+<rect x="273" y="565" width="223" height="83" rx="8" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="284" y="579" width="34" height="34" rx="7" fill="#e9f5f3" stroke="#e9f5f3" stroke-width="1.5"/>
+<text x="301" y="603" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700" fill="#147b82" text-anchor="middle">B</text>
+<text x="326" y="591" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="650" fill="#172d3d" text-anchor="start">提示规则 · 无校验</text>
+<text x="326" y="612" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">证据输入：有</text>
+<text x="286" y="636" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#147b82" text-anchor="start">接受 8/8</text>
+<rect x="504" y="565" width="223" height="83" rx="8" fill="#ffffff" stroke="#c9d8de" stroke-width="1.5"/>
+<rect x="515" y="579" width="34" height="34" rx="7" fill="#e9f5f3" stroke="#e9f5f3" stroke-width="1.5"/>
+<text x="532" y="603" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700" fill="#147b82" text-anchor="middle">C</text>
+<text x="557" y="591" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="650" fill="#172d3d" text-anchor="start">提示 + 代码门禁</text>
+<text x="557" y="612" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">证据输入：有</text>
+<text x="517" y="636" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#147b82" text-anchor="start">接受 8/8</text>
+<rect x="735" y="565" width="223" height="83" rx="8" fill="#fff0eb" stroke="#efc5bc" stroke-width="1.5"/>
+<rect x="746" y="579" width="34" height="34" rx="7" fill="#bd4d3e" stroke="#bd4d3e" stroke-width="1.5"/>
+<text x="763" y="603" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="19" font-weight="700" fill="#ffffff" text-anchor="middle">D</text>
+<text x="788" y="591" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="15" font-weight="650" fill="#172d3d" text-anchor="start">同 C · 无证据输入</text>
+<text x="788" y="612" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="13" font-weight="400" fill="#536d7c" text-anchor="start">证据输入：无</text>
+<text x="748" y="636" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#bd4d3e" text-anchor="start">接受 1/8</text>
+<text x="943" y="636" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="14" font-weight="700" fill="#bd4d3e" text-anchor="end">伪造 ID 6</text>
+<text x="43" y="667" font-family="PingFang SC, Hiragino Sans GB, Noto Sans CJK SC, sans-serif" font-size="12" font-weight="400" fill="#536d7c" text-anchor="start">来源：aidoc/experiment-evidence-gate.json；机制依据：Evidence Ledger 校验与 Harness 修复路径。</text>
 </svg>

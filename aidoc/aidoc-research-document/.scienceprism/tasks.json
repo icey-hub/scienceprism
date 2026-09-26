@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "projectId": "aidoc-research-document",
+  "version": 9,
+  "tasks": [
+    {
+      "kind": "compile",
+      "title": "Compile manuscript/main.tex",
+      "status": "completed",
+      "progress": 100,
+      "metadata": {
+        "projectId": "aidoc-research-document",
+        "mainFile": "manuscript/main.tex",
+        "engine": "tectonic"
+      },
+      "log": [
+        "Compilation started with tectonic.",
+        "note: Running TeX ...",
+        "warning: accessing absolute path `/System/Library/Fonts/Menlo.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/Fonts/Supplemental/Songti.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/88d6cc32a907955efa1d014207889413890573be.asset/AssetData/Kaiti.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/10e7a462a671950b802274fad767b566ff8457d1.asset/AssetData/STXIHEI.ttf`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/53fe5be564086fefc7523ccd0a31200acf92e0e5.asset/AssetData/STHEITI.ttf`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/1b6b2f148cdf17dd0d788706c83c61ca1998c3a6.asset/AssetData/STFANGSO.ttf`; build may not be reproducible in other environments",
+        "warning: main.tex:36: Underfull \\hbox (badness 1496) in paragraph at lines 35--36",
+        "note: Rerunning TeX because \"main.aux\" changed ...",
+        "warning: main.tex:36: Underfull \\hbox (badness 1496) in paragraph at lines 35--36",
+        "warning: warnings were issued by the TeX engine; use --print and/or --keep-logs for details.",
+        "note: Running xdvipdfmx ...",
+        "warning: PDF file is tagged... Ignoring tags.",
+        "note: Writing `/Users/icey/Desktop/project/prism-code/OpenPrism/aidoc/aidoc-research-document/.compile/5f66d8c1-0949-44a3-843f-5f2105243903/main.pdf` (369.0732421875 KiB)",
+        "note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)",
+        "",
+        "Compilation completed."
+      ],
+      "id": "task-99b9636b-fb75-468a-85b0-a0b73dee2d6c",
+      "stage": null,
+      "error": null,
+      "retryable": false,
+      "createdAt": "2026-09-26T01:19:51.279Z",
+      "startedAt": "2026-09-26T01:19:51.279Z",
+      "finishedAt": "2026-09-26T01:19:54.471Z",
+      "updatedAt": "2026-09-26T01:19:54.471Z"
+    },
+    {
+      "kind": "compile",
+      "title": "Compile manuscript/main.tex",
+      "status": "completed",
+      "progress": 100,
+      "metadata": {
+        "projectId": "aidoc-research-document",
+        "mainFile": "manuscript/main.tex",
+        "engine": "tectonic"
+      },
+      "log": [
+        "Compilation started with tectonic.",
+        "note: Running TeX ...",
+        "warning: accessing absolute path `/System/Library/Fonts/Menlo.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/Fonts/Supplemental/Songti.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/88d6cc32a907955efa1d014207889413890573be.asset/AssetData/Kaiti.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/10e7a462a671950b802274fad767b566ff8457d1.asset/AssetData/STXIHEI.ttf`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/53fe5be564086fefc7523ccd0a31200acf92e0e5.asset/AssetData/STHEITI.ttf`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/1b6b2f148cdf17dd0d788706c83c61ca1998c3a6.asset/AssetData/STFANGSO.ttf`; build may not be reproducible in other environments",
+        "warning: main.tex:36: Underfull \\hbox (badness 1496) in paragraph at lines 35--36",
+        "note: Rerunning TeX because \"main.out\" changed ...",
+        "warning: main.tex:36: Underfull \\hbox (badness 1496) in paragraph at lines 35--36",
+        "warning: warnings were issued by the TeX engine; use --print and/or --keep-logs for details.",
+        "note: Running xdvipdfmx ...",
+        "warning: PDF file is tagged... Ignoring tags.",
+        "note: Writing `/Users/icey/Desktop/project/prism-code/OpenPrism/aidoc/aidoc-research-document/.compile/97180bde-f5f4-4f64-b0c7-e4321537acdf/main.pdf` (257.9365234375 KiB)",
+        "note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)",
+        "",
+        "Compilation completed."
+      ],
+      "id": "task-1ea075bd-fcd1-4e70-8059-bdd1b74d0d96",
+      "stage": null,
+      "error": null,
+      "retryable": false,
+      "createdAt": "2026-09-26T01:12:13.729Z",
+      "startedAt": "2026-09-26T01:12:13.729Z",
+      "finishedAt": "2026-09-26T01:12:16.864Z",
+      "updatedAt": "2026-09-26T01:12:16.864Z"
+    },
+    {
+      "kind": "compile",
+      "title": "Compile manuscript/main.tex",
+      "status": "completed",
+      "progress": 100,
+      "metadata": {
+        "projectId": "aidoc-research-document",
+        "mainFile": "manuscript/main.tex",
+        "engine": "tectonic"
+      },
+      "log": [
+        "Compilation started with tectonic.",
+        "note: Running TeX ...",
+        "warning: accessing absolute path `/System/Library/Fonts/Menlo.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/Fonts/Supplemental/Songti.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/88d6cc32a907955efa1d014207889413890573be.asset/AssetData/Kaiti.ttc`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/10e7a462a671950b802274fad767b566ff8457d1.asset/AssetData/STXIHEI.ttf`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/53fe5be564086fefc7523ccd0a31200acf92e0e5.asset/AssetData/STHEITI.ttf`; build may not be reproducible in other environments",
+        "warning: accessing absolute path `/System/Library/AssetsV2/com_apple_MobileAsset_Font8/1b6b2f148cdf17dd0d788706c83c61ca1998c3a6.asset/AssetData/STFANGSO.ttf`; build may not be reproducible in other environments",
+        "warning: main.tex:36: Underfull \\hbox (badness 1496) in paragraph at lines 35--36",
+        "note: Rerunning TeX because \"main.out\" changed ...",
+        "warning: main.tex:36: Underfull \\hbox (badness 1496) in paragraph at lines 35--36",
+        "warning: warnings were issued by the TeX engine; use --print and/or --keep-logs for details.",
+        "note: Running xdvipdfmx ...",
+        "warning: PDF file is tagged... Ignoring tags.",
+        "note: Writing `/Users/icey/Desktop/project/prism-code/OpenPrism/aidoc/aidoc-research-document/.compile/7e3d1814-fc2f-4df9-8dd0-03bcf31db9a2/main.pdf` (275.212890625 KiB)",
+        "note: Skipped writing 2 intermediate files (use --keep-intermediates to keep them)",
+        "",
+        "Compilation completed."
+      ],
+      "id": "task-ba3584d5-f0d1-4f9f-94d5-e4f430260b6a",
+      "stage": null,
+      "error": null,
+      "retryable": false,
+      "createdAt": "2026-09-25T15:35:29.575Z",
+      "startedAt": "2026-09-25T15:35:29.575Z",
+      "finishedAt": "2026-09-25T15:35:32.476Z",
+      "updatedAt": "2026-09-25T15:35:32.476Z"
+    },
+    {
+      "kind": "compile",
+      "title": "Compile manuscript/main.tex",
+      "status": "failed",
+      "progress": 100,
+      "metadata": {
+        "projectId": "aidoc-research-document",
+        "mainFile": "manuscript/main.tex",
+        "engine": "pdflatex"
+      },
+      "log": [
+        "Compilation started with pdflatex.",
+        "Compilation failed."
+      ],
+      "id": "task-3f023402-61aa-4d3b-bf60-5663e83c1612",
+      "stage": null,
+      "error": {
+        "message": "pdflatex not available: spawn pdflatex ENOENT"
+      },
+      "retryable": false,
+      "createdAt": "2026-09-25T15:35:00.233Z",
+      "startedAt": "2026-09-25T15:35:00.233Z",
+      "finishedAt": "2026-09-25T15:35:00.238Z",
+      "updatedAt": "2026-09-25T15:35:00.238Z"
+    }
+  ],
+  "updatedAt": "2026-09-26T01:19:54.471Z"
+}
