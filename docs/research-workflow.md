@@ -21,14 +21,14 @@ decisions are recorded in [docs/adr](./adr/).
 5. Ideation: structured innovation suggestions through DeepSeek Harness when configured.
 6. Method: structured method proposals and human approval.
 7. Experiment: human-approved dataset and structured execution plan. The workflow route records the plan; a separate controlled Experiment Run requires its own human approval and the project `experiment.execute` capability. Arbitrary shell commands are never executed.
-8. Writing: evidence handoff to the existing editor.
+8. Writing: evidence handoff to the existing editor. The default single-Agent path remains available. An optional multi-Agent mode runs two serial read-only `paper-reviewer` child Runs (claim/evidence and method/conclusion), then one `research-stage-assistant` coordinator Run. Child opinions remain advisory; the coordinator output passes the writing schema and Evidence Ledger checks before human approval.
 
 Each stage is a separate URL and interface inside the existing editor shell.
 The SciencePrism top bar, project file sidebar, project settings, language controls,
 and writing entry point stay mounted while the research view replaces the
 editor/preview area. The writing stage returns to `/editor/:projectId` after the
 evidence handoff. Navigation does not grant approval: the server still checks
-the current stage and records every approval in the project audit log.
+the current stage and records every approval in the project audit log. In the multi-Agent writing mode, the page stays on the writing stage after handoff so the researcher can inspect the child Run IDs, statuses, opinions, errors, and usage before opening the Brief. Runs are linked by `parentRunId`; the Brief records their provenance. A failed child stops the sequence, and retry reuses successful child output from the same delegation. This mode uses three serial model calls when all steps succeed, so it costs more time and tokens than the default mode.
 
 The backend also exposes stage details, pending approvals, and the audit timeline as query projections. Mutations accept `expectedVersion` for optimistic concurrency and `idempotencyKey` for safe retries.
 

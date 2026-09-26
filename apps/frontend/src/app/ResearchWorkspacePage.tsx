@@ -42,7 +42,7 @@ import { ReplicationStage } from './research/stages/ReplicationStage';
 import { InnovationStage } from './research/stages/InnovationStage';
 import { MethodStage } from './research/stages/MethodStage';
 import { ExperimentStage } from './research/stages/ExperimentStage';
-import { WritingStage } from './research/stages/WritingStage';
+import { WritingStage, type WritingDelegation } from './research/stages/WritingStage';
 
 type StageState = 'locked' | 'ready' | 'active' | 'complete' | 'error';
 
@@ -74,6 +74,7 @@ interface UiWorkflow {
     status?: string;
     validation?: { ok?: boolean; errors?: { message?: string }[]; warnings?: string[] };
     harness?: { runId?: string | null; adapter?: string | null; status?: string } | null;
+    delegation?: WritingDelegation | null;
     humanDecision?: { decision?: string; actor?: string } | null;
     error?: { message?: string } | null;
   };
@@ -186,6 +187,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const [claimMatrix, setClaimMatrix] = useState<ClaimEvidenceMatrix | null>(null);
   const [stageRoles, setStageRoles] = useState<AgentRoleSummary[]>([]);
   const [experimentRun, setExperimentRun] = useState<ExperimentRun | null>(null);
+  const [writingAgentMode, setWritingAgentMode] = useState<'single-agent' | 'multi-agent'>('single-agent');
   const skillInputRef = useRef<HTMLInputElement | null>(null);
 
   const refreshSkills = useCallback(async () => {
@@ -397,10 +399,10 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
         }))
       }
     } : workflow.experiment || {};
-    const next = await runAction('handoff-writing', { paperIds: selectedIds, ideas: (workflow.ideas || []).filter((idea) => idea.selected), method: workflow.method || {}, experiment }, '研究材料已整理，可以打开论文写作工作台。');
+    const next = await runAction('handoff-writing', { paperIds: selectedIds, ideas: (workflow.ideas || []).filter((idea) => idea.selected), method: workflow.method || {}, experiment, agentMode: writingAgentMode }, writingAgentMode === 'multi-agent' ? '子 Agent 审查已完成，请检查审查记录与写作材料。' : '研究材料已整理，可以打开论文写作工作台。');
     const briefPath = next?.writing?.briefPath;
-    if (next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
-  }, [experimentRun, navigate, projectId, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method]);
+    if (writingAgentMode === 'single-agent' && next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
+  }, [experimentRun, navigate, projectId, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method, writingAgentMode]);
 
   const direction: ResearchDirection = { question: workflow.direction?.question || '', keywords: workflow.direction?.keywords || [], scope: workflow.direction?.scope || '', notes: workflow.direction?.notes || '' };
   const search: SearchRunSummary = { query: workflow.search?.query || '', candidateCount: workflow.search?.count || workflow.papers?.length || 0, selectedCount: selectedIds.length, lastRunAt: workflow.search?.lastRunAt, sources: workflow.search?.sources };
@@ -435,7 +437,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
     if (stage === 'innovation') return <InnovationStage ideas={workflow.ideas || []} comparison={workflow.ideaComparison || []} selectedIdeaIds={selectedIdeas} selectedPaperCount={selectedIds.length} busy={busy} onGenerate={generateIdeas} onToggleIdea={(ideaId, selected) => updateWorkflow({ ideas: (workflow.ideas || []).map((idea) => idea.id === ideaId ? { ...idea, selected } : idea) })} onSaveSelection={saveIdeaSelection} />;
     if (stage === 'method') return <MethodStage value={method} candidates={workflow.methodCandidates || []} selectedIdeaCount={selectedIdeas.length} busy={busy} onChange={(next) => updateWorkflow({ method: next })} onGenerate={generateMethod} onSave={saveMethod} />;
     if (stage === 'experiment') return <ExperimentStage value={experiment} run={experimentRun} busy={busy} onChange={(next) => updateWorkflow({ experiment: { ...next, command: next.protocol } })} onSavePlan={saveExperiment} onSubmitForRun={runExperiment} onCreateRun={createControlledExperimentRun} onApproveRun={approveControlledExperimentRun} onStartRun={startControlledExperimentRun} onCancelRun={cancelControlledExperimentRun} />;
-    return <WritingStage value={writing} busy={busy} onOutlineChange={(outline) => updateWorkflow({ writing: { ...workflow.writing, outline } })} onPrepareWriting={prepareWriting} onOpenEditor={() => navigate(`/editor/${projectId}${workflow.writing?.briefPath ? `?open=${encodeURIComponent(workflow.writing.briefPath)}` : ''}`)} />;
+    return <WritingStage value={writing} busy={busy} agentMode={writingAgentMode} delegation={workflow.task?.delegation} onAgentModeChange={setWritingAgentMode} onOutlineChange={(outline) => updateWorkflow({ writing: { ...workflow.writing, outline } })} onPrepareWriting={prepareWriting} onOpenEditor={() => navigate(`/editor/${projectId}${workflow.writing?.briefPath ? `?open=${encodeURIComponent(workflow.writing.briefPath)}` : ''}`)} />;
   };
 
   const context = <div className="research-context-content"><span className="research-overline">RUN CONTEXT</span><h3>当前上下文</h3><dl><dt>研究问题</dt><dd>{direction.question || '尚未填写'}</dd><dt>硬约束</dt><dd>{policy.venueLevel} · {policy.publicationType === 'Any' ? '期刊/会议' : policy.publicationType === 'journal' ? '期刊' : '会议'} · {policy.yearFrom}-{policy.yearTo}</dd><dt>当前 Skill</dt><dd>{(skills.filter((skill) => (skillBindings[stage] || []).includes(skill.name)).map((skill) => skill.name).join('、')) || '使用阶段默认配置'}</dd><dt>阶段任务</dt><dd>{workflow.task?.status === 'awaiting_approval' ? '等待人工确认' : workflow.task?.status === 'failed' ? '执行失败，可重试' : workflow.task?.status || '尚未运行'}</dd><dt>Harness</dt><dd>{workflow.task?.harness?.runId || workflow.task?.harness?.adapter || '未创建运行'}</dd><dt>验证</dt><dd>{workflow.task?.validation?.ok === false ? '需要处理' : workflow.task?.validation?.warnings?.length ? '通过但有提示' : '通过'}</dd><dt>人工控制</dt><dd>AI 辅助，人工确认后才能进入下一阶段</dd></dl>{workflow.task?.validation?.warnings?.length ? <div className="research-callout research-callout-warning"><strong>验证提示</strong><ul>{workflow.task.validation.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div> : null}{workflow.task?.error?.message ? <div className="research-callout research-callout-warning"><strong>任务失败</strong><p>{workflow.task.error.message}</p></div> : null}{workflow.sourceFailures?.length ? <div className="research-callout research-callout-warning"><strong>来源提示</strong><ul>{workflow.sourceFailures.map((failure, index) => <li key={`${failure.source}-${index}`}>{failure.source}: {failure.message || '检索失败'}</li>)}</ul></div> : null}</div>;

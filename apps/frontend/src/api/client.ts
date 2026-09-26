@@ -357,6 +357,10 @@ export function getAgentRoles(stage?: HarnessResearchStageId) {
 export interface HarnessRun {
   id: string;
   projectId: string;
+  parentRunId?: string | null;
+  delegationTask?: string | null;
+  delegationDepth?: number;
+  archived?: boolean;
   stage: HarnessResearchStageId | string | null;
   task: string;
   adapter: 'deepseek' | 'legacy' | 'fake' | string;

@@ -39,6 +39,8 @@ function childSummary(run, task) {
     status: run.status,
     reply: String(run.reply || '').slice(0, 4000),
     tokenUsage: run.tokenUsage || null,
+    createdAt: run.createdAt,
+    finishedAt: run.finishedAt,
     error: run.error || null
   };
 }
@@ -109,11 +111,13 @@ export async function runWritingDelegation({ projectId, input, humanInstructions
     } catch (error) {
       return failedResult(parent, children, { id: 'coordinator' }, error instanceof Error ? error.message : String(error));
     }
+    const coordinatorRun = coordinator.runId ? await getHarnessRun(projectId, coordinator.runId) : null;
     return {
       ...coordinator,
       delegation: {
         mode: 'multi-agent', parentRunId: parent.id, children,
-        coordinatorRunIds: (coordinator.attempts || []).map((attempt) => attempt.runId).filter(Boolean)
+        coordinatorRunIds: (coordinator.attempts || []).map((attempt) => attempt.runId).filter(Boolean),
+        coordinator: coordinatorRun ? { runId: coordinatorRun.id, status: coordinatorRun.status, tokenUsage: coordinatorRun.tokenUsage || null, createdAt: coordinatorRun.createdAt, finishedAt: coordinatorRun.finishedAt } : null
       }
     };
   } finally {

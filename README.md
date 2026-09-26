@@ -45,6 +45,8 @@ In the editor's **Plotting** sidebar, GPT Image 2 can create PNG diagrams from a
 
 The research stages are Direction, Search, Selection, optional Replication, Ideation, Method, Experiment, and Writing. The implemented paper source is arXiv. You review search results and AI suggestions. An experiment plan and an experiment run are separate; a run needs its own approval and project execution capability.
 
+Writing defaults to a single Agent. On the Writing stage, choose “两个子 Agent 审查后生成” under the review mode selector and run the writing handoff to start two serial read-only reviews followed by a coordinator Run. The page shows each Run's ID, status, review text, errors, and usage when reported. Review opinions are advisory; the final brief still passes the evidence checks and requires human approval. This mode makes more model calls and may take longer. A failed child can be inspected and retried from the same stage.
+
 Main project views:
 
 - Project overview: `/project/:projectId` for stage progress, tasks, and next steps.
