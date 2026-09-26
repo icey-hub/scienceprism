@@ -27,6 +27,7 @@ import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
+const MAX_RECENT_RUNS = 100;
 
 /**
  * The statuses that mean a Harness Run has finished.
@@ -435,6 +436,20 @@ async function executeRun(projectId, runId, request, control) {
 
 export async function createHarnessRun(projectId, request = {}) {
   const projectRoot = await resolveHarnessProjectRoot(projectId);
+  const parent = request.parentRunId ? await getHarnessRun(projectId, request.parentRunId) : null;
+  if (parent) {
+    if (parent.archived || parent.parentRunId || parent.status !== 'created') {
+      throw new HarnessRuntimeError(409, 'INVALID_DELEGATION_PARENT', 'A child Run requires an unstarted root Run in the same project.');
+    }
+    if (!request.delegationTask || typeof request.delegationTask !== 'string' || request.delegationTask.length > 80) {
+      throw new HarnessRuntimeError(400, 'INVALID_DELEGATION_TASK', 'A child Run requires a bounded delegation task.');
+    }
+    if (!Array.isArray(request.capabilities) || request.capabilities.some((capability) => !parent.capabilities.granted.includes(capability))) {
+      throw new HarnessRuntimeError(403, 'DELEGATION_CAPABILITY_DENIED', 'A child Run may only request capabilities granted to its parent.');
+    }
+  } else if (request.delegationTask) {
+    throw new HarnessRuntimeError(400, 'INVALID_DELEGATION_TASK', 'A delegation task requires a parent Run.');
+  }
   const constraints = await readProjectConstraints(projectRoot);
   const configuredCapabilities = constraints.capabilities || DEFAULT_PROJECT_CAPABILITIES;
   const requestedCapabilities = request.capabilities;
@@ -487,6 +502,9 @@ export async function createHarnessRun(projectId, request = {}) {
     finishedAt: null,
     attempt: 0,
     replayOf: request.replayOf || null,
+    parentRunId: parent?.id || null,
+    delegationTask: parent ? request.delegationTask : null,
+    delegationDepth: parent ? 1 : 0,
     role: role?.id || null,
     roleAuthority: role?.authority || null,
     model: request.llmConfig?.model || getEnv('HARNESS_MODEL') || process.env.DEEPSEEK_MODEL || (adapter === 'deepseek' ? 'deepseek-flash' : null),
@@ -507,7 +525,29 @@ export async function createHarnessRun(projectId, request = {}) {
   };
   await withHarnessRunLock(projectId, async () => {
     const document = await readHarnessRuns(projectRoot, projectId);
-    document.runs = [run, ...document.runs].slice(0, 100);
+    if (parent && !document.runs.some((item) => item.id === parent.id && item.status === 'created')) {
+      throw new HarnessRuntimeError(409, 'INVALID_DELEGATION_PARENT', 'The parent Run is no longer available for delegation.');
+    }
+    const allRuns = [run, ...document.runs];
+    const olderRuns = allRuns.slice(MAX_RECENT_RUNS);
+    document.runs = [...allRuns.slice(0, MAX_RECENT_RUNS), ...olderRuns.filter((old) => !TERMINAL_HARNESS_RUN_STATUSES.includes(old.status))];
+    document.archivedRuns = [
+      ...(document.archivedRuns || []),
+      ...olderRuns.filter((old) => TERMINAL_HARNESS_RUN_STATUSES.includes(old.status)).map((old) => ({
+        id: old.id,
+        projectId: old.projectId,
+        parentRunId: old.parentRunId || null,
+        delegationTask: old.delegationTask || null,
+        role: old.role,
+        stage: old.stage,
+        task: old.task,
+        status: old.status,
+        createdAt: old.createdAt,
+        finishedAt: old.finishedAt,
+        tokenUsage: old.tokenUsage,
+        archived: true
+      }))
+    ];
     await writeHarnessRuns(projectRoot, document);
   });
   pendingRequests.set(run.id, { ...request, projectId, adapter });
@@ -516,16 +556,17 @@ export async function createHarnessRun(projectId, request = {}) {
 
 export async function getHarnessRun(projectId, runId) {
   const { document } = await getRunDocument(projectId);
-  const run = document.runs.find((item) => item.id === runId);
+  const run = document.runs.find((item) => item.id === runId) || (document.archivedRuns || []).find((item) => item.id === runId);
   if (!run) throw new HarnessRuntimeError(404, 'HARNESS_RUN_NOT_FOUND', 'Harness Run not found.', { runId });
   return clone(run);
 }
 
-export async function listHarnessRuns(projectId, { status, stage, limit = 50 } = {}) {
+export async function listHarnessRuns(projectId, { status, stage, parentRunId, limit = 50 } = {}) {
   const { document } = await getRunDocument(projectId);
   const max = numberOr(limit, 50, { min: 1, max: 100 });
-  return document.runs
+  return (parentRunId ? [...document.runs, ...(document.archivedRuns || [])] : document.runs)
     .filter((run) => (!status || run.status === status) && (!stage || run.stage === stage))
+    .filter((run) => (!parentRunId || run.parentRunId === parentRunId))
     .slice(0, max)
     .map(clone);
 }

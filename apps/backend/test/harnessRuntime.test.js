@@ -308,6 +308,59 @@ test('a Run without a role keeps the Project grant unchanged', async () => {
   assert.deepEqual(run.capabilities.granted, ['project.read', 'patch.propose']);
 });
 
+test('delegated Runs keep their parent and cannot widen its authority or delegate again', async () => {
+  const projectId = 'harness-delegation';
+  await createProject(projectId);
+  await createProject('harness-delegation-other');
+  const parent = await createHarnessRun(projectId, {
+    adapter: 'fake', stage: 'writing', role: 'research-stage-assistant', capabilities: ['project.read']
+  });
+  const child = await runHarnessRequest({
+    projectId, adapter: 'fake', stage: 'writing', role: 'paper-reviewer',
+    parentRunId: parent.id, delegationTask: 'claim-evidence-audit',
+    capabilities: ['project.read'], fakeResponse: 'Review completed.'
+  });
+  assert.equal(child.ok, true);
+  const stored = await getHarnessRun(projectId, child.runId);
+  assert.equal(stored.parentRunId, parent.id);
+  assert.equal(stored.delegationDepth, 1);
+  assert.equal(stored.delegationTask, 'claim-evidence-audit');
+  assert.deepEqual(stored.capabilities.granted, ['project.read']);
+  assert.deepEqual((await listHarnessRuns(projectId, { parentRunId: parent.id })).map((run) => run.id), [child.runId]);
+
+  await assert.rejects(() => createHarnessRun(projectId, {
+    adapter: 'fake', role: 'paper-reviewer', parentRunId: parent.id,
+    delegationTask: 'widen', capabilities: ['project.read', 'patch.propose']
+  }), (error) => error.code === 'DELEGATION_CAPABILITY_DENIED');
+  await assert.rejects(() => createHarnessRun(projectId, {
+    adapter: 'fake', role: 'paper-reviewer', parentRunId: child.runId,
+    delegationTask: 'nested', capabilities: ['project.read']
+  }), (error) => error.code === 'INVALID_DELEGATION_PARENT');
+  await assert.rejects(() => createHarnessRun('harness-delegation-other', {
+    adapter: 'fake', role: 'paper-reviewer', parentRunId: parent.id,
+    delegationTask: 'cross-project', capabilities: ['project.read']
+  }), (error) => error.code === 'HARNESS_RUN_NOT_FOUND');
+});
+
+test('old delegated Runs retain an archive record after the recent-run window fills', async () => {
+  const projectId = 'harness-delegation-archive';
+  await createProject(projectId);
+  const parent = await createHarnessRun(projectId, { adapter: 'fake', role: 'research-stage-assistant', capabilities: ['project.read'] });
+  const child = await runHarnessRequest({
+    projectId, adapter: 'fake', role: 'paper-reviewer', parentRunId: parent.id,
+    delegationTask: 'review', capabilities: ['project.read'], fakeResponse: 'reviewed'
+  });
+  for (let index = 0; index < 101; index += 1) {
+    const run = await createHarnessRun(projectId, { adapter: 'fake' });
+    await cancelHarnessRun(projectId, run.id);
+  }
+  const archived = await getHarnessRun(projectId, child.runId);
+  assert.equal(archived.archived, true);
+  assert.equal(archived.parentRunId, parent.id);
+  assert.equal((await getHarnessRun(projectId, parent.id)).status, 'created');
+  assert.equal((await listHarnessRuns(projectId, { parentRunId: parent.id }))[0].id, child.runId);
+});
+
 async function acceptedRunWithPatch(projectId, { path: relativePath = 'main.tex', content = 'new\n', original = 'old\n' } = {}) {
   const result = await runHarnessRequest({
     projectId,
