@@ -1,9 +1,22 @@
-import { callOpenAICompatible } from '../services/llmService.js';
+import { callOpenAICompatible, resolveLLMConfig } from '../services/llmService.js';
 import { getAgentRuntimeStatus, runAgentRuntime } from '../services/agentRuntime.js';
 import { listRoles, roleCatalog } from '../services/agentRoles/index.js';
 import { getLang, t } from '../i18n/index.js';
+import { assertApprovedConstraint, createConstraintProposal, ConstraintProposalError } from '../services/constraintRegistry/proposals.js';
+import { parseConstraintChatEnvelope } from '../services/constraintRegistry/chatEnvelope.js';
 
-export function registerAgentRoutes(fastify) {
+async function checkedReply(projectId, response) {
+  if (!projectId || !response.ok) return response;
+  try {
+    await assertApprovedConstraint(projectId, { kind: 'reply.forbid_text', reply: `${response.reply || ''}\n${response.suggestion || ''}` });
+    return response;
+  } catch (error) {
+    if (!(error instanceof ConstraintProposalError)) throw error;
+    return { ok: false, reply: error.message, suggestion: '', constraintError: { code: error.code, message: error.message } };
+  }
+}
+
+export function registerAgentRoutes(fastify, { callModel = callOpenAICompatible } = {}) {
   fastify.get('/api/agent/runtime', async (req) => {
     return { ok: true, ...getAgentRuntimeStatus(req.query || {}) };
   });
@@ -48,8 +61,10 @@ export function registerAgentRoutes(fastify) {
         : [];
       const system = [
         'You are a helpful academic writing assistant.',
-        'This is chat-only mode: do not propose edits, patches, or JSON.',
-        'Respond concisely and helpfully.'
+        'This is chat-only mode: do not propose file edits or patches.',
+        'Return one JSON object with reply (a concise helpful answer) and constraintProposal (object or null).',
+        'If the user expresses a durable rule for this project, you must propose it when it can be enforced as reply.forbid_text, patch.forbid_path, or patch.forbid_text. The object must have kind, value, and statement. Otherwise set constraintProposal to null.',
+        'Do not claim any rule is active. A human must review and accept the generated code and test draft first.'
       ].join(' ');
       const user = [
         prompt ? `User Prompt: ${prompt}` : '',
@@ -58,7 +73,7 @@ export function registerAgentRoutes(fastify) {
         compileLog ? `Compile Log (read-only):\n${compileLog}` : ''
       ].filter(Boolean).join('\n\n');
 
-      const result = await callOpenAICompatible({
+      const result = await callModel({
         messages: [{ role: 'system', content: system }, ...safeHistory, { role: 'user', content: user }],
         model: llmConfig?.model,
         endpoint: llmConfig?.endpoint,
@@ -73,7 +88,22 @@ export function registerAgentRoutes(fastify) {
         };
       }
 
-      return { ok: true, reply: result.content || '', suggestion: '' };
+      const envelope = parseConstraintChatEnvelope(result.content);
+      const checked = await checkedReply(projectId, { ok: true, reply: envelope.reply, suggestion: '' });
+      if (!checked.ok || !projectId) return checked;
+      if (!envelope.proposal) {
+        const requestedRule = /约束|规则|以后|每次|永远|不许|不要再|\bnever\b|\balways\b|\bconstraint\b|\brule\b/i.test(prompt);
+        return requestedRule
+          ? { ...checked, constraintProposalError: { code: 'NO_ENFORCEABLE_PROPOSAL', message: 'No supported enforceable rule was proposed. Specify a forbidden reply phrase, Patch phrase, or project-relative Patch path.' } }
+          : checked;
+      }
+      try {
+        const proposal = await createConstraintProposal(projectId, envelope.proposal, { model: resolveLLMConfig(llmConfig).model, conversation: prompt });
+        return { ...checked, constraintProposal: proposal };
+      } catch (error) {
+        if (!(error instanceof ConstraintProposalError)) throw error;
+        return { ...checked, constraintProposalError: { code: error.code, message: error.message } };
+      }
     }
 
     if (mode === 'tools') {
@@ -81,7 +111,7 @@ export function registerAgentRoutes(fastify) {
       // the role's allowance. A read-only task then cannot hold patch.propose
       // merely because its prompt asked the model not to use it, and an unknown
       // role fails closed inside createHarnessRun.
-      return runAgentRuntime({ projectId, activePath, task, prompt, selection, compileLog, llmConfig, lang, role });
+      return checkedReply(projectId, await runAgentRuntime({ projectId, activePath, task, prompt, selection, compileLog, llmConfig, lang, role }));
     }
 
     const system =
@@ -106,7 +136,7 @@ export function registerAgentRoutes(fastify) {
       selection ? '' : `Full Content:\n${content}`
     ].filter(Boolean).join('\n\n');
 
-    const result = await callOpenAICompatible({
+    const result = await callModel({
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user }
@@ -134,6 +164,6 @@ export function registerAgentRoutes(fastify) {
       reply = result.content;
     }
 
-    return { ok: true, reply, suggestion };
+    return checkedReply(projectId, { ok: true, reply, suggestion });
   });
 }

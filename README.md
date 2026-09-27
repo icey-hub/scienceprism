@@ -56,6 +56,8 @@ Main project views:
 
 See [Research Workflow](docs/research-workflow.md), [Harness Runtime](docs/harness-runtime.md), [Experiment Runner](docs/experiment-runner.md), and [Evidence Ledger](docs/evidence-ledger.md) for the detailed contracts.
 
+Editor Chat can turn a durable instruction into a pending project constraint. You review the generated code and test draft, then accept or reject it; an accepted rule can later be disabled. The first supported checks forbid a literal phrase in assistant replies or Harness Patch content, or a project-relative path in Harness Patch application. See [Chat-origin constraints](docs/constraint-proposals.md) for the exact scope and limits.
+
 ## Data and commands
 
 Projects are stored in the repository's gitignored `data/` directory by default. Set `SCIENCEPRISM_DATA_DIR` before startup to choose another directory. Each project's workflow, evidence, and run records live under its `.scienceprism/` directory. The repository's `aidoc/` holds committed example research output, separate from personal project data.

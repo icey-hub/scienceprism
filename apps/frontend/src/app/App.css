@@ -465,6 +465,18 @@ body {
   color: var(--muted);
   border: 1px solid rgba(120, 98, 83, 0.2);
 }
+
+.constraint-proposals { margin: 8px 12px 0; padding: 10px; max-height: 230px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); font-size: 11px; }
+.constraint-proposals > p { margin: 5px 0 9px; color: var(--muted); line-height: 1.4; }
+.constraint-proposal { padding: 8px 0; border-top: 1px solid var(--border); }
+.constraint-proposal > summary { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; }
+.constraint-proposal summary span { overflow-wrap: anywhere; }
+.constraint-proposal summary small { white-space: nowrap; color: var(--muted); }
+.constraint-proposal code, .constraint-proposal pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+.constraint-proposal pre { padding: 8px; overflow: auto; background: rgba(120, 98, 83, 0.08); }
+.constraint-proposal-actions { display: flex; gap: 7px; }
+.constraint-proposal-actions button { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; cursor: pointer; }
+.constraint-proposal-error { color: #aa342b; }
 .sidebar-tabs {
   display: flex;
   align-items: center;

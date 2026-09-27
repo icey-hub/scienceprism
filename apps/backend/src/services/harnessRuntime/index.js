@@ -24,6 +24,7 @@ import { copyBundledResearchSkills, isBundledSkillPath, restrictWorkspaceResearc
 import { buildContextPack, contextManifest } from './contextPackager.js';
 import { assertProjectFeatureEnabled } from '../featureFlags.js';
 import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
+import { assertApprovedConstraint } from '../constraintRegistry/proposals.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
@@ -715,13 +716,24 @@ export async function applyHarnessRunPatches(projectId, runId, { actor = 'human'
     }
 
     const alreadyApplied = new Set(run.appliedPatches || []);
-    const applied = [];
+    const planned = [];
     for (const patch of run.patches || []) {
       if (requested && !requested.has(patch.path)) continue;
       if (alreadyApplied.has(patch.path)) continue;
       // Re-checked here rather than trusted from Run creation: the policy may
       // have narrowed since, and this is the write that matters.
       const relativePath = assertProjectPath(patch.path, policy, { operation: 'patch' });
+      await assertApprovedConstraint(projectId, { kind: 'patch.forbid_path', path: relativePath });
+      if (!patch.deleted) await assertApprovedConstraint(projectId, { kind: 'patch.forbid_text', content: String(patch.content ?? '') });
+      planned.push({ patch, relativePath });
+    }
+
+    if (!planned.length) {
+      throw new HarnessRuntimeError(409, 'NO_PATCHES_TO_APPLY', 'The Run has no unapplied Patch matching the request.', { runId });
+    }
+
+    const applied = [];
+    for (const { patch, relativePath } of planned) {
       const absolute = safeJoin(root, relativePath);
       if (patch.deleted) {
         await fs.rm(absolute, { force: true });
@@ -730,10 +742,6 @@ export async function applyHarnessRunPatches(projectId, runId, { actor = 'human'
         await fs.writeFile(absolute, String(patch.content ?? ''), 'utf8');
       }
       applied.push(relativePath);
-    }
-
-    if (!applied.length) {
-      throw new HarnessRuntimeError(409, 'NO_PATCHES_TO_APPLY', 'The Run has no unapplied Patch matching the request.', { runId });
     }
 
     run.appliedPatches = [...alreadyApplied, ...applied];

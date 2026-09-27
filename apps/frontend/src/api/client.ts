@@ -319,6 +319,9 @@ export function runAgent(payload: {
     harnessError?: string;
     fallbackError?: string;
     patches?: { path: string; diff: string; content: string; deleted?: boolean }[];
+    constraintProposal?: { id: string };
+    constraintProposalError?: { code: string; message: string };
+    constraintError?: { code: string; message: string };
   }>(`/api/agent/run`, {
     method: 'POST',
     body: JSON.stringify(payload)

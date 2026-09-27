@@ -27,6 +27,7 @@ import { ResearchStageNavigation } from './research/ResearchStageNavigation';
 import { getResearchStage, isResearchStageId, type ResearchStageId } from './research/researchStages';
 import { buildSplitDiff, SplitDiffView } from './editor/EditorDiff';
 import { PdfPreview } from './editor/PdfPreview';
+import { ConstraintProposalPanel } from './editor/ConstraintProposalPanel';
 import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings, pickCollabColor } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
 import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
@@ -842,6 +843,7 @@ export default function EditorPage() {
   const [suggestionPos, setSuggestionPos] = useState<{ left: number; top: number } | null>(null);
   const [assistantMode, setAssistantMode] = useState<'chat' | 'agent'>('agent');
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const [constraintRefreshToken, setConstraintRefreshToken] = useState(0);
   const [agentMessages, setAgentMessages] = useState<Message[]>([]);
   const [prompt, setPrompt] = useState('');
   const [task, setTask] = useState(DEFAULT_TASKS(t)[0].value);
@@ -3159,7 +3161,8 @@ export default function EditorPage() {
         interaction: isChat ? 'chat' : 'agent',
         history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
       });
-      const replyText = res.reply || t('已生成建议。');
+      const replyText = `${res.reply || t('已生成建议。')}${isChat && res.constraintProposalError ? `\n\n约束提案未创建：${res.constraintProposalError.message}` : ''}`;
+      if (isChat && res.constraintProposal) setConstraintRefreshToken((value) => value + 1);
       setHistory((prev) => [...prev, { role: 'assistant', content: '' }]);
       window.setTimeout(() => startTypewriter(setHistory, replyText), 0);
 
@@ -3726,6 +3729,7 @@ export default function EditorPage() {
                     {compileLog && <span className="context-tag">{t('只读编译日志')}</span>}
                   </div>
                 )}
+                {assistantMode === 'chat' && projectId && <ConstraintProposalPanel projectId={projectId} refreshToken={constraintRefreshToken} />}
                 <div className="chat-messages">
                   {assistantMode === 'chat' && chatMessages.length === 0 && (
                     <div className="muted">{t('输入问题，进行只读对话。')}</div>

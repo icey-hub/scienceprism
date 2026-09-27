@@ -20,6 +20,7 @@ import { registerEvidenceLedgerRoutes } from './routes/evidenceLedger.js';
 import { registerProjectHubRoutes } from './routes/projectHub.js';
 import { registerExperimentRunRoutes } from './routes/experimentRuns.js';
 import { registerObservabilityRoutes } from './routes/observability.js';
+import { registerConstraintProposalRoutes } from './routes/constraintProposals.js';
 import { tryStartTunnel } from './services/tunnel.js';
 import { requireAuthIfRemote } from './utils/authUtils.js';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +66,7 @@ registerEvidenceLedgerRoutes(fastify);
 registerProjectHubRoutes(fastify);
 registerExperimentRunRoutes(fastify);
 registerObservabilityRoutes(fastify);
+registerConstraintProposalRoutes(fastify);
 
 // Serve frontend static files in tunnel/production mode
 const __filename = fileURLToPath(import.meta.url);

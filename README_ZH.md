@@ -56,6 +56,8 @@ npm run dev
 
 完整规则见 [研究流程](docs/research-workflow.md)、[Harness Runtime](docs/harness-runtime.md)、[实验运行](docs/experiment-runner.md) 和 [证据账本](docs/evidence-ledger.md)。
 
+编辑器 Chat 现会把对话中的长期规则整理为待确认的项目约束。确认前不会生效；确认后由项目内生成的受限代码拦截，仍可关闭。当前支持禁止回复中的指定词句、禁止 Harness Patch 写入指定词句或修改指定路径；其他规则会明确提示暂不支持。操作和边界见 [对话约束](docs/constraint-proposals.md)。
+
 ## 数据与命令
 
 项目默认保存在仓库的 `data/`（已被 Git 忽略）；可在启动前用 `SCIENCEPRISM_DATA_DIR` 指定其他目录。项目的工作流、证据和运行记录保存在各项目的 `.scienceprism/` 下。仓库的 `aidoc/` 存放已提交的科研示例产物，与个人项目数据分开。
