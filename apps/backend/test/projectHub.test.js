@@ -11,6 +11,9 @@ const { importPaper, listPapers, updatePaper } = await import('../src/services/p
 const { initializeProject, getProjectDashboard } = await import('../src/services/projectHub/dashboard.js');
 const { createTask, getTaskSummary, listTasks } = await import('../src/services/projectHub/taskCenter.js');
 const { getWritingQuality } = await import('../src/services/projectHub/writingQuality.js');
+const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
+const { createStageTask, markStageTaskDecision } = await import('../src/services/researchWorkflow/stageTask.js');
+const { writeWorkflowFile } = await import('../src/services/researchWorkflow/repository.js');
 
 async function createProject(projectId) {
   const root = path.join(dataDir, projectId);
@@ -66,6 +69,38 @@ test('task center preserves logs and exposes failure summary', async () => {
   const tasks = await listTasks(projectId);
   assert.equal(tasks.find((item) => item.id === task.id)?.log.at(-1), 'failed');
   assert.equal((await getTaskSummary(projectId)).failed, 1);
+});
+
+test('task center reflects approved stages and pending writing approval without resetting timestamps', async () => {
+  const projectId = 'stage-task-status-project';
+  const root = await createProject(projectId);
+  const workflow = createWorkflowDocument(projectId);
+  workflow.currentStage = 'writing';
+  for (const stage of workflow.stages) {
+    if (stage.id === 'direction' || stage.id === 'experiment') {
+      stage.status = 'approved';
+      stage.updatedAt = '2026-09-25T10:00:00.000Z';
+      stage.data.task = markStageTaskDecision(createStageTask({ stage: stage.id, createdAt: '2026-09-25T09:00:00.000Z' }), { decision: 'approve', at: stage.updatedAt });
+    }
+    if (stage.id === 'writing') {
+      stage.status = 'awaiting_approval';
+      stage.updatedAt = '2026-09-26T10:00:00.000Z';
+      stage.data.task = createStageTask({ stage: stage.id, createdAt: stage.updatedAt });
+    }
+  }
+  await writeWorkflowFile(root, workflow);
+  const tasks = await listTasks(projectId);
+  for (const stageId of ['direction', 'experiment']) {
+    const task = tasks.find((item) => item.stage === stageId);
+    assert.equal(task.status, 'approved', `${stageId} should not still be running or queued`);
+    assert.equal(task.createdAt, '2026-09-25T09:00:00.000Z');
+    assert.equal(task.updatedAt, '2026-09-25T10:00:00.000Z');
+    assert.equal(task.progress, 100);
+  }
+  assert.equal(tasks.find((item) => item.stage === 'writing')?.status, 'awaiting_approval');
+  const summary = await getTaskSummary(projectId);
+  assert.equal(summary.active, 1);
+  assert.equal(summary.completed, 2);
 });
 
 test('writing quality reports empty claims and source checks without inventing approval', async () => {

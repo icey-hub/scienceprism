@@ -136,7 +136,7 @@ function Overview({ dashboard, projectId }: { dashboard: ProjectDashboard; proje
       <div><span>阶段进度</span><strong>{dashboard.progress.percent}%</strong><small>{dashboard.progress.completed} / {dashboard.progress.total} 已完成</small></div>
       <div><span>待审批</span><strong>{dashboard.approvals.length}</strong><small>需要人工决定</small></div>
       <div><span>论文资料</span><strong>{dashboard.library.count}</strong><small>{dashboard.library.unread} 篇未读</small></div>
-      <div><span>失败任务</span><strong className={dashboard.tasks.failed ? 'is-risk' : ''}>{dashboard.tasks.failed}</strong><small>{dashboard.tasks.active} 个正在处理</small></div>
+      <div><span>失败任务</span><strong className={dashboard.tasks.failed ? 'is-risk' : ''}>{dashboard.tasks.failed}</strong><small>{dashboard.tasks.active} 个待处理</small></div>
     </div>
     <div className="hub-progress-track"><span style={{ width: `${dashboard.progress.percent}%` }} /></div>
     <div className="hub-dashboard-grid">
@@ -185,17 +185,18 @@ function Tasks({ projectId }: { projectId: string }) {
   const [error, setError] = useState('');
   const load = useCallback(async () => { const result = await listProjectTasks(projectId); setTasks(result.tasks || []); }, [projectId]);
   useEffect(() => { load().catch((err) => setError(String(err))); }, [load]);
-  const hasActiveTasks = tasks.some((task) => ['queued', 'running', 'paused', 'awaiting_approval', 'approved'].includes(task.status));
+  const hasActiveTasks = tasks.some((task) => ['queued', 'running', 'paused'].includes(task.status));
+  const hasPendingApproval = tasks.some((task) => task.status === 'awaiting_approval');
   useEffect(() => {
-    if (!hasActiveTasks) return undefined;
-    const timer = window.setInterval(() => { void load().catch((err) => setError(String(err))); }, 1500);
+    if (!hasActiveTasks && !hasPendingApproval) return undefined;
+    const timer = window.setInterval(() => { void load().catch((err) => setError(String(err))); }, hasActiveTasks ? 1500 : 10000);
     return () => window.clearInterval(timer);
-  }, [hasActiveTasks, load]);
+  }, [hasActiveTasks, hasPendingApproval, load]);
   const action = async (task: ProjectTask, kind: 'retry' | 'cancel') => { try { if (kind === 'retry') await retryProjectTask(projectId, task.id); else await cancelProjectTask(projectId, task.id); await load(); } catch (err) { setError(String(err)); } };
   return <>
-    <div className="hub-page-heading"><div><span className="hub-kicker">TASK CENTER</span><h2>任务中心</h2><p>Harness、论文导入、编译和受控实验统一保留状态、日志和失败入口。</p></div><div className="hub-heading-stat"><strong>{tasks.filter((task) => ['queued', 'running', 'paused', 'awaiting_approval'].includes(task.status)).length}</strong><span>个活动任务</span></div></div>
+    <div className="hub-page-heading"><div><span className="hub-kicker">TASK CENTER</span><h2>任务中心</h2><p>Harness、论文导入、编译和受控实验统一保留状态、日志和失败入口。</p></div><div className="hub-heading-stat"><strong>{tasks.filter((task) => ['queued', 'running', 'paused', 'awaiting_approval'].includes(task.status)).length}</strong><span>个待处理任务</span></div></div>
     {error && <p className="hub-error">{error}</p>}
-    <section className="hub-panel"><div className="hub-section-heading"><div><span className="hub-kicker">ACTIVITY</span><h3>最近任务</h3></div><span className="hub-muted">失败 Run 可重试，启动前始终需要人工批准</span></div>{tasks.length ? <div className="hub-task-list">{tasks.map((task) => <article className="hub-task-row" key={task.id}><div className={`hub-task-icon ${task.status}`}>{task.status === 'completed' ? '✓' : task.status === 'failed' ? '!' : '•'}</div><div className="hub-task-copy"><div><strong>{task.title}</strong><span className={`hub-task-status ${task.status}`}>{statusLabel(task.status)}</span></div><small>{task.kind} · {task.stage || '项目'} · {relativeTime(task.updatedAt)}</small><div className="hub-task-progress"><span style={{ width: `${task.progress}%` }} /></div>{task.error?.message && <p className="hub-task-error">{task.error.message}</p>}{task.log.length > 0 && <details><summary>查看日志（{task.log.length}）</summary><pre>{task.log.slice(-20).join('\n')}</pre></details>}</div><div className="hub-task-actions">{task.retryable && <button className="hub-small-button" onClick={() => action(task, 'retry')}>重试</button>}{['queued', 'running', 'paused', 'awaiting_approval'].includes(task.status) && <button className="hub-small-button is-quiet" onClick={() => action(task, 'cancel')}>取消</button>}</div></article>)}</div> : <EmptyState title="还没有任务记录" detail="研究阶段、Harness、编译和受控实验结果会自动出现在这里。" />}</section>
+    <section className="hub-panel"><div className="hub-section-heading"><div><span className="hub-kicker">ACTIVITY</span><h3>最近任务</h3></div><span className="hub-muted">失败 Run 可重试，启动前始终需要人工批准</span></div>{tasks.length ? <div className="hub-task-list">{tasks.map((task) => <article className="hub-task-row" key={task.id}><div className={`hub-task-icon ${task.status}`}>{['completed', 'approved'].includes(task.status) ? '✓' : task.status === 'failed' ? '!' : '•'}</div><div className="hub-task-copy"><div><strong>{task.title}</strong><span className={`hub-task-status ${task.status}`}>{statusLabel(task.status)}</span></div><small>{task.kind} · {task.stage || '项目'} · {relativeTime(task.updatedAt)}</small><div className="hub-task-progress"><span style={{ width: `${task.progress}%` }} /></div>{task.error?.message && <p className="hub-task-error">{task.error.message}</p>}{task.log.length > 0 && <details><summary>查看日志（{task.log.length}）</summary><pre>{task.log.slice(-20).join('\n')}</pre></details>}</div><div className="hub-task-actions">{task.status === 'awaiting_approval' && ['research-stage', 'experiment'].includes(task.kind) && <Link className="hub-small-link" to={`/project/${projectId}/approvals`}>查看审批</Link>}{task.retryable && <button className="hub-small-button" onClick={() => action(task, 'retry')}>重试</button>}{['queued', 'running', 'paused'].includes(task.status) && <button className="hub-small-button is-quiet" onClick={() => action(task, 'cancel')}>取消</button>}</div></article>)}</div> : <EmptyState title="还没有任务记录" detail="研究阶段、Harness、编译和受控实验结果会自动出现在这里。" />}</section>
   </>;
 }
 
@@ -225,7 +226,7 @@ export default function ProjectDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const load = useCallback(async () => { setLoading(true); setError(''); try { const result = await getProjectDashboard(projectId); setDashboard(result.dashboard); } catch (err) { setError(err instanceof Error ? err.message : String(err)); } finally { setLoading(false); } }, [projectId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, location.pathname]);
   if (loading && !dashboard) return <Layout projectId={projectId} projectName="" view={view}><div className="project-hub-loading" role="status">正在读取项目状态…</div></Layout>;
   if (error && !dashboard) return <Layout projectId={projectId} projectName="项目" view={view}><div className="project-hub-loading hub-error" role="alert">{error}<button className="hub-small-button" onClick={() => void load()}>重试</button></div></Layout>;
   if (!dashboard) return null;

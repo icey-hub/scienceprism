@@ -28,13 +28,13 @@ function normalizeTask(input, existing = {}) {
     error: input.error === undefined ? (existing.error || null) : input.error,
     retryable: input.retryable === undefined ? Boolean(existing.retryable) : Boolean(input.retryable),
     metadata: { ...(existing.metadata || {}), ...(input.metadata || {}) },
-    createdAt: existing.createdAt || at,
-    startedAt: input.startedAt || existing.startedAt || (status === 'running' ? at : null),
+    createdAt: existing.createdAt || input.createdAt || at,
+    startedAt: input.startedAt !== undefined ? input.startedAt : (existing.startedAt || (status === 'running' ? at : null)),
     // Deliberately its own list, not TERMINAL_HARNESS_RUN_STATUSES: this is the
     // task vocabulary, which also contains rejected, and a finished task is not
     // the same concept as a finished Harness Run. The strings coincide today.
-    finishedAt: input.finishedAt || existing.finishedAt || (['completed', 'failed', 'cancelled'].includes(status) ? at : null),
-    updatedAt: at
+    finishedAt: input.finishedAt !== undefined ? input.finishedAt : (existing.finishedAt || (['approved', 'completed', 'failed', 'cancelled', 'rejected'].includes(status) ? at : null)),
+    updatedAt: input.updatedAt || at
   };
 }
 
@@ -75,7 +75,7 @@ function harnessTask(run) {
     kind: 'harness',
     title: `${run.stage || 'Research'} Harness Run`,
     status: run.status === 'succeeded' ? 'completed' : run.status === 'created' ? 'queued' : run.status,
-    progress: ['succeeded', 'failed', 'cancelled'].includes(run.status) ? 100 : 50,
+    progress: ['succeeded', 'completed', 'failed', 'cancelled'].includes(run.status) ? 100 : run.status === 'running' ? 50 : 0,
     stage: run.stage,
     log: (run.events || []).map((event) => event.message || event.type || JSON.stringify(event)),
     error: run.error || null,
@@ -92,20 +92,24 @@ function stageTask(stage) {
   const task = stage.data?.task;
   if (!task) return null;
   const isExperimentPlan = stage.id === 'experiment';
+  const status = task.status === 'succeeded' ? 'completed'
+    : TASK_STATUSES.has(task.status) ? task.status
+      : stage.status === 'in_progress' ? 'running'
+        : TASK_STATUSES.has(stage.status) ? stage.status : 'failed';
   return normalizeTask({
     id: `stage:${stage.id}:${task.id || stage.updatedAt}`,
     kind: isExperimentPlan ? 'experiment' : 'research-stage',
     title: isExperimentPlan ? `${stage.label} plan` : `${stage.label} task`,
-    status: isExperimentPlan ? (task.status === 'failed' ? 'failed' : 'queued') : (task.status === 'succeeded' || task.status === 'awaiting_approval' ? 'completed' : task.status === 'failed' ? 'failed' : 'running'),
-    progress: task.status === 'failed' ? 100 : task.status === 'awaiting_approval' ? 100 : 50,
+    status,
+    progress: ['approved', 'completed', 'failed', 'cancelled', 'rejected', 'awaiting_approval'].includes(status) ? 100 : status === 'running' ? 50 : 0,
     stage: stage.id,
     log: [...(task.validation?.errors?.map((error) => error.message || JSON.stringify(error)) || []), ...(isExperimentPlan ? ['This is an Experiment Plan. Create and approve a controlled Experiment Run before execution.'] : [])],
     error: task.error || null,
-    retryable: task.status === 'failed',
+    retryable: false,
     metadata: { taskId: task.id, humanDecision: task.humanDecision || null, harnessRunId: task.harness?.runId || null, planOnly: isExperimentPlan },
     createdAt: task.createdAt,
     startedAt: task.startedAt,
-    finishedAt: task.completedAt,
+    finishedAt: ['approved', 'completed', 'failed', 'cancelled', 'rejected'].includes(status) ? task.humanDecision?.at || task.completedAt || task.updatedAt || stage.updatedAt : null,
     updatedAt: stage.updatedAt
   });
 }
@@ -204,7 +208,7 @@ export async function getTaskSummary(projectId) {
     total: tasks.length,
     active: tasks.filter((task) => ['queued', 'running', 'paused', 'awaiting_approval'].includes(task.status)).length,
     failed: tasks.filter((task) => task.status === 'failed').length,
-    completed: tasks.filter((task) => task.status === 'completed').length,
+    completed: tasks.filter((task) => ['completed', 'approved'].includes(task.status)).length,
     recent: tasks.slice(0, 8)
   };
 }
