@@ -93,6 +93,24 @@ export async function createConstraintProposal(projectId, input, { model = null,
   });
 }
 
+export async function reviseConstraintProposal(projectId, proposalId, input, { actor } = {}) {
+  if (actor !== 'human') throw new ConstraintProposalError(403, 'HUMAN_DECISION_REQUIRED', 'Only a human may revise a constraint proposal.');
+  const spec = checkedSpec(input);
+  return withHubLock(projectId, async () => {
+    const stored = await document(projectId);
+    const proposal = stored.proposals.find((item) => item.id === proposalId);
+    if (!proposal) throw new ConstraintProposalError(404, 'PROPOSAL_NOT_FOUND', 'Constraint proposal not found.');
+    if (proposal.status !== 'pending') throw new ConstraintProposalError(409, 'ALREADY_DECIDED', 'Only pending proposals can be revised.');
+    const duplicate = stored.proposals.find((item) => item.id !== proposalId && item.kind === spec.kind && item.value === spec.value && item.status !== 'rejected');
+    if (duplicate) throw new ConstraintProposalError(409, 'DUPLICATE_PROPOSAL', 'A proposal for this rule already exists.');
+    const previous = { kind: proposal.kind, value: proposal.value, statement: proposal.statement };
+    Object.assign(proposal, spec, compileConstraintDraft(spec));
+    proposal.audit.push({ action: 'revise', actor, at: new Date().toISOString(), previous });
+    await writeHubJson(projectId, FILE, stored);
+    return proposal;
+  });
+}
+
 export async function decideConstraintProposal(projectId, proposalId, { decision, actor, enabled } = {}) {
   if (actor !== 'human') throw new ConstraintProposalError(403, 'HUMAN_DECISION_REQUIRED', 'A human must decide whether a proposed constraint takes effect.');
   if (!['accept', 'reject', 'enable', 'disable'].includes(decision)) throw new ConstraintProposalError(400, 'INVALID_DECISION', 'Decision must be accept, reject, enable, or disable.');

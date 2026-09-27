@@ -56,7 +56,7 @@ npm run dev
 
 完整规则见 [研究流程](docs/research-workflow.md)、[Harness Runtime](docs/harness-runtime.md)、[实验运行](docs/experiment-runner.md) 和 [证据账本](docs/evidence-ledger.md)。
 
-编辑器 Chat 现会把对话中的长期规则整理为待确认的项目约束。确认前不会生效；确认后由项目内生成的受限代码拦截，仍可关闭。当前支持禁止回复中的指定词句、禁止 Harness Patch 写入指定词句或修改指定路径；其他规则会明确提示暂不支持。操作和边界见 [对话约束](docs/constraint-proposals.md)。
+编辑器 Chat 现会把对话中的长期规则整理为待确认的项目约束。AI 理解有误时可以先修改提案，再确认或拒绝；确认前不会生效，确认后由项目内生成的受限代码拦截，仍可关闭。当前支持禁止回复中的指定词句、禁止 Harness Patch 写入指定词句或修改指定路径；其他规则会明确提示暂不支持。操作和边界见 [对话约束](docs/constraint-proposals.md)。
 
 项目设置页可逐条关闭或重新启用两条内置可选约束（C-10 运行预算、C-16 项目级功能开关），记录操作时间。核心约束始终启用；关闭 C-10 仍保留绝对资源上限，关闭 C-16 仍服从部署环境总开关。
 

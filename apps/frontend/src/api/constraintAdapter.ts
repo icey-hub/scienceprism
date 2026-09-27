@@ -23,6 +23,12 @@ export function decideConstraintProposal(projectId: string, proposalId: string, 
   });
 }
 
+export function reviseConstraintProposal(projectId: string, proposalId: string, spec: Pick<ConstraintProposal, 'kind' | 'value' | 'statement'>) {
+  return request<{ ok: boolean; proposal: ConstraintProposal }>(`/api/projects/${projectId}/constraint-proposals/${proposalId}`, {
+    method: 'PATCH', body: JSON.stringify({ ...spec, actor: 'human' })
+  });
+}
+
 export interface ConstraintPolicy {
   preset: string;
   disabled: string[];

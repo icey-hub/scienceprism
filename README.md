@@ -56,7 +56,7 @@ Main project views:
 
 See [Research Workflow](docs/research-workflow.md), [Harness Runtime](docs/harness-runtime.md), [Experiment Runner](docs/experiment-runner.md), and [Evidence Ledger](docs/evidence-ledger.md) for the detailed contracts.
 
-Editor Chat can turn a durable instruction into a pending project constraint. You review the generated code and test draft, then accept or reject it; an accepted rule can later be disabled. The first supported checks forbid a literal phrase in assistant replies or Harness Patch content, or a project-relative path in Harness Patch application. See [Chat-origin constraints](docs/constraint-proposals.md) for the exact scope and limits.
+Editor Chat can turn a durable instruction into a pending project constraint. You can correct a misunderstood proposal before reviewing its regenerated code and test draft, then accept or reject it; an accepted rule can later be disabled. The first supported checks forbid a literal phrase in assistant replies or Harness Patch content, or a project-relative path in Harness Patch application. See [Chat-origin constraints](docs/constraint-proposals.md) for the exact scope and limits.
 
 Project Settings can toggle the two built-in optional rules: C-10 project run budgets and C-16 project feature flag overrides. Core rules remain active. Disabling C-10 retains absolute resource ceilings; disabling C-16 still respects deployment-level feature flags.
 

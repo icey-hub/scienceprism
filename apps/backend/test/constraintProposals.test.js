@@ -79,6 +79,30 @@ test('proposal decision API refuses AI approval and shows accepted state', async
   await app.close();
 });
 
+test('a human can correct a pending AI rule before accepting it', async () => {
+  const id = 'proposal-revision';
+  await project(id);
+  const original = await createConstraintProposal(id, { kind: 'reply.forbid_text', value: 'wrong', statement: 'AI misunderstood the rule.' });
+  const app = Fastify();
+  registerConstraintProposalRoutes(app);
+  const base = `/api/projects/${id}/constraint-proposals/${original.id}`;
+  const corrected = { kind: 'reply.forbid_text', value: 'fabricated', statement: 'Do not say fabricated.' };
+  const denied = await app.inject({ method: 'PATCH', url: base, payload: { ...corrected, actor: 'ai' } });
+  assert.equal(denied.statusCode, 403);
+  const revised = await app.inject({ method: 'PATCH', url: base, payload: { ...corrected, actor: 'human', code: 'export function enforce() {}' } });
+  assert.equal(revised.statusCode, 200);
+  assert.equal(revised.json().proposal.value, 'fabricated');
+  assert.match(revised.json().proposal.code, /fabricated/);
+  assert.doesNotMatch(revised.json().proposal.code, /export function enforce\(\) \{\}/);
+  assert.equal(revised.json().proposal.audit[1].action, 'revise');
+  const accepted = await app.inject({ method: 'POST', url: `${base}/decision`, payload: { decision: 'accept', actor: 'human' } });
+  assert.equal(accepted.statusCode, 200);
+  await assertApprovedConstraint(id, { kind: 'reply.forbid_text', reply: 'wrong' });
+  await assert.rejects(() => assertApprovedConstraint(id, { kind: 'reply.forbid_text', reply: 'Fabricated claim' }), { code: 'PROJECT_CONSTRAINT_VIOLATION' });
+  assert.equal((await app.inject({ method: 'PATCH', url: base, payload: { ...corrected, actor: 'human' } })).statusCode, 409);
+  await app.close();
+});
+
 test('chat proposes a constraint, but only human acceptance makes it block later replies', async () => {
   const id = 'proposal-chat-flow';
   await project(id);
