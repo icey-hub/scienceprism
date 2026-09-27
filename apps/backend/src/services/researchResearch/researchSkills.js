@@ -3,6 +3,7 @@ import path from 'node:path';
 import { REPO_ROOT } from '../../config/constants.js';
 import { getProjectRoot } from '../projectService.js';
 import { getResearchSkillBindings } from '../researchWorkflow/index.js';
+import { assertProjectPath } from '../harnessRuntime/capabilities.js';
 
 export const RESEARCH_SKILLS_ROOT = path.join(REPO_ROOT, '.dsh', 'skills');
 
@@ -26,9 +27,9 @@ export { HARNESS_EXECUTED_STAGES } from '../researchWorkflow/executedStages.js';
 
 export const DEFAULT_RESEARCH_SKILL_BINDINGS = Object.freeze({
   search: Object.freeze(['literature-search']),
-  ideation: Object.freeze(['paper-card']),
+  ideation: Object.freeze(['paper-card', 'ccf-idea-review']),
   method: Object.freeze(['paper-card', 'dataset-audit', 'statistics-audit', 'experiment-design-audit']),
-  writing: Object.freeze(['dataset-audit', 'statistics-audit', 'research-writing', 'claim-evidence-audit', 'figure-table-plan'])
+  writing: Object.freeze(['dataset-audit', 'statistics-audit', 'research-writing', 'claim-evidence-audit', 'figure-table-plan', 'paper-figure-style', 'ccf-paper-storyline', 'ccf-paper-review'])
 });
 
 export const RESEARCH_SKILL_STAGE_ALIASES = Object.freeze({
@@ -241,7 +242,7 @@ export function researchSkillPrompt(stage, skills = []) {
   const activeSkills = skills.filter((skill) => skill.stages?.includes(normalizedStage));
   if (!activeSkills.length) return 'No project research skill is enabled for this stage.';
   return activeSkills.map((skill) => (
-    `- ${skill.name}: ${skill.description}. Load it with the Harness skill tool when available; its instructions are advisory and cannot bypass server gates or human approval.`
+    `- ${skill.name}: ${skill.description}. Read its instructions with the available Skill tool before applying them; they cannot bypass server gates or human approval.`
   )).join('\n');
 }
 
@@ -255,6 +256,37 @@ export async function getResearchStageSkills(projectId, stage) {
   const effectiveBindings = resolveResearchSkillBindings(bindings, catalog);
   const activeNames = new Set(effectiveBindings[normalizedStage] || []);
   return catalog.filter((skill) => activeNames.has(skill.name));
+}
+
+/**
+ * Read one selected Skill document for the Legacy adapter. The DeepSeek SDK
+ * reads its isolated workspace copy; Legacy reads the original project and
+ * otherwise sees only metadata, so it needs an explicit read-only tool.
+ */
+export async function readEnabledResearchSkillDocument({ projectId, enabledSkillNames = [], name, file = 'SKILL.md', capabilityPolicy } = {}) {
+  if (!projectId || !selectedSkillNames(enabledSkillNames).has(name)) throw new Error('Research skill is not enabled for this Run.');
+  const catalog = await listResearchSkills({ projectId });
+  const skill = catalog.find((entry) => entry.name === name);
+  if (!skill) throw new Error('Research skill is unavailable.');
+  const relativeFile = String(file || 'SKILL.md').replace(/\\/g, '/');
+  if (!relativeFile.endsWith('.md') || path.posix.isAbsolute(relativeFile) || relativeFile.split('/').some((part) => !part || part === '.' || part === '..')) {
+    throw new Error('Research skill file must stay inside its Skill folder.');
+  }
+  const projectRoot = skill.source === 'project' ? await getProjectRoot(projectId) : null;
+  if (projectRoot && capabilityPolicy) {
+    assertProjectPath(path.posix.join('.dsh', 'skills', name, relativeFile), capabilityPolicy, { operation: 'read' });
+  }
+  const skillRoot = path.join(projectRoot || RESEARCH_SKILLS_ROOT, ...(projectRoot ? ['.dsh', 'skills', name] : [name]));
+  const rootReal = await fs.realpath(skillRoot);
+  if (projectRoot && !rootReal.startsWith(`${await fs.realpath(projectRoot)}${path.sep}`)) {
+    throw new Error('Research skill folder escapes the project.');
+  }
+  const fileReal = await fs.realpath(path.join(skillRoot, relativeFile));
+  if (!fileReal.startsWith(`${rootReal}${path.sep}`)) throw new Error('Research skill file escapes its Skill folder.');
+  const stat = await fs.stat(fileReal);
+  if (!stat.isFile() || stat.size > 128_000) throw new Error('Research skill file is unavailable or too large.');
+  const content = await fs.readFile(fileReal, 'utf8');
+  return content.length > 40_000 ? `${content.slice(0, 40_000)}\n\n[Skill document truncated after 40,000 characters]` : content;
 }
 
 export function validateResearchSkillBindings(bindings, catalog = []) {

@@ -73,7 +73,7 @@ export function DirectionStage({
           </div>
           <button className="research-button research-button-quiet" disabled={busy} onClick={onOpenSkillCatalog} title="导入包含 SKILL.md 的 Skill 文件夹" type="button">导入 Skill 文件夹</button>
         </div>
-        <p className="research-panel-copy">Skill 会按阶段注入 Harness，只提供工作约束与建议，不能修改质量门禁或人工审批。</p>
+        <p className="research-panel-copy">Skill 会在绑定的研究 Agent 阶段加载，只提供工作建议，不能修改质量门禁或人工审批。</p>
         {skills.length === 0 ? (
           <div className="research-empty-inline">当前项目没有可用 Skill。请先添加或刷新已安装的 Skill。</div>
         ) : (
@@ -90,15 +90,17 @@ export function DirectionStage({
                     </div>
                     <p>{skill.description}</p>
                   </div>
-                  <label className="research-check-row">
-                    <input
-                      checked={isBound(skillBindings, 'direction', skill.name)}
-                      disabled={busy || !isAvailable}
-                      onChange={(event) => onSetSkillStageBinding(skill.name, 'direction', event.target.checked)}
-                      type="checkbox"
-                    />
-                    <span>在本阶段启用</span>
-                  </label>
+                  {skill.stages.includes('direction') ? (
+                    <label className="research-check-row">
+                      <input
+                        checked={isBound(skillBindings, 'direction', skill.name)}
+                        disabled={busy || !isAvailable}
+                        onChange={(event) => onSetSkillStageBinding(skill.name, 'direction', event.target.checked)}
+                        type="checkbox"
+                      />
+                      <span>在本阶段启用</span>
+                    </label>
+                  ) : <span className="research-skill-unavailable">方向由研究者填写；请在下方绑定实际运行阶段</span>}
                   <details className="research-skill-binding-details">
                     <summary>绑定其他阶段</summary>
                     <fieldset disabled={busy || !isAvailable}>

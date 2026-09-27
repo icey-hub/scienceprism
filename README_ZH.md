@@ -45,6 +45,8 @@ npm run dev
 
 研究流程依次包含方向、检索、筛选、可选复现、创新点、方法、实验和写作。当前论文检索实现了 arXiv 来源；检索结果和 AI 建议需要你确认。实验计划与实验运行分开，运行前还需要单独批准并授予项目执行能力。
 
+研究方向页列出 12 个内置研究 Skill，包括 CCF-A 选题评审、论文主线、审稿检查和论文绘图。可以在此绑定兼容的运行阶段；默认 Legacy Agent 现在能读取已启用 Skill 的正文。详见 [研究 Skill 说明](docs/research-skills.md)和[系统生成的目录快照](aidoc/research-skill-catalog.md)。
+
 写作整合页的「写作审查方式」默认是单 Agent。选择「两个子 Agent 审查后生成」再点「整理写作材料」，系统会串行运行论断证据审查、方法一致性审查和最终写作三个 Run。页面可查看各 Run 的状态、ID、意见和供应商返回的 token 用量；写作 Brief 记录来源。每个 Run 内部可能有多次模型请求。审查意见可能出错，仅供参考；阶段仍需人工确认。子任务失败时可在同页查看错误并重试。[一次真实模型对照](docs/agent-governance/real-writing-delegation-validation.md)中，多 Agent 消耗 161,818 token，单 Agent 消耗 25,401 token；不同项目的成本会变化。
 
 项目内主要入口：

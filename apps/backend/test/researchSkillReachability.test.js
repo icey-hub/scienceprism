@@ -54,6 +54,9 @@ test('the bundled skill set is locked', async () => {
   assert.deepEqual(
     catalog.map((skill) => skill.name).sort(),
     [
+      'ccf-idea-review',
+      'ccf-paper-review',
+      'ccf-paper-storyline',
       'claim-evidence-audit',
       'dataset-audit',
       'experiment-design-audit',
@@ -65,6 +68,19 @@ test('the bundled skill set is locked', async () => {
       'statistics-audit'
     ]
   );
+});
+
+test('the CCF and figure skills are active in stages that actually run', async () => {
+  const catalog = await listResearchSkills({});
+  for (const [stage, names] of Object.entries({
+    ideation: ['ccf-idea-review'],
+    writing: ['ccf-paper-review', 'ccf-paper-storyline', 'paper-figure-style']
+  })) {
+    for (const name of names) {
+      assert.ok(DEFAULT_RESEARCH_SKILL_BINDINGS[stage].includes(name), `${name} is not enabled by default in ${stage}`);
+      assert.ok(catalog.find((skill) => skill.name === name)?.stages.includes(stage), `${name} cannot run in ${stage}`);
+    }
+  }
 });
 
 test('.dsh/skills holds only product skills, so nothing is silently dropped', async () => {

@@ -15,6 +15,7 @@ import { getProjectRoot } from './projectService.js';
 import { extractArxivId, fetchArxivEntry, buildArxivBibtex } from './arxivService.js';
 import { t } from '../i18n/index.js';
 import { assertCapability, assertNetworkHost, assertProjectPath, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
+import { readEnabledResearchSkillDocument } from './researchResearch/researchSkills.js';
 
 /**
  * Builds the tool-agent model.
@@ -66,6 +67,7 @@ export async function runToolAgent({
   selection,
   compileLog,
   contextPack,
+  researchSkills = [],
   llmConfig,
   limits,
   lang = 'zh-CN',
@@ -204,6 +206,17 @@ export async function runToolAgent({
     }
   });
 
+  const enabledResearchSkills = [...new Set((Array.isArray(researchSkills) ? researchSkills : []).filter((name) => typeof name === 'string' && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)))];
+  const readResearchSkillTool = new DynamicStructuredTool({
+    name: 'read_research_skill',
+    description: 'Read the instructions for a research Skill enabled in this Run. Input: { name, file? }. Start with SKILL.md; optionally read its referenced Markdown files.',
+    schema: z.object({ name: z.string(), file: z.string().optional() }),
+    func: async ({ name, file }) => {
+      assertCapability(effectiveCapabilityPolicy, 'project.read');
+      return readEnabledResearchSkillDocument({ projectId, enabledSkillNames: enabledResearchSkills, name, file, capabilityPolicy: effectiveCapabilityPolicy });
+    }
+  });
+
   const { resolved, model: llm } = buildToolAgentModel({ llmConfig, limits });
   if (!resolved.apiKey) {
     return { ok: false, reply: 'SCIENCEPRISM_LLM_API_KEY not set', patches: [] };
@@ -216,8 +229,9 @@ export async function runToolAgent({
     'You can use arxiv_search to find papers and arxiv_bibtex to generate BibTeX.',
     'Never assume writes are applied; use propose_patch and wait for user confirmation.',
     'Use apply_patch for localized edits; use propose_patch for full-file rewrites.',
+    enabledResearchSkills.length ? `Research Skills enabled for this Run: ${enabledResearchSkills.join(', ')}. Read each relevant SKILL.md with read_research_skill before producing the stage output; follow its references only when needed.` : '',
     'Be concise. Provide a short summary in the final response.'
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 
   const userInput = [
     `Task: ${task || 'polish'}`,
@@ -234,7 +248,7 @@ export async function runToolAgent({
     new MessagesPlaceholder('agent_scratchpad')
   ]);
 
-  const tools = [readFileTool, listFilesTool, proposePatchTool, applyPatchTool, compileLogTool, arxivSearchTool, arxivBibtexTool];
+  const tools = [readFileTool, listFilesTool, proposePatchTool, applyPatchTool, compileLogTool, arxivSearchTool, arxivBibtexTool, ...(enabledResearchSkills.length ? [readResearchSkillTool] : [])];
   const agent = await createOpenAIToolsAgent({ llm, tools, prompt: promptTemplate });
   const executor = new AgentExecutor({ agent, tools });
   const usageTracker = createLLMUsageTracker();

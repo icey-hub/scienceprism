@@ -45,6 +45,8 @@ In the editor's **Plotting** sidebar, GPT Image 2 can create PNG diagrams from a
 
 The research stages are Direction, Search, Selection, optional Replication, Ideation, Method, Experiment, and Writing. The implemented paper source is arXiv. You review search results and AI suggestions. An experiment plan and an experiment run are separate; a run needs its own approval and project execution capability.
 
+The Direction page lists twelve built-in research Skills, including CCF-A idea review, manuscript storyline, paper review, and figure style. Bind them to compatible stages there. The default Legacy agent can read enabled Skill instructions; see [Research Skills](docs/research-skills.md) and the [generated catalog snapshot](aidoc/research-skill-catalog.md).
+
 Writing defaults to a single Agent. On the Writing stage, choose “两个子 Agent 审查后生成” under the review mode selector and run the writing handoff to start two serial read-only reviews followed by a coordinator Run. The page shows each Run's ID, status, review text, errors, and provider-reported token usage. Review opinions are advisory and may be wrong; the final brief still passes the evidence checks and requires human approval. Each Run may make several model requests. A failed child can be inspected and retried from the same stage. In [one real-model comparison](docs/agent-governance/real-writing-delegation-validation.md), this mode used 161,818 tokens versus 25,401 for the single-Agent path; cost varies with the project context.
 
 Main project views:

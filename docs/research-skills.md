@@ -1,8 +1,10 @@
 # Research Skills
 
-SciencePrism bundles nine DeepSeek Harness skills under `.dsh/skills`. A skill is
-copied into the isolated Harness workspace and loaded when its bound stage
-actually runs a Harness Run.
+SciencePrism bundles twelve research skills under `.dsh/skills`. For the
+DeepSeek adapter, enabled skills are copied into the isolated Harness workspace.
+For the default Legacy adapter, the agent can read an enabled skill's `SKILL.md`
+and its Markdown references through the read-only `read_research_skill` tool.
+Skills run only when their bound stage starts a Harness Run.
 
 Only four workflow stages run a Harness Run at present — `search`, `ideation`,
 `method` and `writing` — so a skill bound to any other stage could never be
@@ -22,6 +24,19 @@ in step with the invocations in `researchWorkflow/application.js`.
 | `claim-evidence-audit` | Writing | Classify every claim as supported, needs-verification, or unsupported. |
 | `figure-table-plan` | Writing | Plan figures and tables, including the zero-install vector route and visual QA. |
 | `paper-figure-style` | Writing | CCF-A / SCI 一区 figure specs, colour-blind-safe palettes, dual encoding, and a style gate. |
+| `ccf-idea-review` | Ideation | Test novelty, feasibility, falsifiability, and likely reviewer objections. |
+| `ccf-paper-storyline` | Writing | Connect question, mechanism, evidence, and section budget. |
+| `ccf-paper-review` | Writing | Identify scientific weaknesses and unsupported claims before polishing. |
+
+The three `ccf-*` skills are SciencePrism adaptations inspired by the
+[MIT-licensed CCFA-Skills family](https://github.com/mikubaka88/CCFA-Skills).
+They fit the four stages that currently execute research agents; the broader
+upstream family includes workflows such as submission and rebuttal that this
+product does not run yet. `paper-figure-style` is also enabled by default in
+Writing. Existing projects with an explicit Writing binding keep their chosen
+list; they can enable the new skills on the Direction page. In the two-reviewer
+Writing mode, the claim reviewer loads `claim-evidence-audit` and the method
+reviewer loads `ccf-paper-review` when those skills are enabled.
 
 > Three skills were added in iteration 024 (`experiment-design-audit`,
 > `claim-evidence-audit`, `figure-table-plan`), and `dataset-audit` /
@@ -40,7 +55,8 @@ DeepSeek Harness discovers a project skill at:
 <project-root>/.dsh/skills/<kebab-case-name>/SKILL.md
 ```
 
-The file must start with YAML frontmatter containing `name` and `description`.
+The file must start with YAML frontmatter containing `name`, `description`, and
+at least one compatible stage under `metadata.stages` (or a top-level `stages`).
 The name must be kebab-case. A project-local skill with the same name takes
 precedence over the bundled copy in the temporary workspace, so it can be
 customized without changing SciencePrism.

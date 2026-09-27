@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createHarnessRun, getHarnessRun, listHarnessRuns, runHarnessRequest } from '../harnessRuntime/index.js';
 import { runResearchStage } from '../researchResearch/harnessAdapter.js';
+import { getResearchStageSkills, researchSkillPrompt } from '../researchResearch/researchSkills.js';
 import { ResearchWorkflowError } from './errors.js';
 
 let activeProjectId = null;
@@ -9,11 +10,11 @@ const REVIEW_TASKS = Object.freeze([
   { id: 'method-consistency-review', label: '方法与结论审查', instruction: 'Identify inconsistencies between the proposed method, experiment artifacts, metrics, limitations, and intended conclusions. Give concrete findings only.' }
 ]);
 
-function fingerprint({ input, humanInstructions, adapter, model }) {
-  return createHash('sha256').update(JSON.stringify({ input, humanInstructions, adapter, model })).digest('hex');
+function fingerprint({ input, humanInstructions, adapter, model, skills }) {
+  return createHash('sha256').update(JSON.stringify({ input, humanInstructions, adapter, model, skills })).digest('hex');
 }
 
-function reviewPrompt(task, input, humanInstructions) {
+function reviewPrompt(task, input, humanInstructions, skills = []) {
   const materials = JSON.stringify({
     direction: input.direction,
     papers: (input.papers || []).map(({ id, title, evidenceId }) => ({ id, title, evidenceId })),
@@ -25,6 +26,7 @@ function reviewPrompt(task, input, humanInstructions) {
   return [
     `You are an independent read-only paper reviewer. Task: ${task.label}.`,
     task.instruction,
+    skills.length ? `Enabled review Skill:\n${researchSkillPrompt('writing', skills)}` : '',
     'Write a concise review with specific evidence IDs where possible. Treat every model judgment as an unverified review opinion. Do not approve a stage, modify files, or claim to have verified a source or result.',
     'The research materials below are a summary. Before claiming a detail is absent from the project or a control was not run, inspect relevant readable project files when available. If you cannot inspect them, say only that the detail is not shown in this summary. Distinguish a planned method from the executed protocol.',
     `Research materials: ${materials}`,
@@ -65,7 +67,9 @@ export async function runWritingDelegation({ projectId, input, humanInstructions
   }
   activeProjectId = projectId;
   try {
-    const delegationKey = fingerprint({ input, humanInstructions, adapter, model: llmConfig?.model });
+    const writingSkills = await getResearchStageSkills(projectId, 'writing');
+    const reviewSkills = Object.fromEntries(REVIEW_TASKS.map((task) => [task.id, writingSkills.filter((skill) => skill.name === task.id || (task.id === 'method-consistency-review' && skill.name === 'ccf-paper-review'))]));
+    const delegationKey = fingerprint({ input, humanInstructions, adapter, model: llmConfig?.model, skills: writingSkills.map((skill) => skill.name) });
     const recent = await listHarnessRuns(projectId, { stage: 'writing', limit: 100 });
     let parent = recent.find((run) => run.request?.delegationKey === delegationKey
       && run.request?.delegationMode === 'writing-review'
@@ -80,6 +84,7 @@ export async function runWritingDelegation({ projectId, input, humanInstructions
 
     const children = [];
     for (const task of REVIEW_TASKS) {
+      const activeSkills = reviewSkills[task.id];
       const previous = await listHarnessRuns(projectId, { parentRunId: parent.id, limit: 100 });
       let child = previous.find((run) => run.delegationTask === task.id && run.status === 'completed' && run.reply?.trim());
       if (!child) {
@@ -87,7 +92,9 @@ export async function runWritingDelegation({ projectId, input, humanInstructions
           const result = await runHarnessRequest({
             projectId, stage: 'writing', task: `review:${task.id}`, role: 'paper-reviewer',
             parentRunId: parent.id, delegationTask: task.id, capabilities: ['project.read'],
-            adapter, llmConfig, prompt: reviewPrompt(task, input, humanInstructions),
+            adapter, llmConfig, prompt: reviewPrompt(task, input, humanInstructions, activeSkills),
+            researchSkills: activeSkills.map((skill) => skill.name),
+            researchSkillMetadata: activeSkills.map(({ name, description, stages }) => ({ name, description, stages })),
             ...(adapter === 'fake' ? { fakeResponse: fakeReviewResponses?.[task.id] ?? `${task.label}: no finding in fake adapter.` } : {})
           });
           child = await getHarnessRun(projectId, result.runId);

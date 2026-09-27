@@ -11,7 +11,7 @@ const { runWritingDelegation } = await import('../src/services/researchWorkflow/
 const { cancelHarnessRun, getHarnessRun, listHarnessRuns, registerHarnessAdapter } = await import('../src/services/harnessRuntime/index.js');
 const { fakeHarnessAdapter } = await import('../src/services/harnessRuntime/adapters/fakeAdapter.js');
 const { getEvidenceLedger, upsertEvidence } = await import('../src/services/evidenceLedger/index.js');
-const { initializeResearchWorkflow } = await import('../src/services/researchWorkflow/commands.js');
+const { initializeResearchWorkflow, updateResearchSkillBindings } = await import('../src/services/researchWorkflow/commands.js');
 
 async function setup(id) {
   const root = path.join(dataDir, id);
@@ -56,8 +56,34 @@ test('writing delegation executes two independent child Runs before the validate
       const run = await getHarnessRun(request.projectId, child.runId);
       assert.equal(run.parentRunId, result.delegation.parentRunId);
       assert.deepEqual(run.capabilities.granted, ['project.read']);
+      assert.deepEqual(run.skills, child.task === 'claim-evidence-audit' ? ['claim-evidence-audit'] : ['ccf-paper-review']);
     }
     assert.equal((await listHarnessRuns(request.projectId, { parentRunId: result.delegation.parentRunId })).length, 2);
+  } finally {
+    registerHarnessAdapter(fakeHarnessAdapter);
+  }
+});
+
+test('changing Writing Skill bindings does not reuse a pending review parent', async () => {
+  const request = await setup('writing-delegation-skill-change');
+  let failSecond = true;
+  registerHarnessAdapter({ id: 'fake', async run({ request: runRequest }) {
+    if (runRequest.delegationTask === 'method-consistency-review' && failSecond) {
+      failSecond = false;
+      throw new Error('review interrupted');
+    }
+    return { finalResponse: runRequest.fakeResponse, events: [], sessionId: 'probe', patches: [] };
+  } });
+  try {
+    const first = await runWritingDelegation(request);
+    assert.equal(first.ok, false);
+    await updateResearchSkillBindings(request.projectId, { bindings: { writing: ['claim-evidence-audit'] }, actor: 'human' });
+    const second = await runWritingDelegation(request);
+    assert.equal(second.ok, true, JSON.stringify(second.validation?.errors || []));
+    assert.notEqual(second.delegation.parentRunId, first.delegation.parentRunId);
+    assert.notEqual(second.delegation.children[0].runId, first.delegation.children[0].runId);
+    const methodReview = await getHarnessRun(request.projectId, second.delegation.children[1].runId);
+    assert.deepEqual(methodReview.skills, []);
   } finally {
     registerHarnessAdapter(fakeHarnessAdapter);
   }

@@ -135,7 +135,7 @@ export function capabilityForToolName(name) {
   if (/^(?:write|edit|delete|move|rename)_?file$/.test(tool) || tool.includes('filesystem_write')) return 'patch.propose';
   if (tool.includes('shell') || tool.includes('bash') || tool.includes('terminal') || tool.includes('execute_command')) return 'experiment.execute';
   if (tool.includes('arxiv') || tool.includes('search') || tool.includes('fetch_url') || tool.includes('http')) return 'research.search';
-  if (tool === 'read_file' || tool === 'list_files' || tool.includes('filesystem_read')) return 'project.read';
+  if (tool === 'read_file' || tool === 'list_files' || tool === 'read_research_skill' || tool.includes('filesystem_read')) return 'project.read';
   if (tool.includes('patch') || tool.includes('edit')) return 'patch.propose';
   return null;
 }
