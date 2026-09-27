@@ -11,10 +11,24 @@ import {
 } from '../../api/harnessAdapter';
 import { getEvidenceClaimMatrix, getEvidenceGraph, type ClaimEvidenceMatrix } from '../../api/evidenceAdapter';
 import type { ProjectDashboard } from '../../api/projectAdapter';
+import { getConstraintPolicy, setConstraintEnabled, type ConstraintPolicy } from '../../api/constraintAdapter';
 import { DecisionStatus } from '../components/DecisionStatus';
 import { EmptyState, ErrorState, LoadingState, ProgressBar } from '../components/AsyncState';
 
 type ActionState = { id: string; action: string } | null;
+
+const CONSTRAINT_LABELS: Record<string, string> = {
+  'C-01': '项目和数据隔离', 'C-02': '只能修改当前研究阶段', 'C-03': '阶段审批需满足准备条件',
+  'C-04': 'AI 不能代替人工审批', 'C-05': '研究输出必须通过结构校验', 'C-06': '论文筛选必须通过质量门禁',
+  'C-07': '项目文件修改需经过补丁确认', 'C-08': '执行实验需明确授权', 'C-09': '文件、网络和工具默认受限',
+  'C-10': '项目默认运行预算', 'C-11': '不确定的信息必须明确标注', 'C-12': '论文主张必须关联证据',
+  'C-13': '工作流变更保留版本和审计', 'C-14': '实验必须可复现', 'C-15': '实验结果需人工核验',
+  'C-16': '项目级功能开关', 'C-17': '科研文档写入 aidoc'
+};
+const OPTIONAL_DETAILS: Record<string, string> = {
+  'C-10': '关闭后，新运行不再使用项目默认的超时和 Token 预算，但保留绝对上限；已创建的运行不变。',
+  'C-16': '关闭后，项目级功能开关不再限制实验与高级 Harness；部署环境总开关和人工审批仍有效。'
+};
 
 function formatTime(value?: string | null) {
   if (!value) return '尚未记录';
@@ -25,18 +39,50 @@ function runLabel(run: HarnessRun) {
   return `${run.stage || '项目'} / ${run.task || 'Harness 任务'}`;
 }
 
-export function ConstraintsPanel({ constraints }: { constraints: ProjectDashboard['constraints'] }) {
+export function ConstraintsPanel({ projectId, constraints }: { projectId: string; constraints: ProjectDashboard['constraints'] }) {
+  const [policy, setPolicy] = useState<ConstraintPolicy | null>(null);
+  const [policyError, setPolicyError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setPolicy(null);
+    setPolicyError('');
+    void getConstraintPolicy(projectId).then(({ policy: result }) => { if (active) setPolicy(result); }).catch((error) => { if (active) setPolicyError(String(error)); });
+    return () => { active = false; };
+  }, [projectId]);
+  const change = async (id: string, enabled: boolean) => {
+    setBusyId(id);
+    setPolicyError('');
+    try { setPolicy((await setConstraintEnabled(projectId, id, enabled)).policy); }
+    catch (error) { setPolicyError(String(error)); }
+    finally { setBusyId(null); }
+  };
   const rows = [
     ['能力', constraints.capabilities.join(', ') || '默认只读'],
     ['允许路径', constraints.allowedPaths.join(', ') || '未额外限制'],
     ['网络白名单', constraints.networkAllowlist.join(', ') || '禁止网络'],
     ['上下文预算', constraints.contextTokenBudget ? `${constraints.contextTokenBudget.toLocaleString()} tokens` : '默认'],
-    ['最长运行', constraints.timeoutMs ? `${Math.round(constraints.timeoutMs / 1000)} 秒` : '默认']
+    ['项目最长运行预算', policy?.constraints.find((item) => item.id === 'C-10')?.enabled === false
+      ? '已关闭（仍有 24 小时绝对上限）'
+      : constraints.timeoutMs ? `${Math.round(constraints.timeoutMs / 1000)} 秒` : '默认']
   ];
   return <section className="hub-panel control-panel">
     <div className="hub-section-heading"><div><span className="hub-kicker">PROJECT CONSTRAINTS</span><h3>项目约束</h3></div><span className="decision-status is-applied">后端投影</span></div>
-    <p className="hub-panel-intro">这些限制由后端解释并在 Harness 运行前强制执行。页面只展示当前项目的有效策略。</p>
+    <p className="hub-panel-intro">核心约束始终生效。可选约束的开关会影响后续运行；已经创建的 Run 保留创建时的预算。</p>
     <dl className="constraint-list">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+    {policyError && <p className="hub-error" role="alert">{policyError}</p>}
+    {!policy && !policyError && <p>正在读取内置约束…</p>}
+    {policy && <>
+      <h4>可选约束</h4>
+      <div className="constraint-policy-list">{policy.constraints.filter((item) => item.canToggle).map((item) => <div className="constraint-policy-row" key={item.id}>
+        <div><strong>{item.id} · {CONSTRAINT_LABELS[item.id] || item.statement}</strong><p>{OPTIONAL_DETAILS[item.id] || item.statement}</p><small>{item.enabled ? '已启用' : '已关闭'}</small></div>
+        <button type="button" className="hub-small-button" disabled={busyId !== null} onClick={() => void change(item.id, !item.enabled)}>{item.enabled ? '关闭' : '启用'}</button>
+      </div>)}</div>
+      <details><summary>核心约束（{policy.constraints.filter((item) => !item.canToggle).length} 条，始终启用）</summary>
+        <div className="constraint-policy-list">{policy.constraints.filter((item) => !item.canToggle).map((item) => <div className="constraint-policy-row" key={item.id}><strong>{item.id} · {CONSTRAINT_LABELS[item.id] || item.statement}</strong></div>)}</div>
+      </details>
+    </>}
+    {policy && policy.audit.length > 0 && <details><summary>开关记录（{policy.audit.length}）</summary><ul>{policy.audit.map((entry, index) => <li key={`${entry.at}-${index}`}>{entry.id} · {entry.action === 'enable' ? '启用' : '关闭'} · {new Date(entry.at).toLocaleString()}</li>)}</ul></details>}
   </section>;
 }
 

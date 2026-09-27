@@ -22,3 +22,21 @@ export function decideConstraintProposal(projectId: string, proposalId: string, 
     method: 'POST', body: JSON.stringify({ decision, actor: 'human' })
   });
 }
+
+export interface ConstraintPolicy {
+  preset: string;
+  disabled: string[];
+  rejected: { id: string | null; reason: string }[];
+  audit: { id: string; action: 'enable' | 'disable'; actor: string; at: string }[];
+  constraints: { id: string; statement: string; tier: 'core' | 'standard' | 'experimental'; canToggle: boolean; enabled: boolean }[];
+}
+
+export function getConstraintPolicy(projectId: string) {
+  return request<{ ok: boolean; policy: ConstraintPolicy }>(`/api/projects/${projectId}/constraint-policy`);
+}
+
+export function setConstraintEnabled(projectId: string, constraintId: string, enabled: boolean) {
+  return request<{ ok: boolean; policy: ConstraintPolicy }>(`/api/projects/${projectId}/constraint-policy/${constraintId}/decision`, {
+    method: 'POST', body: JSON.stringify({ actor: 'human', enabled })
+  });
+}

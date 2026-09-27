@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { getProjectRoot } from './projectService.js';
+import { isConstraintEnabled, readConstraintPolicy } from './constraintRegistry/index.js';
 
 export const FEATURE_FLAGS = Object.freeze(['experimentExecution', 'advancedHarness']);
 
@@ -62,6 +63,7 @@ export function assertFeatureEnabled(flag, options = {}) {
 
 export async function getProjectFeatureFlags(projectId) {
   const root = await getProjectRoot(projectId);
+  const policy = await readConstraintPolicy(projectId);
   let constraints = {};
   try {
     const raw = await fs.readFile(path.join(root, '.scienceprism', 'project-constraints.json'), 'utf8');
@@ -70,7 +72,7 @@ export async function getProjectFeatureFlags(projectId) {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
-  return getFeatureFlags({ constraints });
+  return getFeatureFlags({ constraints: isConstraintEnabled(policy, 'C-16') ? constraints : {} });
 }
 
 export async function assertProjectFeatureEnabled(projectId, flag, details) {

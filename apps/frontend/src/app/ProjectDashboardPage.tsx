@@ -237,7 +237,7 @@ export default function ProjectDashboardPage() {
           : view === 'approvals' ? <ApprovalsInbox projectId={projectId} approvals={dashboard.approvals} />
             : view === 'runs' ? <HarnessConsole projectId={projectId} />
               : view === 'evidence' ? <EvidenceView projectId={projectId} />
-                : view === 'settings' ? <ConstraintsPanel constraints={dashboard.constraints} />
+                : view === 'settings' ? <ConstraintsPanel projectId={projectId} constraints={dashboard.constraints} />
           : <Overview dashboard={dashboard} projectId={projectId} />;
   return <Layout projectId={projectId} projectName={dashboard.project.name} view={view}>{content}<button className="hub-refresh" onClick={() => { load(); navigate(location.pathname); }} aria-label="刷新项目状态">↻</button></Layout>;
 }

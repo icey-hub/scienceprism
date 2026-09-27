@@ -104,3 +104,7 @@
   .harness-run-summary .harness-chevron { grid-column: 3; grid-row: 1 / span 2; }
 }
 .hub-paper-notes { display: grid; gap: 8px; margin-top: 12px; padding: 12px; border-left: 2px solid #8bb9a2; background: #f5faf6; }.hub-paper-notes label { display: grid; gap: 4px; color: #65776c; font-size: 10px; font-weight: 700; }.hub-paper-notes input, .hub-paper-notes textarea { width: 100%; padding: 7px; border: 1px solid #ccddd1; color: #344b3e; background: #fff; font: inherit; }.hub-paper-notes textarea { resize: vertical; line-height: 1.4; }.hub-paper-notes > div { display: flex; gap: 6px; }
+.constraint-policy-list { display: grid; gap: 0.5rem; margin: 1rem 0; }
+.constraint-policy-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem; border: 1px solid var(--border, #d8dde3); border-radius: 0.6rem; }
+.constraint-policy-row p { margin: 0.25rem 0; }
+.constraint-policy-row small { opacity: 0.72; }

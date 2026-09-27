@@ -11,6 +11,7 @@ import { experimentAdapters } from './adapters.js';
 import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary } from './manifest.js';
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
+import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
 
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
@@ -123,8 +124,8 @@ export async function decideExperimentRun(projectId, runId, { decision = 'approv
   });
 }
 
-function assertExecutionAllowed(constraints, run) {
-  if (!getFeatureFlags({ constraints }).experimentExecution) {
+function assertExecutionAllowed(constraints, run, rolloutEnabled = true) {
+  if (!getFeatureFlags({ constraints: rolloutEnabled ? constraints : {} }).experimentExecution) {
     throw new ExperimentRunnerError(403, 'FEATURE_FLAG_DISABLED', 'Controlled Experiment execution is disabled by the experimentExecution Feature Flag.');
   }
   if (!Array.isArray(constraints.capabilities) || !constraints.capabilities.includes('experiment.execute')) {
@@ -373,9 +374,10 @@ export async function startExperimentRun(projectId, runId, { wait = false } = {}
   const current = await getExperimentRun(projectId, runId);
   if (current.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
   const constraints = await readConstraints(root);
+  const constraintPolicy = await readConstraintPolicy(projectId);
   const controller = new AbortController();
   const control = { projectId, controller, cancelRequested: false, timedOut: false };
-  assertExecutionAllowed(constraints, current);
+  assertExecutionAllowed(constraints, current, isConstraintEnabled(constraintPolicy, 'C-16'));
   activeRuns.set(runId, { projectId, control, promise: null });
   let run;
   try {

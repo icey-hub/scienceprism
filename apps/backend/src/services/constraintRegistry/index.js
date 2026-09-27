@@ -6,15 +6,16 @@ export {
   constraintPolicyProjection,
   isConstraintEnabled,
   normalizeConstraintPolicy,
-  readConstraintPolicy
+  readConstraintPolicy,
+  setConstraintEnabled,
+  ConstraintPolicyError
 } from './policy.js';
 
 /**
  * Read projections over the constraint registry.
  *
- * Nothing here enforces anything yet: the registry is descriptive so the
- * catalogue can be projected, audited, and tested before any enforcement path
- * starts depending on it.
+ * The catalogue supplies IDs and tiers to project policy decisions. Runtime
+ * owners enforce their own checks and consult the policy for standard rules.
  */
 export function listConstraints({ tier } = {}) {
   if (!tier) return [...CONSTRAINT_REGISTRY];

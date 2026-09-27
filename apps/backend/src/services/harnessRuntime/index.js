@@ -25,6 +25,7 @@ import { buildContextPack, contextManifest } from './contextPackager.js';
 import { assertProjectFeatureEnabled } from '../featureFlags.js';
 import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 import { assertApprovedConstraint } from '../constraintRegistry/proposals.js';
+import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const MAX_EVENTS = 1000;
@@ -184,11 +185,13 @@ function numberOr(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = 
   return Number.isFinite(number) && number >= min && number <= max ? number : fallback;
 }
 
-function buildLimits(request, policy) {
+function buildLimits(request, policy, budgetEnabled = true) {
   const constraints = policy.constraints || {};
+  const defaultTimeout = budgetEnabled ? PROJECT_CONSTRAINT_LIMITS.timeoutMs : 24 * 60 * 60 * 1000;
+  const defaultTokens = budgetEnabled ? PROJECT_CONSTRAINT_LIMITS.maxTokens : 1_000_000;
   return {
-    timeoutMs: numberOr(request.limits?.timeoutMs, numberOr(constraints.timeoutMs, PROJECT_CONSTRAINT_LIMITS.timeoutMs, { min: 100, max: 24 * 60 * 60 * 1000 }), { min: 100, max: 24 * 60 * 60 * 1000 }),
-    maxTokens: numberOr(request.limits?.maxTokens, numberOr(constraints.maxTokens, PROJECT_CONSTRAINT_LIMITS.maxTokens, { min: 1, max: 1_000_000 }), { min: 1, max: 1_000_000 }),
+    timeoutMs: numberOr(request.limits?.timeoutMs, budgetEnabled ? numberOr(constraints.timeoutMs, defaultTimeout, { min: 100, max: 24 * 60 * 60 * 1000 }) : defaultTimeout, { min: 100, max: 24 * 60 * 60 * 1000 }),
+    maxTokens: numberOr(request.limits?.maxTokens, budgetEnabled ? numberOr(constraints.maxTokens, defaultTokens, { min: 1, max: 1_000_000 }) : defaultTokens, { min: 1, max: 1_000_000 }),
     maxConcurrent: numberOr(request.limits?.maxConcurrent, numberOr(constraints.maxConcurrent, PROJECT_CONSTRAINT_LIMITS.maxConcurrent, { min: 1, max: 32 }), { min: 1, max: 32 }),
     retryLimit: numberOr(request.limits?.retryLimit, numberOr(constraints.retryLimit, PROJECT_CONSTRAINT_LIMITS.retryLimit, { min: 0, max: 10 }), { min: 0, max: 10 })
   };
@@ -437,6 +440,7 @@ async function executeRun(projectId, runId, request, control) {
 
 export async function createHarnessRun(projectId, request = {}) {
   const projectRoot = await resolveHarnessProjectRoot(projectId);
+  const constraintPolicy = await readConstraintPolicy(projectId);
   const parent = request.parentRunId ? await getHarnessRun(projectId, request.parentRunId) : null;
   if (parent) {
     if (parent.archived || parent.parentRunId || parent.status !== 'created') {
@@ -514,7 +518,7 @@ export async function createHarnessRun(projectId, request = {}) {
     contextManifest: contextManifest(contextPack),
     contextPack,
     capabilities: effectiveCapabilities,
-    limits: buildLimits(request, effectiveCapabilities),
+    limits: buildLimits(request, effectiveCapabilities, isConstraintEnabled(constraintPolicy, 'C-10')),
     fallback: request.fallback !== false && getEnv('HARNESS_FALLBACK') !== 'false' && effectiveCapabilities.constraints?.fallback !== false,
     request: sanitizeRequest({ ...request, projectId, adapter }),
     events: [],

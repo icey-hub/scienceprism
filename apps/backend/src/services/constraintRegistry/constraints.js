@@ -3,9 +3,9 @@
  *
  * Each entry is one constraint that today lives only as a row in
  * `docs/project-constraints.md` plus scattered code. The registry makes the
- * catalogue machine-readable so it can be projected, tested, and eventually
- * toggled, without changing any behaviour yet: nothing calls `enforcement`
- * here, and every reference points at a seam that already exists.
+ * catalogue machine-readable for projection, tests, and project decisions.
+ * Enforcement stays with the owning modules; the two standard rules consult
+ * project policy at their runtime seams.
  *
  * Field meaning:
  * - `tier`       core = a product invariant that must not be user-disableable;
@@ -138,9 +138,9 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
   },
   {
     id: 'C-10',
-    statement: 'Each Harness Run is bounded by a timeout and a token budget.',
+    statement: 'Project default timeout and token budgets restrict new Harness Runs unless this optional budget policy is disabled.',
     module: "Harness Runtime Module",
-    failure: "Exceeding the timeout aborts the Run (`504 HARNESS_TIMEOUT`); `maxTokens` caps each provider call on both adapters; a failed Run returns `ok=false` and never mutates the original Project.",
+    failure: "With the policy enabled, Project budgets apply to new Runs. Disabling it removes those defaults but retains absolute 24-hour and one-million-token ceilings and any explicit per-Run limits. Existing Runs keep recorded limits.",
     validationLocation: "`apps/backend/src/services/harnessRuntime/index.js:buildLimits` computes the limits and passes them to **every** adapter; `deepseekAdapter.js` forwards `maxTokens` to the SDK and `agentService.js:buildToolAgentModel` applies it to the legacy tool-agent model.",
     tier: 'standard',
     scope: ['harness', 'limits'],
@@ -216,9 +216,9 @@ export const CONSTRAINT_REGISTRY = Object.freeze([
   },
   {
     id: 'C-16',
-    statement: 'Experiment execution and advanced Harness adapters are rollout-controlled and cannot run when their Feature Flag is disabled.',
+    statement: 'Project feature flags may further restrict Experiment execution and advanced Harness adapters beyond deployment flags.',
     module: "Feature Flag Module + Experiment Runner + Harness Runtime",
-    failure: "Returns `403 FEATURE_FLAG_DISABLED`; global environment flags can disable a capability for every Project, while Project Constraints may disable it further.",
+    failure: "When enabled, a disabled Project Feature Flag returns `403 FEATURE_FLAG_DISABLED`. Disabling this optional Project override ignores Project Feature Flags, while deployment environment flags and core approval/capability checks still apply.",
     validationLocation: "`apps/backend/src/services/featureFlags.js`; `.scienceprism/project-constraints.json`; `SCIENCEPRISM_FEATURE_*` environment variables",
     tier: 'standard',
     scope: ['experiment', 'harness', 'rollout'],
