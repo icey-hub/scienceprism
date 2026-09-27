@@ -2098,10 +2098,9 @@ export default function EditorPage() {
       if (queries.length === 0) {
         throw new Error(t('拆分结果为空。'));
       }
-      appendLog(setWebsearchLog, t('并行检索: {{queries}}', { queries: queries.join(' | ') }));
+      appendLog(setWebsearchLog, t('逐项检索: {{queries}}', { queries: queries.join(' | ') }));
       const aggregated: WebsearchItem[] = [];
-      await Promise.all(
-        queries.map(async (q, idx) => {
+      for (const [idx, q] of queries.entries()) {
           appendLog(setWebsearchLog, t('检索中: {{query}}', { query: q }));
           const res = await callLLM({
             llmConfig: searchLlmConfig,
@@ -2116,17 +2115,17 @@ export default function EditorPage() {
           });
           if (!res.ok || !res.content) {
             appendLog(setWebsearchLog, t('检索失败: {{query}}', { query: q }));
-            return;
+            continue;
           }
           const block = extractJsonBlock(res.content);
           if (!block) {
             appendLog(setWebsearchLog, t('结果解析失败: {{query}}', { query: q }));
-            return;
+            continue;
           }
           const parsedRes = safeJsonParse<{ results?: { title?: string; summary?: string; url?: string; bibtex?: string }[] }>(block);
           if (!parsedRes) {
             appendLog(setWebsearchLog, t('结果 JSON 解析失败: {{query}}', { query: q }));
-            return;
+            continue;
           }
           const results = parsedRes.results || [];
           results.forEach((item, i) => {
@@ -2142,8 +2141,7 @@ export default function EditorPage() {
             });
           });
           appendLog(setWebsearchLog, t('完成: {{query}} ({{count}})', { query: q, count: results.length }));
-        })
-      );
+      }
       const deduped: WebsearchItem[] = [];
       aggregated.forEach((item) => {
         if (!deduped.find((d) => d.url && item.url && d.url === item.url) && !deduped.find((d) => d.title === item.title)) {

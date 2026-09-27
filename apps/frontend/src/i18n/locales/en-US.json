@@ -207,7 +207,7 @@
   "已生成编译修复建议。": "Compile fix suggestion generated.",
   "已选择 {{count}} 字符，将用于任务输入": "Selected {{count}} characters for the task",
   "帮我检索: {{query}}": "Search for me: {{query}}",
-  "并行检索: {{queries}}": "Parallel search: {{queries}}",
+  "逐项检索: {{queries}}": "Searching one query at a time: {{queries}}",
   "应用全部": "Apply all",
   "应用此修改": "Apply change",
   "开始检索": "Start search",

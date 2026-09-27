@@ -18,7 +18,7 @@
 | R-08 | 要设置一个 goal | 曾建立 `goal-1475d1ce`；这是历史会话 ID，不代表当前仍有活动 goal。 |
 | R-09 | 第一次提交先提交一个新分支 | ✅ `feat/agent-governance-r1` |
 | R-10 | 迭代 10 次后，又开一个新分支 | ✅ 已完成（Round 1 = `feat/agent-governance-r1`，Round 2 = `feat/agent-governance-r2`，Round 3 = `feat/agent-governance-r3`） |
-| R-11 | 每 10 次迭代要留一个文档给用户对比 | Round 1–6 的对比文档已保存于 `rounds/`；Round 7 尚未结束。 |
+| R-11 | 每 10 次迭代要留一个文档给用户对比 | Round 1–8 的对比文档均在 `rounds/`；Round 7 与 8 因此前漏记，于迭代 080 对照日志补写，未虚构独立分支或真实模型结果。 |
 | R-12 | 文档绘图能力不行，要调研 skill 或 MCP 方案画好图 | ✅ **已完成**（迭代 021）：结论 = **手写 SVG**；零安装、离线、中文直出、可 diff、不越界写缓存。产物 `docs/agent-governance/assets/diagrams/`（4 张，含细胞结构图），方案见 `drawing-comparison.md` |
 | R-13 | 画图方案也要对比 | ✅ **已完成**（迭代 021）：候选对比表含「是否经实际渲染验证」列，未验证项单独列明；细胞结构图为基准。MCP 路线经取证关闭（配置须写工作区外） |
 | R-14 | 先列详细计划，先不执行 | ✅ 已完成（`plan.md`） |
