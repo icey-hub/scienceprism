@@ -232,6 +232,9 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   useEffect(() => { if (rawStage && !isResearchStageId(rawStage)) navigate(`/editor/${projectId}/research/direction`, { replace: true }); }, [navigate, projectId, rawStage]);
   useEffect(() => { void loadWorkflow(); }, [loadWorkflow]);
   useEffect(() => {
+    setWritingAgentMode(workflow.task?.delegation?.mode === 'multi-agent' ? 'multi-agent' : 'single-agent');
+  }, [projectId, workflow.task?.id]);
+  useEffect(() => {
     if (!experimentRun || !['awaiting_approval', 'approved', 'running'].includes(experimentRun.status)) return undefined;
     const timer = window.setInterval(() => { void refreshExperimentRun().catch((requestError) => setError(`运行状态刷新失败：${getErrorMessage(requestError)}`)); }, 2000);
     return () => window.clearInterval(timer);

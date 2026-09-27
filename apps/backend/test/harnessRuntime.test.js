@@ -461,6 +461,18 @@ test('the Run token budget is applied by the legacy tool-agent model', async () 
   assert.equal(unbounded.model.maxTokens, undefined, 'no limits means the provider default');
 });
 
+test('legacy model usage is summed across tool turns and missing provider usage stays unknown', async () => {
+  const { createLLMUsageTracker } = await import('../src/services/agentService.js');
+  const missing = createLLMUsageTracker();
+  missing.callback.handleLLMEnd({ llmOutput: {} });
+  assert.equal(missing.getUsage(), null);
+
+  const tracker = createLLMUsageTracker();
+  tracker.callback.handleLLMEnd({ llmOutput: { tokenUsage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 } } });
+  tracker.callback.handleLLMEnd({ llmOutput: { tokenUsage: { promptTokens: 80, completionTokens: 10, totalTokens: 90 } } });
+  assert.deepEqual(tracker.getUsage(), { promptTokens: 180, completionTokens: 30, totalTokens: 210 });
+});
+
 test('every adapter receives the Run limits, not only the DeepSeek SDK', async () => {
   const { registerHarnessAdapter } = await import('../src/services/harnessRuntime/index.js');
   const { fakeHarnessAdapter } = await import('../src/services/harnessRuntime/adapters/fakeAdapter.js');

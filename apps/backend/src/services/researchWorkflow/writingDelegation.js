@@ -26,6 +26,7 @@ function reviewPrompt(task, input, humanInstructions) {
     `You are an independent read-only paper reviewer. Task: ${task.label}.`,
     task.instruction,
     'Write a concise review with specific evidence IDs where possible. Treat every model judgment as an unverified review opinion. Do not approve a stage, modify files, or claim to have verified a source or result.',
+    'The research materials below are a summary. Before claiming a detail is absent from the project or a control was not run, inspect relevant readable project files when available. If you cannot inspect them, say only that the detail is not shown in this summary. Distinguish a planned method from the executed protocol.',
     `Research materials: ${materials}`,
     humanInstructions ? `Researcher instructions: ${String(humanInstructions).slice(0, 2000)}` : ''
   ].filter(Boolean).join('\n\n');

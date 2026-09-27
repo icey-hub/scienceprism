@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "sourceProjectId": "028127fc-3b3a-4b4b-93ec-02beb626d776",
+  "model": "gpt-5.6-luna",
+  "adapter": "legacy",
+  "cases": [
+    {
+      "mode": "single-agent",
+      "projectId": "cc3b86de-f3ca-4786-a522-e3d6cbebc70b",
+      "workflowStatus": "in_progress",
+      "currentStage": "writing",
+      "writingStageStatus": "in_progress",
+      "stageTaskStatus": "awaiting_approval",
+      "humanDecision": null,
+      "validation": {
+        "ok": true,
+        "errors": [],
+        "warnings": []
+      },
+      "claimCount": 3,
+      "unsupportedClaimCount": 7,
+      "elapsedMs": 33904,
+      "tokenUsage": {
+        "promptTokens": 23748,
+        "completionTokens": 1653,
+        "totalTokens": 25401
+      },
+      "runs": [
+        {
+          "runId": "ff16d4a5-e980-4719-ba66-cb58a64aa746",
+          "parentRunId": null,
+          "delegationTask": null,
+          "role": "research-stage-assistant",
+          "status": "completed",
+          "startedAt": "2026-09-27T06:56:14.478Z",
+          "finishedAt": "2026-09-27T06:56:48.378Z",
+          "tokenUsage": {
+            "promptTokens": 23748,
+            "completionTokens": 1653,
+            "totalTokens": 25401
+          },
+          "outputValidation": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "mode": "multi-agent",
+      "projectId": "205c2e9e-eaaa-49fe-bb7e-1dc040fd568c",
+      "workflowStatus": "in_progress",
+      "currentStage": "writing",
+      "writingStageStatus": "in_progress",
+      "stageTaskStatus": "awaiting_approval",
+      "humanDecision": null,
+      "validation": {
+        "ok": true,
+        "errors": [],
+        "warnings": []
+      },
+      "claimCount": 4,
+      "unsupportedClaimCount": 6,
+      "elapsedMs": 128372,
+      "tokenUsage": {
+        "promptTokens": 155760,
+        "completionTokens": 6058,
+        "totalTokens": 161818
+      },
+      "runs": [
+        {
+          "runId": "5969e5b2-d862-4f3d-8e2d-58c835e20bfb",
+          "parentRunId": null,
+          "delegationTask": null,
+          "role": "research-stage-assistant",
+          "status": "completed",
+          "startedAt": "2026-09-27T06:58:42.493Z",
+          "finishedAt": "2026-09-27T06:59:17.183Z",
+          "tokenUsage": {
+            "promptTokens": 21071,
+            "completionTokens": 1805,
+            "totalTokens": 22876
+          },
+          "outputValidation": true,
+          "error": null
+        },
+        {
+          "runId": "aa61c124-4636-4e41-843e-45cc0ebda997",
+          "parentRunId": "5969e5b2-d862-4f3d-8e2d-58c835e20bfb",
+          "delegationTask": "claim-evidence-audit",
+          "role": "paper-reviewer",
+          "status": "completed",
+          "startedAt": "2026-09-27T06:57:08.819Z",
+          "finishedAt": "2026-09-27T06:57:43.377Z",
+          "tokenUsage": {
+            "promptTokens": 51911,
+            "completionTokens": 1596,
+            "totalTokens": 53507
+          },
+          "outputValidation": null,
+          "error": null
+        },
+        {
+          "runId": "5773f1fb-5ec8-4c59-ba04-02eded01e92c",
+          "parentRunId": "5969e5b2-d862-4f3d-8e2d-58c835e20bfb",
+          "delegationTask": "method-consistency-review",
+          "role": "paper-reviewer",
+          "status": "completed",
+          "startedAt": "2026-09-27T06:57:43.399Z",
+          "finishedAt": "2026-09-27T06:58:42.475Z",
+          "tokenUsage": {
+            "promptTokens": 82778,
+            "completionTokens": 2657,
+            "totalTokens": 85435
+          },
+          "outputValidation": null,
+          "error": null
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "elapsedRatio": 3.79,
+    "tokenRatio": 6.37,
+    "workflowRuns": {
+      "single": 1,
+      "multi": 3
+    }
+  }
+}

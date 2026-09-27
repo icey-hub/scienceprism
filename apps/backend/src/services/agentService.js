@@ -4,6 +4,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { z } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
+import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { AgentExecutor, createOpenAIToolsAgent } from 'langchain/agents';
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts';
 import { safeJoin } from '../utils/pathUtils.js';
@@ -36,6 +37,25 @@ export function buildToolAgentModel({ llmConfig, limits } = {}) {
       configuration: { baseURL: normalizeBaseURL(normalizeChatEndpoint(resolved.endpoint)) }
     })
   };
+}
+
+/** Collect provider-reported usage across every model turn in a tool-agent Run. */
+export function createLLMUsageTracker() {
+  const usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+  let reported = false;
+  const callback = BaseCallbackHandler.fromMethods({
+    handleLLMEnd(result) {
+      const tokens = result?.llmOutput?.tokenUsage;
+      if (!tokens || ![tokens.promptTokens, tokens.completionTokens, tokens.totalTokens]
+        .some((value) => Number.isFinite(value) && value >= 0)) return;
+      reported = true;
+      for (const key of Object.keys(usage)) {
+        if (Number.isFinite(tokens[key]) && tokens[key] >= 0) usage[key] += tokens[key];
+      }
+    }
+  });
+  callback.awaitHandlers = true;
+  return { callback, getUsage: () => reported ? { ...usage } : null };
 }
 
 export async function runToolAgent({
@@ -217,11 +237,13 @@ export async function runToolAgent({
   const tools = [readFileTool, listFilesTool, proposePatchTool, applyPatchTool, compileLogTool, arxivSearchTool, arxivBibtexTool];
   const agent = await createOpenAIToolsAgent({ llm, tools, prompt: promptTemplate });
   const executor = new AgentExecutor({ agent, tools });
-  const result = await executor.invoke({ input: userInput });
+  const usageTracker = createLLMUsageTracker();
+  const result = await executor.invoke({ input: userInput }, { callbacks: [usageTracker.callback] });
 
   return {
     ok: true,
     reply: result.output || '',
-    patches: pendingPatches
+    patches: pendingPatches,
+    usage: usageTracker.getUsage()
   };
 }
