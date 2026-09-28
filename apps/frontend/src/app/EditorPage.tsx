@@ -11,6 +11,7 @@ import { Decoration, EditorView, DecorationSet, WidgetType, keymap, gutter, Gutt
 import { search, searchKeymap } from '@codemirror/search';
 import { autocompletion, CompletionContext } from '@codemirror/autocomplete';
 import { toggleComment } from '@codemirror/commands';
+import { lintGutter, setDiagnostics } from '@codemirror/lint';
 import { foldKeymap, foldService, indentOnInput } from '@codemirror/language';
 import { createFolder as createFolderApi, deleteFile, getAllFiles, getFile, getProjectTree, listProjects, renamePath, updateFileOrder, uploadFiles, writeFile } from '../api/projectAdapter';
 import { createCollabInvite, flushCollabFile, getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
@@ -27,6 +28,8 @@ import { ResearchStageNavigation } from './research/ResearchStageNavigation';
 import { getResearchStage, isResearchStageId, type ResearchStageId } from './research/researchStages';
 import { buildSplitDiff, SplitDiffView } from './editor/EditorDiff';
 import { PdfPreview } from './editor/PdfPreview';
+import { getLatexBodyInsertionRange } from './editor/latexSnippetInsertion';
+import { compileDiagnostics, parseCompileErrors, resolveCompileFile, type CompileError } from './editor/compileDiagnostics';
 import { ConstraintProposalPanel } from './editor/ConstraintProposalPanel';
 import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings, pickCollabColor } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
@@ -756,54 +759,6 @@ const editorTheme = EditorView.theme(
   { dark: false }
 );
 
-type CompileError = {
-  message: string;
-  line?: number;
-  file?: string;
-  raw?: string;
-};
-
-function parseCompileErrors(log: string): CompileError[] {
-  if (!log) return [];
-  const lines = log.split('\n');
-  const errors: CompileError[] = [];
-  const seen = new Set<string>();
-
-  const pushError = (error: CompileError) => {
-    const key = `${error.file || ''}:${error.line || ''}:${error.message}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    errors.push(error);
-  };
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const fileLineMatch = line.match(/([A-Za-z0-9_./-]+\.tex):(\d+)/);
-    if (fileLineMatch) {
-      pushError({
-        message: line.trim(),
-        file: fileLineMatch[1],
-        line: Number(fileLineMatch[2]),
-        raw: line
-      });
-    }
-    if (line.startsWith('!')) {
-      const message = line.replace(/^!+\s*/, '').trim();
-      let lineNo: number | undefined;
-      for (let j = i + 1; j < Math.min(i + 4, lines.length); j += 1) {
-        const match = lines[j].match(/l\.(\d+)/);
-        if (match) {
-          lineNo = Number(match[1]);
-          break;
-        }
-      }
-      pushError({ message, line: lineNo, raw: line });
-    }
-  }
-
-  return errors;
-}
-
 function findLineOffset(text: string, line: number) {
   if (line <= 1) return 0;
   let offset = 0;
@@ -868,6 +823,8 @@ export default function EditorPage() {
   const [figureDropdownOpen, setFigureDropdownOpen] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [compileLog, setCompileLog] = useState('');
+  const [compiledSources, setCompiledSources] = useState<Record<string, string>>({});
+  const [compiledMainFile, setCompiledMainFile] = useState('main.tex');
   const [pdfUrl, setPdfUrl] = useState('');
   const [pdfScale, setPdfScale] = useState(1);
   const [pdfFitWidth, setPdfFitWidth] = useState(true);
@@ -1232,6 +1189,8 @@ export default function EditorPage() {
     if (!projectId) return;
     setFiles({});
     setActivePath('');
+    setCompileLog('');
+    setCompiledSources({});
     refreshTree(false).catch((err) => setStatus(t('加载文件树失败: {{error}}', { error: String(err) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, t]);
@@ -1338,6 +1297,7 @@ export default function EditorPage() {
       doc: '',
       extensions: [
         basicSetup,
+        lintGutter(),
         latex(),
         envDepthField,
         scopeGutter,
@@ -1684,7 +1644,10 @@ export default function EditorPage() {
     if (!activePath) return;
     const view = cmViewRef.current;
     if (!view) return;
-    const sel = view.state.selection.main;
+    const selection = view.state.selection.main;
+    const sel = activePath.toLowerCase().endsWith('.tex')
+      ? getLatexBodyInsertionRange(view.state.doc.toString(), selection.from, selection.to)
+      : selection;
     let insert = text;
     if (opts?.block) {
       const before = sel.from > 0 ? view.state.doc.sliceString(sel.from - 1, sel.from) : '';
@@ -2705,7 +2668,9 @@ export default function EditorPage() {
 
   const jumpToError = async (error: CompileError) => {
     const view = cmViewRef.current;
-    const targetFile = error.file && isTextFile(error.file) ? error.file : activePath;
+    const targetFile = error.file
+      ? resolveCompileFile(error.file, tree.filter((item) => item.type === 'file').map((item) => item.path))
+      : activePath;
     if (!targetFile) return;
     let content = '';
     try {
@@ -2896,15 +2861,28 @@ export default function EditorPage() {
     if (!projectId) return;
     setIsCompiling(true);
     setStatus(t('编译中...'));
+    setCompileLog('');
+    setCompiledSources({});
+    setCompiledMainFile(mainFile);
     try {
+      // The backend compiles files on disk; wait for the latest editor content.
+      if (activePath) {
+        if (collabActiveRef.current) await flushCollabFile(projectId, activePath);
+        else await writeFile(projectId, activePath, editorValue);
+        if (activePathRef.current === activePath && cmViewRef.current?.state.doc.toString() === editorValue) {
+          setIsDirty(false);
+        }
+      }
       const { files: serverFiles } = await getAllFiles(projectId);
       const fileMap: Record<string, string | Uint8Array> = {};
+      const sources: Record<string, string> = {};
       for (const file of serverFiles) {
         if (file.encoding === 'base64') {
           const binary = Uint8Array.from(atob(file.content), (c) => c.charCodeAt(0));
           fileMap[file.path] = binary;
         } else {
-          fileMap[file.path] = files[file.path] ?? file.content;
+          fileMap[file.path] = file.content;
+          sources[file.path] = file.content;
         }
       }
       if (activePath) {
@@ -2913,6 +2891,7 @@ export default function EditorPage() {
       if (!fileMap[mainFile]) {
         throw new Error(t('主文件不存在: {{file}}', { file: mainFile }));
       }
+      setCompiledSources(sources);
       const res = await compileProject({ projectId, mainFile, engine: compileEngine });
       if (!res.ok || !res.pdf) {
         const detail = [res.error, res.log].filter(Boolean).join('\n');
@@ -2944,8 +2923,10 @@ export default function EditorPage() {
       setStatus(t('编译完成 ({{engine}})', { engine: result.engine }));
     } catch (err) {
       console.error('Compilation error:', err);
-      setCompileLog(`${t('编译错误: {{error}}', { error: String(err) })}\n${(err as Error).stack || ''}`);
-      setStatus(t('编译失败: {{error}}', { error: String(err) }));
+      const detail = String(err);
+      setCompileLog(t('编译错误: {{error}}', { error: detail }));
+      setRightView('log');
+      setStatus(t('编译失败: {{error}}', { error: detail.split('\n')[0] }));
     } finally {
       setIsCompiling(false);
     }
@@ -2957,7 +2938,18 @@ export default function EditorPage() {
     return editorValue.slice(start, end);
   }, [selectionRange, editorValue]);
 
-  const compileErrors = useMemo(() => parseCompileErrors(compileLog), [compileLog]);
+  const compileErrors = useMemo(() => parseCompileErrors(compileLog, compiledMainFile), [compileLog, compiledMainFile]);
+  useEffect(() => {
+    const view = cmViewRef.current;
+    if (!view) return;
+    const currentErrors = compiledSources[activePath] === editorValue
+      ? compileErrors.map((error) => ({
+        ...error,
+        file: error.file ? resolveCompileFile(error.file, Object.keys(compiledSources)) : undefined
+      }))
+      : [];
+    view.dispatch(setDiagnostics(view.state, compileDiagnostics(currentErrors, activePath, editorValue)));
+  }, [compileErrors, compiledSources, activePath, editorValue]);
   const pendingGrouped = useMemo(() => {
     const map = new Map<string, PendingChange>();
     pendingChanges.forEach((item) => {
