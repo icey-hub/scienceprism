@@ -42,6 +42,7 @@ export function toFrontendWorkflow(workflow) {
   return {
     id: workflow.id, projectId: workflow.projectId, version: workflow.version, status: workflow.status,
     activeStage: currentStage, currentStage,
+    humanInstructions: Object.fromEntries(Object.entries(workflow.humanInstructions || {}).map(([id, text]) => [STAGE_TO_UI[id] || id, text])),
     stages: workflow.stages.map((stage) => ({ id: STAGE_TO_UI[stage.id] || stage.id, state: frontendStageState(stage, workflow.currentStage), status: stage.status, updatedAt: stage.updatedAt, readiness: stage.id === workflow.currentStage ? getStageReadiness(workflow, stage.id) : undefined })),
     direction: { question: direction.researchQuestion || direction.topic || direction.question || '', keywords: direction.seedKeywords || direction.keywords || [], scope: direction.scope || '', notes: direction.notes || '' },
     search: { query: search.query || search.queries?.[0] || '', count: papers.length, lastRunAt: search.lastRunAt || null, sources: search.sources || [], policy: search.policy || null },

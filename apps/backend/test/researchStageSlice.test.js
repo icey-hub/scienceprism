@@ -8,7 +8,8 @@ const dataDir = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-stage-six-'))
 process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
-const { initializeResearchWorkflow, updateResearchWorkflow, approveResearchWorkflow } = await import('../src/services/researchWorkflow/commands.js');
+const { initializeResearchWorkflow, updateResearchWorkflow, approveResearchWorkflow, updateResearchHumanInstructions } = await import('../src/services/researchWorkflow/commands.js');
+const { getHarnessRun } = await import('../src/services/harnessRuntime/index.js');
 const { runUiAction } = await import('../src/services/researchWorkflow/application.js');
 const { getResearchWorkflow } = await import('../src/services/researchWorkflow/index.js');
 const { getEvidenceLedger } = await import('../src/services/evidenceLedger/index.js');
@@ -56,6 +57,18 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
   try {
     let workflow = await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'How can retrieval stay grounded?' } });
     workflow = await updateResearchWorkflow(projectId, { stageId: 'direction', data: { researchQuestion: 'How can retrieval stay grounded?', scope: 'long-context retrieval' }, expectedVersion: workflow.version, idempotencyKey: 'direction-update' });
+    const inputStages = ['direction', 'search', 'selection', 'replication', 'ideation', 'method', 'experiment'];
+    for (const stageId of inputStages) {
+      workflow = await updateResearchHumanInstructions(projectId, { stageId, humanInstructions: `suggestion-${stageId}`, actor: 'human', expectedVersion: workflow.version });
+    }
+    const assertRunSuggestions = async (stageId, runId) => {
+      const run = await getHarnessRun(projectId, runId);
+      const included = inputStages.slice(0, stageId === 'writing' ? inputStages.length : inputStages.indexOf(stageId) + 1);
+      for (const id of inputStages) {
+        assert.equal(run.request.prompt.includes(`suggestion-${id}`), included.includes(id), `${stageId} prompt must include only current and previous suggestions: ${id}`);
+        assert.equal(run.request.humanInstructions.includes(`suggestion-${id}`), included.includes(id));
+      }
+    };
     workflow = await approve(projectId, 'direction');
 
     workflow = await runUiAction(projectId, {
@@ -66,6 +79,7 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
     assert.equal(stageData(workflow, 'search').task.stage, 'search');
     assert.equal(stageData(workflow, 'search').task.status, 'awaiting_approval');
     assert.equal(stageData(workflow, 'search').papers.length, 1);
+    await assertRunSuggestions('search', stageData(workflow, 'search').task.harness.runId);
     workflow = await approve(projectId, 'search');
 
     workflow = await runUiAction(projectId, { action: 'select-papers', paperIds: [stageData(workflow, 'search').papers[0].id] }, 'human');
@@ -78,9 +92,11 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
       action: 'generate-ideas', adapter: 'fake', paperIds: stageData(workflow, 'selection').selectedPaperIds,
       fakeResponse: JSON.stringify({ stage: 'innovation_ideas', humanDirection: 'grounded retrieval', ideas: [{ id: 'idea-1', title: 'Evidence gate', problem: 'Retrieved context can be unsupported.', motivation: 'Selected paper exposes the gap.', hypothesis: 'Evidence gating reduces unsupported context.', novelty: 'Candidate mechanism only.', relatedPaperIds: [stageData(workflow, 'selection').selectedPaperIds[0]], validationPlan: ['Compare groundedness on a held-out set.'], risks: [], confidence: 0.5 }], comparison: [], caveats: [] })
     }, 'human');
+    await assertRunSuggestions('ideation', stageData(workflow, 'ideation').task.harness.runId);
     workflow = await approve(projectId, 'ideation');
 
     workflow = await runUiAction(projectId, { action: 'generate-method', adapter: 'fake', ideaIds: ['idea-1'], fakeResponse: JSON.stringify({ stage: 'method_proposals', selectedIdeaId: 'idea-1', proposals: [{ id: 'method-1', name: 'Evidence gate', ideaId: 'idea-1', description: 'Gate retrieved context by source support.', components: ['evidence check'], assumptions: ['source metadata is available'], baselines: ['plain retrieval'], metrics: ['groundedness'], ablations: [], implementationRisks: [] }], recommendation: 'method-1', humanDecisionRequired: true }) }, 'human');
+    await assertRunSuggestions('method', stageData(workflow, 'method').task.harness.runId);
     workflow = await approve(projectId, 'method');
 
     workflow = await runUiAction(projectId, { action: 'run-experiment', experiment: { dataset: 'held-out', command: 'record-only', metrics: ['groundedness'] } }, 'human');
@@ -95,6 +111,7 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
       experiment: { metrics: [{ name: 'gcn_auprc_mean', value: 0.062 }], resultRun: { id: 'run-1', codeSnapshotHash: 'snapshot-hash' } }
     }, 'human');
     assert.equal(stageData(workflow, 'writing').ready, true);
+    await assertRunSuggestions('writing', stageData(workflow, 'writing').task.harness.runId);
     assert.equal(stageData(workflow, 'writing').briefPath, 'research/writing-brief.md');
     // The stage input must carry the Evidence Ledger. It used to carry selected
     // papers only, so a brief about the project's own experiment reported that

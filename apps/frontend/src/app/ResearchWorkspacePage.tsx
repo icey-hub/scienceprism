@@ -16,6 +16,7 @@ import {
   type ExperimentRun
 } from '../api/experimentAdapter';
 import { ResearchStageLayout } from './research/ResearchStageLayout';
+import { StageHumanInput } from './research/StageHumanInput';
 import {
   fromHarnessResearchStage,
   isResearchStageId,
@@ -58,6 +59,7 @@ interface UiWorkflow {
   activeStage?: ResearchStageId;
   currentStage?: ResearchStageId;
   stages?: StageRecord[];
+  humanInstructions?: Partial<Record<ResearchStageId, string>>;
   direction?: Partial<ResearchDirection>;
   search?: { query?: string; count?: number; lastRunAt?: string; sources?: string[]; policy?: Partial<FilterPolicy> };
   replication?: Partial<ReplicationPlan> & { skipped?: boolean };
@@ -184,6 +186,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const [harnessState, setHarnessState] = useState<'ready' | 'checking' | 'unavailable'>('checking');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [instructionDrafts, setInstructionDrafts] = useState<Partial<Record<ResearchStageId, string>>>({});
   const [claimMatrix, setClaimMatrix] = useState<ClaimEvidenceMatrix | null>(null);
   const [stageRoles, setStageRoles] = useState<AgentRoleSummary[]>([]);
   const [experimentRun, setExperimentRun] = useState<ExperimentRun | null>(null);
@@ -231,6 +234,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
 
   useEffect(() => { if (rawStage && !isResearchStageId(rawStage)) navigate(`/editor/${projectId}/research/direction`, { replace: true }); }, [navigate, projectId, rawStage]);
   useEffect(() => { void loadWorkflow(); }, [loadWorkflow]);
+  useEffect(() => { setInstructionDrafts({}); }, [projectId]);
   useEffect(() => {
     setWritingAgentMode(workflow.task?.delegation?.mode === 'multi-agent' ? 'multi-agent' : 'single-agent');
   }, [projectId, workflow.task?.id]);
@@ -260,10 +264,30 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
     const next = mergeWorkflow(payload); setWorkflow(next); setPolicy((current) => ({ ...current, ...(next.search?.policy || {}) })); return next;
   }, []);
 
+  const persistHumanInstructions = useCallback(async () => {
+    const saved = workflow.humanInstructions?.[stage] || '';
+    const text = (instructionDrafts[stage] ?? saved).trim();
+    if (text === saved) return workflow.version;
+    const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ actor: 'human', stage: toHarnessResearchStage(stage), humanInstructions: text, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
+    const next = mergeWorkflow(payload);
+    // Saving suggestions must preserve unsaved stage forms and selections.
+    setWorkflow((current) => ({ ...current, version: next.version, humanInstructions: next.humanInstructions }));
+    setInstructionDrafts((current) => { const drafts = { ...current }; delete drafts[stage]; return drafts; });
+    return next.version;
+  }, [instructionDrafts, projectId, stage, workflow.humanInstructions, workflow.version]);
+
+  const saveHumanInstructions = useCallback(async () => {
+    setBusy(true); setError(''); setNotice('');
+    try { await persistHumanInstructions(); setNotice('人工建议已保存，将用于后续 AI 分析。'); }
+    catch (requestError) { setError(`建议保存失败：${getErrorMessage(requestError)}`); }
+    finally { setBusy(false); }
+  }, [persistHumanInstructions]);
+
   const runAction = useCallback(async (action: string, body: Record<string, unknown>, successMessage: string) => {
     setBusy(true); setError(''); setNotice('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body, llmConfig, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
+      const expectedVersion = await persistHumanInstructions();
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'POST', body: JSON.stringify({ action, ...body, llmConfig, expectedVersion, idempotencyKey: newIdempotencyKey() }) });
       const next = commitWorkflow(payload);
       if (next.task?.status === 'failed') {
         setError(next.task.error?.message || '任务执行失败，请检查配置后重试。');
@@ -272,24 +296,25 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
       setNotice(successMessage); return next;
     } catch (requestError) { setError(`操作失败：${getErrorMessage(requestError)}`); return null; }
     finally { setBusy(false); }
-  }, [commitWorkflow, llmConfig, projectId, workflow.version]);
+  }, [commitWorkflow, llmConfig, persistHumanInstructions, projectId]);
 
   const patchStage = useCallback(async (stageId: ResearchStageId, data: Record<string, unknown>, successMessage: string) => {
     setBusy(true); setError('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ stage: toHarnessResearchStage(stageId), data, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
+      const expectedVersion = await persistHumanInstructions();
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ stage: toHarnessResearchStage(stageId), data, expectedVersion, idempotencyKey: newIdempotencyKey() }) });
       commitWorkflow(payload); setNotice(successMessage);
     } catch (requestError) { setError(`保存失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, projectId, workflow.version]);
+  }, [commitWorkflow, persistHumanInstructions, projectId]);
 
   const saveDirection = useCallback(async () => {
     const direction = { question: workflow.direction?.question?.trim() || '', keywords: workflow.direction?.keywords || [], scope: workflow.direction?.scope?.trim() || '', notes: workflow.direction?.notes?.trim() || '' };
     setBusy(true); setError('');
-    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ direction, expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); commitWorkflow(payload); setNotice('研究方向已保存，等待人工确认。'); }
+    try { const expectedVersion = await persistHumanInstructions(); const payload = await workflowRequest<WorkflowEnvelope>(projectId, '', { method: 'PATCH', body: JSON.stringify({ direction, expectedVersion, idempotencyKey: newIdempotencyKey() }) }); commitWorkflow(payload); setNotice('研究方向已保存，等待人工确认。'); }
     catch (requestError) { setError(`方向保存失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, projectId, workflow.direction, workflow.version]);
+  }, [commitWorkflow, persistHumanInstructions, projectId, workflow.direction]);
 
   const handleSkillBinding = useCallback(async (skillName: string, bindingStage: ResearchStageId, enabled: boolean) => {
     const next: SkillBindings = { ...skillBindings }; const names = new Set(next[bindingStage] || []); if (enabled) names.add(skillName); else names.delete(skillName); next[bindingStage] = [...names]; setSkillBindings(next); setBusy(true);
@@ -323,15 +348,16 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const approveStage = useCallback(async () => {
     setBusy(true); setError('');
     try {
-      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ actor: 'human', stage, ...(stage === 'replication' ? { decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' } : {}), expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) });
+      const expectedVersion = await persistHumanInstructions();
+      const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ actor: 'human', stage, ...(stage === 'replication' ? { decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。' } : {}), expectedVersion, idempotencyKey: newIdempotencyKey() }) });
       const next = commitWorkflow(payload); setNotice(stage === 'replication' ? '已记录跳过论文复现。' : '当前阶段已确认。'); if (next.activeStage && next.activeStage !== stage) navigate(`/editor/${projectId}/research/${next.activeStage}`);
     } catch (requestError) { setError(`审批失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, navigate, projectId, stage, workflow.replication?.note, workflow.version]);
+  }, [commitWorkflow, navigate, persistHumanInstructions, projectId, stage, workflow.replication?.note]);
 
   const resetWorkflow = useCallback(async () => {
     if (!window.confirm('确定要重置本项目的研究流程吗？已保存的阶段数据可能会被清空。')) return; setBusy(true);
-    try { await workflowRequest(projectId, '/reset', { method: 'POST', body: JSON.stringify({ actor: 'human', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); await loadWorkflow(); navigate(`/editor/${projectId}/research/direction`); setNotice('研究流程已重置。'); }
+    try { await workflowRequest(projectId, '/reset', { method: 'POST', body: JSON.stringify({ actor: 'human', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); setInstructionDrafts({}); await loadWorkflow(); navigate(`/editor/${projectId}/research/direction`); setNotice('研究流程已重置。'); }
     catch (requestError) { setError(`重置失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
   }, [loadWorkflow, navigate, projectId, workflow.version]);
@@ -348,11 +374,12 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const createControlledExperimentRun = useCallback(async () => {
     setBusy(true); setError(''); setNotice('');
     try {
+      await persistHumanInstructions();
       const result = await createProjectExperimentRun(projectId, { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' });
       setExperimentRun(result.run); setNotice('受控 Run 已创建，等待人工批准。');
     } catch (requestError) { setError(`创建运行失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [projectId, workflow.experiment]);
+  }, [persistHumanInstructions, projectId, workflow.experiment]);
   const approveControlledExperimentRun = useCallback(async () => {
     if (!experimentRun) return;
     setBusy(true); setError('');
@@ -377,10 +404,10 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const saveReplication = useCallback(() => patchStage('replication', { replication: workflow.replication || {} }, '复现计划已保存。'), [patchStage, workflow.replication]);
   const skipReplication = useCallback(async () => {
     setBusy(true);
-    try { const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ actor: 'human', stage: 'replication', decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。', expectedVersion: workflow.version, idempotencyKey: newIdempotencyKey() }) }); const next = commitWorkflow(payload); setNotice('已记录跳过论文复现。'); if (next.activeStage) navigate(`/editor/${projectId}/research/${next.activeStage}`); }
+    try { const expectedVersion = await persistHumanInstructions(); const payload = await workflowRequest<WorkflowEnvelope>(projectId, '/approve', { method: 'POST', body: JSON.stringify({ actor: 'human', stage: 'replication', decision: 'skip', note: workflow.replication?.note || '人工确认跳过论文复现。', expectedVersion, idempotencyKey: newIdempotencyKey() }) }); const next = commitWorkflow(payload); setNotice('已记录跳过论文复现。'); if (next.activeStage) navigate(`/editor/${projectId}/research/${next.activeStage}`); }
     catch (requestError) { setError(`跳过复现失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
-  }, [commitWorkflow, navigate, projectId, workflow.replication?.note, workflow.version]);
+  }, [commitWorkflow, navigate, persistHumanInstructions, projectId, workflow.replication?.note]);
   const prepareWriting = useCallback(async () => {
     const completedRun = experimentRun?.status === 'completed' ? experimentRun : null;
     const experiment = completedRun ? {
@@ -449,12 +476,15 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const stageIndex = RESEARCH_STAGES.findIndex((item) => item.id === stage);
   return <>
     <ResearchStageLayout projectId={projectId} projectName={projectName || `项目 ${projectId}`} stage={stage} embedded={embedded} stageStatuses={stageStatuses(workflow)} harnessState={harnessState} roleSummaries={stageRoles.map((role) => ({ id: role.id, authority: role.authority, capabilities: role.capabilities, skills: role.skills }))} busy={busy} context={context} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} onBackToEditor={() => navigate(`/editor/${projectId}`)} onRefresh={() => void loadWorkflow()} onApprove={workflow.activeStage === stage ? approveStage : undefined} onPrevious={stageIndex > 0 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex - 1].id}`) : undefined} onNext={stageIndex < RESEARCH_STAGES.length - 1 ? () => navigate(`/editor/${projectId}/research/${RESEARCH_STAGES[stageIndex + 1].id}`) : undefined}>
-      {error && <div className="research-callout research-callout-warning" role="alert"><strong>操作未完成</strong><p>{error}</p><button className="research-button research-button-quiet" onClick={() => void loadWorkflow()} disabled={busy}>重新读取状态</button></div>}
-      {notice && <div className="research-callout" role="status"><p>{notice}</p></div>}
-      {!error && workflow.task?.status === 'failed' && <div className="research-callout research-callout-warning" role="alert"><strong>任务执行失败</strong><p>{workflow.task.error?.message || '请检查配置后重试。'}</p><button className="research-button research-button-quiet" onClick={() => navigate(`/project/${projectId}/tasks`)}>查看任务与重试</button></div>}
-      {workflow.sourceFailures?.length ? <div className="research-callout research-callout-warning" role="status"><strong>部分来源未能完成检索</strong><ul>{workflow.sourceFailures.map((failure, index) => <li key={index}>{failure.source}：{failure.message || '检索失败'}</li>)}</ul></div> : null}
-      {renderStage()}
-      <details className="research-maintenance"><summary>研究流程管理</summary><p>重置会清空已保存的阶段数据，请谨慎操作。</p><button className="research-button research-button-quiet research-reset-button" disabled={busy} onClick={() => void resetWorkflow()} type="button">重置研究流程</button></details>
+      <div className="research-page-stack">
+        {error && <div className="research-callout research-callout-warning" role="alert"><strong>操作未完成</strong><p>{error}</p><button className="research-button research-button-quiet" onClick={() => void loadWorkflow()} disabled={busy}>重新读取状态</button></div>}
+        {notice && <div className="research-callout" role="status"><p>{notice}</p></div>}
+        {stage !== 'writing' && <StageHumanInput stage={stage} value={instructionDrafts[stage] ?? workflow.humanInstructions?.[stage] ?? ''} savedValue={workflow.humanInstructions?.[stage] || ''} busy={busy} onChange={(value) => setInstructionDrafts((current) => ({ ...current, [stage]: value }))} onSave={() => void saveHumanInstructions()} />}
+        {!error && workflow.task?.status === 'failed' && <div className="research-callout research-callout-warning" role="alert"><strong>任务执行失败</strong><p>{workflow.task.error?.message || '请检查配置后重试。'}</p><button className="research-button research-button-quiet" onClick={() => navigate(`/project/${projectId}/tasks`)}>查看任务与重试</button></div>}
+        {workflow.sourceFailures?.length ? <div className="research-callout research-callout-warning" role="status"><strong>部分来源未能完成检索</strong><ul>{workflow.sourceFailures.map((failure, index) => <li key={index}>{failure.source}：{failure.message || '检索失败'}</li>)}</ul></div> : null}
+        {renderStage()}
+        <details className="research-maintenance"><summary>研究流程管理</summary><p>重置会清空已保存的阶段数据，请谨慎操作。</p><button className="research-button research-button-quiet research-reset-button" disabled={busy} onClick={() => void resetWorkflow()} type="button">重置研究流程</button></details>
+      </div>
     </ResearchStageLayout>
     <input ref={skillInputRef} hidden multiple onChange={handleSkillFiles} type="file" {...({ webkitdirectory: '', directory: '' } as Record<string, unknown>)} />
   </>;

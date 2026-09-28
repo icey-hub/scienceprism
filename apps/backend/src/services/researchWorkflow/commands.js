@@ -1,8 +1,9 @@
-import { ResearchWorkflowError, assertExpectedVersion, assertPlainObject, sanitizeNote } from './errors.js';
+import { ResearchWorkflowError, assertExpectedVersion, assertPlainObject, sanitizeNote, sanitizeHumanInstructions } from './errors.js';
 import { appendAudit, clone } from './audit.js';
 import { applyApprovalDecision, applyRecovery, applyReset, applyStageUpdate, createWorkflowDocument } from './stateMachine.js';
 import { normalizeSkillBindings } from './skillBindings.js';
 import { readWorkflowFile, resolveProjectRoot, withWorkflowLock, writeWorkflowFile } from './repository.js';
+import { assertStageId } from './stageContracts.js';
 
 function commandKey(value) {
   if (value === undefined || value === null || value === '') return undefined;
@@ -85,6 +86,21 @@ export function updateResearchWorkflow(projectId, options = {}) {
   });
 }
 
+export function updateResearchHumanInstructions(projectId, { stageId, humanInstructions, actor, expectedVersion, idempotencyKey } = {}) {
+  assertStageId(stageId);
+  if (actor !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', 'Only a human may save research suggestions.');
+  const text = sanitizeHumanInstructions(humanInstructions);
+  return mutateWorkflow(projectId, {
+    command: 'update-human-instructions', actor, expectedVersion, idempotencyKey,
+    payload: { stageId, humanInstructions: text },
+    mutate: (workflow) => {
+      workflow.humanInstructions = { ...(workflow.humanInstructions || {}), [stageId]: text };
+      appendAudit(workflow, 'stage.human-instructions.updated', { stageId, actor, details: { hasInstructions: Boolean(text) } });
+      return workflow;
+    }
+  });
+}
+
 export function approveResearchWorkflow(projectId, options = {}) {
   return mutateWorkflow(projectId, {
     command: options.decision || 'approve', actor: options.actor, note: options.note, expectedVersion: options.expectedVersion, idempotencyKey: options.idempotencyKey,
@@ -126,4 +142,3 @@ export function updateResearchSkillBindings(projectId, { bindings, actor, note, 
 }
 
 export { commandKey, fingerprint };
-

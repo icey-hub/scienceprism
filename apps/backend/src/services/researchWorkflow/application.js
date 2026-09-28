@@ -19,7 +19,21 @@ import {
 } from './index.js';
 import { getStageData } from './queries.js';
 import { toFrontendWorkflow, UI_TO_STAGE } from './projection.js';
-import { ResearchWorkflowError } from './errors.js';
+import { ResearchWorkflowError, sanitizeHumanInstructions } from './errors.js';
+import { updateResearchHumanInstructions } from './commands.js';
+import { RESEARCH_WORKFLOW_STAGES } from './stageContracts.js';
+
+const ACTION_STAGES = { search: 'search', 'select-papers': 'selection', 'generate-ideas': 'ideation', 'select-ideas': 'ideation', 'generate-method': 'method', 'save-method': 'method', 'run-experiment': 'experiment', 'handoff-writing': 'writing' };
+
+function researchHumanInstructions(workflow, stageId, override) {
+  const instructions = { ...(workflow.humanInstructions || {}) };
+  if (override !== undefined) instructions[stageId] = sanitizeHumanInstructions(override);
+  const stageIndex = RESEARCH_WORKFLOW_STAGES.findIndex((item) => item.id === stageId);
+  return RESEARCH_WORKFLOW_STAGES.slice(0, stageIndex + 1)
+    .filter((item) => instructions[item.id]?.trim())
+    .map((item) => `${item.label} — 人工建议：\n${instructions[item.id]}`)
+    .join('\n\n');
+}
 
 export function uiStageId(value) {
   return UI_TO_STAGE[value] || value;
@@ -110,12 +124,14 @@ async function updateStage(projectId, stageId, data, body, actor) {
 
 export async function runUiAction(projectId, body, actor) {
   const action = body.action;
+  const workflow = await getResearchWorkflow(projectId);
+  const humanInstructions = researchHumanInstructions(workflow, ACTION_STAGES[action], body.humanInstructions);
   if (action === 'search') {
     const direction = body.direction || {};
     const query = String(body.query || direction.question || '').trim();
     if (!query) throw new ResearchWorkflowError(400, 'MISSING_QUERY', 'A search query or research question is required.');
     const registeredSources = listResearchSourceAdapters().map((adapter) => adapter.id);
-    const strategy = await runResearchStage({ stage: 'search_strategy', projectId, input: { researchQuestion: direction.question || query, humanDirection: JSON.stringify(direction), seedQuery: query, availableSources: registeredSources }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const strategy = await runResearchStage({ stage: 'search_strategy', projectId, input: { researchQuestion: direction.question || query, humanDirection: JSON.stringify(direction), seedQuery: query, availableSources: registeredSources }, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const queries = strategy.ok && strategy.output?.queries?.length ? [...new Set([query, ...strategy.output.queries.map(String)])].slice(0, 4) : [query];
     // A model names sources in prose ("arXiv (cs.CL) - preprint server") unless it
     // is told the registered ids, so keep only ids the Source Adapter seam can
@@ -144,7 +160,6 @@ export async function runUiAction(projectId, body, actor) {
     return updateStage(projectId, 'search', { query, queries, sources: effectiveSources, requestedSources, unregisteredSources, papers: rawPapers, evaluations: gated.results, policy: body.policy || {}, lastRunAt: new Date().toISOString(), qualitySummary: gated.summary, sourceFailures, aiSearchStrategy: strategy.ok ? strategy.output : { ok: false, validation: strategy.validation }, task }, body, actor);
   }
   if (action === 'select-papers') {
-    const workflow = await getResearchWorkflow(projectId);
     const evaluations = stageData(workflow, 'search').evaluations || [];
     const requested = Array.isArray(body.paperIds) ? body.paperIds.map(String) : [];
     const accepted = new Set(evaluations.filter((item) => item.decision === 'accept').map((item) => String(item.id)));
@@ -157,10 +172,9 @@ export async function runUiAction(projectId, body, actor) {
     return updateStage(projectId, 'selection', { selectedPaperIds: requested, selectedPapers: selectedPapers.map((paper, index) => ({ ...paper, evidenceId: evidenceIds[index] })), evidenceIds, policy: stageData(workflow, 'search').policy || {}, task }, body, actor);
   }
   if (action === 'generate-ideas') {
-    const workflow = await getResearchWorkflow(projectId);
     const selectedIds = Array.isArray(body.paperIds) ? body.paperIds : [...selectedPaperIdsFrom(workflow)];
     const papers = (stageData(workflow, 'selection').selectedPapers || stageData(workflow, 'search').papers || []).filter((paper) => selectedIds.includes(String(paper.id)) || selectedIds.includes(paper.id));
-    const harness = await runResearchStage({ stage: 'innovation_ideas', projectId, input: { papers, direction: body.direction || stageData(workflow, 'direction') }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const harness = await runResearchStage({ stage: 'innovation_ideas', projectId, input: { papers, direction: body.direction || stageData(workflow, 'direction') }, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     // No fabricated fallback: a failed Harness Run leaves the stage empty so the
     // readiness gate blocks approval. Manufacturing placeholder ideas in code
     // produced content that looked like AI output but had no Run, model, context,
@@ -170,17 +184,15 @@ export async function runUiAction(projectId, body, actor) {
     return updateStage(projectId, 'ideation', { ideas, innovationPoints: ideas, harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
   }
   if (action === 'select-ideas') {
-    const workflow = await getResearchWorkflow(projectId);
     const ideas = stageData(workflow, 'ideation').ideas || [];
     const ids = new Set((Array.isArray(body.ideaIds) ? body.ideaIds : []).map(String));
     const nextIdeas = ideas.map((idea) => ({ ...idea, selected: ids.has(String(idea.id)) }));
     return updateStage(projectId, 'ideation', { ideas: nextIdeas, task: createStageTask({ stage: 'ideation', input: { candidateIds: ideas.map((idea) => idea.id) }, output: { selectedIdeaIds: [...ids] }, validation: { ok: true, errors: [], warnings: [] }, adapters: ['human-decision'] }) }, body, actor);
   }
   if (action === 'generate-method') {
-    const workflow = await getResearchWorkflow(projectId);
     const ideas = stageData(workflow, 'ideation').ideas || [];
     const selected = ideas.filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
-    const harness = await runResearchStage({ stage: 'method_proposals', projectId, input: { ideas: selected }, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const harness = await runResearchStage({ stage: 'method_proposals', projectId, input: { ideas: selected }, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const proposals = harness.ok && harness.output?.proposals?.length ? harness.output.proposals : [];
     const method = proposals[0] ? { ...proposals[0], title: proposals[0].name } : {};
     const task = createStageTask({ stage: 'method', input: { selectedIdeaIds: selected.map((idea) => idea.id) }, output: { stage: harness.output, proposals }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'human-decision'] });
@@ -196,7 +208,6 @@ export async function runUiAction(projectId, body, actor) {
     if (body.agentMode && !['single-agent', 'multi-agent'].includes(body.agentMode)) {
       throw new ResearchWorkflowError(400, 'INVALID_AGENT_MODE', 'agentMode must be single-agent or multi-agent.');
     }
-    const workflow = await getResearchWorkflow(projectId);
     const completedWorkflow = workflow.status === 'completed';
     const selectedStage = stageData(workflow, 'selection');
     const selectedPapers = selectedStage.selectedPapers || [];
@@ -231,8 +242,8 @@ export async function runUiAction(projectId, body, actor) {
       evidenceLedger: citableEvidence
     };
     const harness = body.agentMode === 'multi-agent'
-      ? await runWritingDelegation({ projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeReviewResponses: body.fakeReviewResponses, adapter: body.adapter })
-      : await runResearchStage({ stage: 'writing', projectId, input, humanInstructions: body.humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+      ? await runWritingDelegation({ projectId, input, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeReviewResponses: body.fakeReviewResponses, adapter: body.adapter })
+      : await runResearchStage({ stage: 'writing', projectId, input, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger', ...(harness.delegation ? ['multi-agent-review'] : [])], error: harness.delegation ? harness.error : null });
     if (!harness.ok || !harness.output) {
       if (completedWorkflow) {
@@ -259,6 +270,9 @@ export async function runUiAction(projectId, body, actor) {
 }
 
 export async function updateFromRequest(projectId, body, actor) {
+  if (Object.prototype.hasOwnProperty.call(body, 'humanInstructions')) {
+    return updateResearchHumanInstructions(projectId, { ...workflowOptions(body, actor), stageId: uiStageId(body.stageId || body.stage), humanInstructions: body.humanInstructions });
+  }
   if (body.direction) {
     const direction = { topic: body.direction.question || '', researchQuestion: body.direction.question || '', seedKeywords: body.direction.keywords || [], scope: body.direction.scope || '', notes: body.direction.notes || '' };
     return updateStage(projectId, 'direction', {

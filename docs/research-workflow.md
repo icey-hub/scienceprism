@@ -34,6 +34,12 @@ A [single-project real-model comparison](agent-governance/real-writing-delegatio
 
 The backend also exposes stage details, pending approvals, and the audit timeline as query projections. Mutations accept `expectedVersion` for optimistic concurrency and `idempotencyKey` for safe retries.
 
+### Human suggestions during research
+
+The seven research stages from Direction through Experiment each show an **人工建议** form at the top of the stage. Enter your own ideas, corrections, priorities, or questions for the AI, then click **保存建议**. Each stage holds up to 2,000 characters; deleting the text and saving clears that stage's suggestions. Suggestions can be recorded before a stage starts or after its approval. They are stored separately from stage results in the workflow's `humanInstructions` map, with version checks, idempotent writes, and human audit events. Existing projects need no migration.
+
+AI actions receive saved suggestions from their current stage and earlier stages. The UI saves the current draft before running an AI action, saving a stage form, or approving the current stage. Suggestions do not automatically revise existing results, pass the quality gate, approve a stage, or change executable experiment parameters. Updating a suggestion preserves existing stage outputs and approval records. The existing Writing page keeps its own inputs; its AI handoff also receives the saved research suggestions.
+
 ### Stage 1 Skills
 
 The Direction page is also the project Skill manager. Use **添加 Skill** to

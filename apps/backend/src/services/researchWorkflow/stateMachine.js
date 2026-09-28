@@ -48,6 +48,7 @@ export function createWorkflowDocument(projectId, { id = crypto.randomUUID(), cr
     version: 1,
     stages: RESEARCH_WORKFLOW_STAGES.map((definition, index) => createStage(definition, index === 0 ? 'in_progress' : 'pending', index === 0 ? data : {}, now)),
     skillBindings: {},
+    humanInstructions: {},
     commandReceipts: {},
     audit: []
   };

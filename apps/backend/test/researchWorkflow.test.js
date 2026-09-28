@@ -22,6 +22,7 @@ const {
   updateResearchWorkflow
 } = await import('../src/services/researchWorkflow/commands.js');
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
+const { getResearchWorkflow } = await import('../src/services/researchWorkflow/queries.js');
 
 test('state machine records versioned approval, rejection, and recovery transitions', () => {
   const workflow = createWorkflowDocument('project-a', { now: '2026-01-01T00:00:00.000Z' });
@@ -167,6 +168,60 @@ test('an approval decision must identify its actor', async () => {
   assert.equal(viaHeader.statusCode, 200);
 
   await app.close();
+});
+
+test('human suggestions persist independently of stage outputs and approvals', async () => {
+  const projectId = 'project-human-input';
+  const root = path.join(dataDir, projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, 'project.json'), '{}\n');
+  const legacy = createWorkflowDocument(projectId, { data: { researchQuestion: 'How?' } });
+  delete legacy.humanInstructions;
+  await writeFile(path.join(root, '.scienceprism/research-workflow.json'), JSON.stringify(legacy));
+  const app = Fastify();
+  registerResearchWorkflowRoutes(app);
+  const url = `/api/projects/${projectId}/research-workflow`;
+  try {
+    let view = (await app.inject({ method: 'GET', url })).json().workflow;
+    assert.deepEqual(view.humanInstructions, {}, 'existing projects need no migration');
+    const stages = (await getResearchWorkflow(projectId)).stages;
+    for (const stage of ['direction', 'search', 'selection', 'replication', 'innovation', 'method', 'experiment']) {
+      const payload = { actor: 'human', stage, humanInstructions: `  suggestion-${stage}  `, expectedVersion: view.version, idempotencyKey: `suggestion-${stage}` };
+      const response = await app.inject({ method: 'PATCH', url, payload });
+      assert.equal(response.statusCode, 200);
+      view = response.json().workflow;
+      assert.equal(view.humanInstructions[stage], `suggestion-${stage}`);
+      const replay = await app.inject({ method: 'PATCH', url, payload });
+      assert.equal(replay.json().workflow.version, view.version);
+      assert.deepEqual((await getResearchWorkflow(projectId)).stages, stages, 'suggestions must not manufacture tasks or approval readiness');
+    }
+    assert.equal((await getResearchWorkflow(projectId)).humanInstructions.ideation, 'suggestion-innovation');
+    for (const actor of [undefined, 'ai', 'system']) {
+      const denied = await app.inject({ method: 'PATCH', url, payload: { actor, stage: 'method', humanInstructions: 'overwrite' } });
+      assert.equal(denied.statusCode, 403);
+    }
+    for (const humanInstructions of [null, {}, 'x'.repeat(2001)]) {
+      const invalid = await app.inject({ method: 'PATCH', url, payload: { actor: 'human', stage: 'method', humanInstructions } });
+      assert.equal(invalid.statusCode, 400);
+    }
+    const invalidStage = await app.inject({ method: 'PATCH', url, payload: { actor: 'human', stage: '__proto__', humanInstructions: 'no' } });
+    assert.equal(invalidStage.statusCode, 400);
+    const stale = await app.inject({ method: 'PATCH', url, payload: { actor: 'human', stage: 'method', humanInstructions: 'stale', expectedVersion: view.version - 1 } });
+    assert.equal(stale.statusCode, 409);
+    const approved = await app.inject({ method: 'POST', url: `${url}/approve`, payload: { actor: 'human', stage: 'direction', expectedVersion: view.version } });
+    assert.equal(approved.statusCode, 200);
+    const approvedStages = (await getResearchWorkflow(projectId)).stages;
+    const edited = await app.inject({ method: 'PATCH', url, payload: { actor: 'human', stage: 'direction', humanInstructions: 'Updated advice' } });
+    assert.equal(edited.statusCode, 200);
+    assert.deepEqual((await getResearchWorkflow(projectId)).stages, approvedStages, 'editing previous advice must preserve approved history');
+    const cleared = await app.inject({ method: 'PATCH', url, payload: { actor: 'human', stage: 'method', humanInstructions: '' } });
+    assert.equal(cleared.statusCode, 200);
+    assert.equal(cleared.json().workflow.humanInstructions.method, '');
+    assert.equal(cleared.json().workflow.humanInstructions.innovation, 'suggestion-innovation');
+    const reloaded = (await app.inject({ method: 'GET', url })).json().workflow;
+    assert.deepEqual(reloaded.humanInstructions, cleared.json().workflow.humanInstructions);
+    assert.equal(reloaded.audit.at(-1).type, 'stage.human-instructions.updated');
+  } finally { await app.close(); }
 });
 
 test('an unknown Project is rejected instead of resolving to a shared root', async () => {

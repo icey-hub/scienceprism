@@ -29,6 +29,13 @@ export function sanitizeNote(note) {
   return value || undefined;
 }
 
+export function sanitizeHumanInstructions(value) {
+  if (typeof value !== 'string' || value.length > 2000) {
+    throw new ResearchWorkflowError(400, 'INVALID_HUMAN_INSTRUCTIONS', 'Human instructions must be a string of at most 2000 characters.');
+  }
+  return value.trim();
+}
+
 export function assertPlainObject(value, field = 'data') {
   if (value === undefined) return {};
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -45,4 +52,3 @@ export function assertExpectedVersion(expectedVersion) {
   }
   return value;
 }
-
