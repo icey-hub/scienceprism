@@ -13,6 +13,7 @@ const { runToolAgent, buildToolAgentModel } = await import('../src/services/agen
 const { runHarnessRequest, getHarnessRun, registerHarnessAdapter } = await import('../src/services/harnessRuntime/index.js');
 const { deepseekHarnessAdapter } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
 const { fetchArxivEntry } = await import('../src/services/arxivService.js');
+const { HarnessRuntimeError } = await import('../src/services/harnessRuntime/errors.js');
 await mkdir(path.join(dataDir, 'test'));
 await writeFile(path.join(dataDir, 'test', 'project.json'), '{}');
 await writeFile(path.join(dataDir, 'test', 'main.tex'), 'saved manuscript');
@@ -194,6 +195,28 @@ test('DeepSeek retains its isolated workspace and proposes changes without apply
     assert.equal(run.patches[0].content, 'proposed manuscript');
     assert.equal(run.humanDecision.status, 'pending');
     assert.equal(await fs.readFile(path.join(dataDir, 'test', 'main.tex'), 'utf8'), 'saved manuscript');
+  } finally {
+    registerHarnessAdapter(deepseekHarnessAdapter);
+  }
+});
+
+test('Legacy fallback retains the Run limits and reported token usage', async (t) => {
+  let receivedLimits;
+  t.mock.method(globalThis, 'fetch', async (_url, init) => providerResponse(JSON.parse(init.body), { content: 'fallback review' }));
+  registerHarnessAdapter({
+    ...deepseekHarnessAdapter,
+    async run() { throw new HarnessRuntimeError(502, 'PROVIDER_ERROR', 'fixture failure', undefined, { retryable: true }); }
+  });
+  try {
+    const result = await runHarnessRequest({
+      ...baseRequest, adapter: 'deepseek', fallback: true, limits: { maxTokens: 1234 },
+      modelFactory(options) { receivedLimits = options.limits; return baseRequest.modelFactory(options); }
+    });
+    assert.equal(result.ok, true);
+    const run = await getHarnessRun('test', result.runId);
+    assert.equal(run.adapter, 'legacy');
+    assert.equal(receivedLimits?.maxTokens, 1234);
+    assert.equal(run.tokenUsage?.totalTokens, 25);
   } finally {
     registerHarnessAdapter(deepseekHarnessAdapter);
   }

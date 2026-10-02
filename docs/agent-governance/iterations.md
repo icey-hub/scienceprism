@@ -282,6 +282,13 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 - **验证**：原先两个新增回归均失败；修复后 Agent 9/9。将目录分配和文件复制设成抛错后，Legacy / Fake 仍 completed，证明执行不依赖副本；真实 LangChain 请求检查原始未预算字符串没有重现。模拟 DeepSeek 在真实隔离目录中修改文件，Runtime 收到待确认 Patch，原文件保持原样。`npm run quality` exit 0，171/171 后端测试、类型检查、构建、6 图 0 缺陷。日志 `.cache/agent-slimming-red-20261002.log`、`.cache/quality-slimming-20261002.log`。
 - **边界**：没有新增依赖、产品功能或模型调用，没有移除研究数据与审批；没有进行大项目性能基准，不能把少做文件复制直接宣称为某个提速百分比。
 
+## 修复 089 — 降级预算与本次优化记录（2026-10-02）
+
+- **根因与修复**：DeepSeek 可重试失败后切换 Legacy 的分支遗漏 `limits`，导致模型输出预算回到默认；成功降级也没有保存供应商用量。现在沿用原 Run 的预算并记录降级返回的用量。
+- **验证**：真实 Legacy / LangChain / OpenAI SDK 配合模拟 HTTP；DeepSeek 探针抛出可重试供应商错误，验证降级 completed、maxTokens 1234 和 totalTokens 25 均保留。回归修复前确实因预算 undefined 失败，修复后 Agent 10/10。`npm run quality` exit 0，172/172 后端测试、类型检查、构建、6 图 0 缺陷；目视确认生成的 CoT PNG 正常。日志 `.cache/agent-fallback-red-20261002.log` 与 `.cache/quality-final-20261002.log`。构建保留既有 pdfjs eval、静态图片和包体积告警。
+- **方向与文档**：按 U-24/U-25 更新现有 `AGENTS.md`、需求、计划与本看板。[开源收敛研究](open-source-simplification.md) 核对 Aider、OpenCode 与 TeXlyre 官方文档及局部源码，记录可借鉴机制、适配建议和许可证；这是内部研究记录，不作为产品生成的科研产物。
+- **范围**：本轮完成运行可靠性和代码减负；整体界面收缩、编辑器通用 Skill 入口仍未实现。未复制上游源码、引入依赖、运行真实模型、改变现有项目数据或向远程推送。
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。

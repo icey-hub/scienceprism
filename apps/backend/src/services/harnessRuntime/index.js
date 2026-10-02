@@ -395,6 +395,7 @@ async function executeRun(projectId, runId, request, control) {
           dshHome,
           capabilities: run.capabilities.granted,
           capabilityPolicy: run.capabilities,
+          limits: run.limits,
           signal: control.controller.signal,
           emit
         }), run.limits.timeoutMs, control.controller);
@@ -407,6 +408,7 @@ async function executeRun(projectId, runId, request, control) {
           current.adapter = 'legacy';
           current.adapterHistory = [...(current.adapterHistory || []), { adapter: 'deepseek', error: runtimeError.message, at: now() }];
           current.reply = fallbackResult?.finalResponse || fallbackResult?.reply || '';
+          current.tokenUsage = fallbackResult?.usage || fallbackResult?.tokenUsage || null;
           current.sessionId = fallbackResult?.sessionId;
           current.patches = patches;
           current.humanDecision = patches.length ? { status: 'pending' } : { status: 'none' };
