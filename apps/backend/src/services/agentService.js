@@ -16,6 +16,7 @@ import { extractArxivId, fetchArxivEntry, buildArxivBibtex } from './arxivServic
 import { t } from '../i18n/index.js';
 import { assertCapability, assertNetworkHost, assertProjectPath, capabilityForToolName, hasCapability, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
 import { readEnabledResearchSkillDocument } from './researchResearch/researchSkills.js';
+import { formatHarnessInput } from './harnessRuntime/contextPackager.js';
 
 /**
  * Builds the tool-agent model.
@@ -64,6 +65,7 @@ export async function runToolAgent({
   activePath,
   task,
   prompt,
+  humanInstructions,
   selection,
   compileLog,
   contextPack,
@@ -241,14 +243,7 @@ export async function runToolAgent({
     'Be concise. Provide a short summary in the final response.'
   ].filter(Boolean).join(' ');
 
-  const userInput = [
-    `Task: ${task || 'polish'}`,
-    activePath ? `Active file: ${activePath}` : '',
-    prompt ? `User prompt: ${prompt}` : '',
-    selection ? `Selection:\n${selection}` : '',
-    compileLog ? `Compile log:\n${compileLog}` : '',
-    contextPack ? `Structured context pack (authoritative snapshot):\n${JSON.stringify(contextPack)}` : ''
-  ].filter(Boolean).join('\n\n');
+  const userInput = formatHarnessInput({ task, activePath, prompt, humanInstructions, selection, compileLog, contextPack });
 
   const promptTemplate = ChatPromptTemplate.fromMessages([
     ['system', system],

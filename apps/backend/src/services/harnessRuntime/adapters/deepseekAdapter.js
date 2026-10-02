@@ -8,6 +8,7 @@ import { getEnv } from '../../../config/constants.js';
 import { PROJECT_CONSTRAINT_LIMITS } from '../../../config/projectConstraintDefaults.js';
 import { HarnessRuntimeError } from '../errors.js';
 import { capabilityPrompt } from '../capabilities.js';
+import { formatHarnessInput } from '../contextPackager.js';
 
 async function pathExists(filePath) {
   try {
@@ -61,12 +62,7 @@ function eventFailure(events = []) {
 
 function buildInput(request, policy) {
   return [
-    `Task: ${request.task || 'polish'}`,
-    request.activePath ? `Active file: ${request.activePath}` : '',
-    request.prompt ? `User prompt: ${request.prompt}` : '',
-    request.selection ? `Selection:\n${request.selection}` : '',
-    request.compileLog ? `Compile log:\n${request.compileLog}` : '',
-    request.contextPack ? `Structured context pack (authoritative snapshot):\n${JSON.stringify(request.contextPack)}` : '',
+    formatHarnessInput(request),
     capabilityPrompt(policy),
     'Work only inside the provided temporary workspace. Never treat a generated change as applied; return proposed changes for human confirmation.'
   ].filter(Boolean).join('\n\n');

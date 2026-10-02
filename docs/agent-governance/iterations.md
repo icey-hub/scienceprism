@@ -275,6 +275,13 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 - **验证**：新增测试使用真实 LangChain 与 OpenAI SDK，以可注入模型 factory 仅替换 HTTP 传输，不访问网络。4 个核心测试修复前 0/4，修复后 6/6；验证 Skill 内容确实进入下一模型请求、模型取消、工具失败不再触发后续调用、只读工具列表、Harness 持久化 Skill 事件与 token 用量，以及 arXiv 元数据取消。`npm run quality` exit 0，168/168 后端测试、类型检查、构建、6 图 0 缺陷；日志 `.cache/agent-service-red-20261002.log`、`.cache/quality-agent-fixed-20261002.log`。
 - **限制**：模拟 HTTP 验证执行机制，不证明真实模型任务质量；没有增加 Skill 数量或新 UI，也没有声称编辑器已有任意 Skill 选择能力。
 
+## 迭代 088 — 删除默认 Agent 的无用复制与重复输入（2026-10-02，减）
+
+- **减掉的工作**：每个 Legacy / Fake Run 原先都会复制项目和研究 Skill 到临时目录，实际执行却不读取该副本。现在仅 DeepSeek SDK 分支分配与复制工作区，保留其能力、路径过滤和 Patch 收集；临时目录创建移入 try，失败也能进入 Run 错误记录。
+- **减掉的上下文**：Legacy 与 DeepSeek 原先在完整 Context Pack 前再次发送 prompt、selection 与 compileLog，绕过 Pack 截断并重复付出输入成本。两者使用同一输入格式化函数：有 Pack 时只发送快照，直接调用且无 Pack 时仍包含任务、选区、日志和人工建议。不是放宽上下文预算。
+- **验证**：原先两个新增回归均失败；修复后 Agent 9/9。将目录分配和文件复制设成抛错后，Legacy / Fake 仍 completed，证明执行不依赖副本；真实 LangChain 请求检查原始未预算字符串没有重现。模拟 DeepSeek 在真实隔离目录中修改文件，Runtime 收到待确认 Patch，原文件保持原样。`npm run quality` exit 0，171/171 后端测试、类型检查、构建、6 图 0 缺陷。日志 `.cache/agent-slimming-red-20261002.log`、`.cache/quality-slimming-20261002.log`。
+- **边界**：没有新增依赖、产品功能或模型调用，没有移除研究数据与审批；没有进行大项目性能基准，不能把少做文件复制直接宣称为某个提速百分比。
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。

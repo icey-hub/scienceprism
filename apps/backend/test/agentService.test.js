@@ -3,13 +3,15 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promises as fs } from 'node:fs';
 
 const cacheRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.cache');
 await mkdir(cacheRoot, { recursive: true });
 const dataDir = await mkdtemp(path.join(cacheRoot, 'agent-service-test-'));
 process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 const { runToolAgent, buildToolAgentModel } = await import('../src/services/agentService.js');
-const { runHarnessRequest, getHarnessRun } = await import('../src/services/harnessRuntime/index.js');
+const { runHarnessRequest, getHarnessRun, registerHarnessAdapter } = await import('../src/services/harnessRuntime/index.js');
+const { deepseekHarnessAdapter } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
 const { fetchArxivEntry } = await import('../src/services/arxivService.js');
 await mkdir(path.join(dataDir, 'test'));
 await writeFile(path.join(dataDir, 'test', 'project.json'), '{}');
@@ -145,4 +147,54 @@ test('arXiv metadata requests honor the caller cancellation signal', async (t) =
   const pending = fetchArxivEntry('2401.00001', { signal: controller.signal });
   controller.abort(reason);
   await assert.rejects(pending, (error) => error === reason);
+});
+
+test('Legacy and Fake Runs do not allocate or copy an unused project workspace', async (t) => {
+  t.mock.method(fs, 'cp', async () => { throw new Error('unexpected project copy'); });
+  t.mock.method(fs, 'mkdtemp', async () => { throw new Error('unexpected workspace allocation'); });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => providerResponse(JSON.parse(init.body), { content: 'review complete' }));
+  for (const adapter of ['legacy', 'fake']) {
+    const result = await runHarnessRequest({ ...baseRequest, adapter, fallback: false });
+    assert.equal(result.ok, true, result.reply);
+    assert.equal((await getHarnessRun('test', result.runId)).status, 'completed');
+  }
+});
+
+test('a packed context reaches the model once without unbounded raw duplicates', async (t) => {
+  let input;
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const request = JSON.parse(init.body);
+    input = request.messages.find((message) => message.role === 'user').content;
+    return providerResponse(request, { content: 'review complete' });
+  });
+  await runToolAgent({
+    ...baseRequest,
+    prompt: 'raw prompt outside budget', selection: 'raw selection outside budget', compileLog: 'raw log outside budget',
+    contextPack: { task: 'review', instructions: { prompt: 'packed prompt', human: 'human advice' }, selection: 'packed selection', compileLog: 'packed log' }
+  });
+  assert.ok(!input.includes('outside budget'));
+  assert.equal(input.match(/packed prompt/g).length, 1);
+  assert.ok(input.includes('packed selection') && input.includes('packed log') && input.includes('human advice'));
+});
+
+test('DeepSeek retains its isolated workspace and proposes changes without applying them', async () => {
+  registerHarnessAdapter({
+    ...deepseekHarnessAdapter,
+    async run({ workspace, projectRoot }) {
+      assert.notEqual(workspace, projectRoot);
+      assert.equal(await fs.readFile(path.join(workspace, 'main.tex'), 'utf8'), 'saved manuscript');
+      await fs.writeFile(path.join(workspace, 'main.tex'), 'proposed manuscript');
+      return { finalResponse: 'proposed edit', patches: [] };
+    }
+  });
+  try {
+    const result = await runHarnessRequest({ ...baseRequest, adapter: 'deepseek', fallback: false });
+    assert.equal(result.ok, true, result.reply);
+    const run = await getHarnessRun('test', result.runId);
+    assert.equal(run.patches[0].content, 'proposed manuscript');
+    assert.equal(run.humanDecision.status, 'pending');
+    assert.equal(await fs.readFile(path.join(dataDir, 'test', 'main.tex'), 'utf8'), 'saved manuscript');
+  } finally {
+    registerHarnessAdapter(deepseekHarnessAdapter);
+  }
 });

@@ -560,6 +560,19 @@ export async function buildContextPack({ projectId, projectRoot: providedRoot, r
   return result.pack;
 }
 
+/** Use the budgeted snapshot once; raw input is only for callers without a pack. */
+export function formatHarnessInput(request = {}) {
+  if (request.contextPack) return `Structured context pack (authoritative snapshot):\n${JSON.stringify(request.contextPack)}`;
+  return [
+    `Task: ${request.task || 'polish'}`,
+    request.activePath ? `Active file: ${request.activePath}` : '',
+    request.prompt ? `User prompt: ${request.prompt}` : '',
+    request.humanInstructions ? `Human instructions: ${request.humanInstructions}` : '',
+    request.selection ? `Selection:\n${request.selection}` : '',
+    request.compileLog ? `Compile log:\n${request.compileLog}` : ''
+  ].filter(Boolean).join('\n\n');
+}
+
 export function contextManifest(contextPack) {
   if (!contextPack) return {
     schemaVersion: CONTEXT_PACK_SCHEMA_VERSION,

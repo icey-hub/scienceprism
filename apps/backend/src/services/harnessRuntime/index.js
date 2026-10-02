@@ -290,9 +290,9 @@ async function executeRun(projectId, runId, request, control) {
     throw new HarnessRuntimeError(403, 'CAPABILITY_DENIED', 'Requested Harness capabilities were not granted by the Project Constraints.', { denied: run.capabilities.denied });
   }
   const projectRoot = await resolveHarnessProjectRoot(projectId);
-  const runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
-  const workspace = path.join(runRoot, 'workspace');
-  const dshHome = path.join(runRoot, 'dsh-home');
+  let runRoot;
+  let workspace;
+  let dshHome;
   let excludedSkillPaths = [];
   let eventWrite = Promise.resolve();
   const emit = (event) => {
@@ -317,12 +317,17 @@ async function executeRun(projectId, runId, request, control) {
       if (unenforceable.length) {
         throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The DeepSeek Harness SDK has no pre-tool policy hook for network or command execution. Use the legacy Adapter for these capabilities.', { capabilities: unenforceable });
       }
-    }
-    await copyWorkspace(projectRoot, workspace, run.capabilities);
-    if (Array.isArray(request.researchSkills)) {
-      const removedSkillPaths = await restrictWorkspaceResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
-      const bundledSkillPaths = await copyBundledResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
-      excludedSkillPaths = [...removedSkillPaths, ...bundledSkillPaths];
+      // Only the SDK executes in a workspace. Legacy reads the project through
+      // guarded tools; Fake needs no files. Copying for them was unused work.
+      runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
+      workspace = path.join(runRoot, 'workspace');
+      dshHome = path.join(runRoot, 'dsh-home');
+      await copyWorkspace(projectRoot, workspace, run.capabilities);
+      if (Array.isArray(request.researchSkills)) {
+        const removedSkillPaths = await restrictWorkspaceResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
+        const bundledSkillPaths = await copyBundledResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
+        excludedSkillPaths = [...removedSkillPaths, ...bundledSkillPaths];
+      }
     }
     const task = adapter.run({
       request: { ...request, contextPack: run.contextPack },
@@ -434,7 +439,7 @@ async function executeRun(projectId, runId, request, control) {
     });
   } finally {
     pendingRequests.delete(runId);
-    await fs.rm(runRoot, { recursive: true, force: true }).catch(() => {});
+    if (runRoot) await fs.rm(runRoot, { recursive: true, force: true }).catch(() => {});
   }
 }
 
