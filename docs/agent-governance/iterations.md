@@ -268,6 +268,13 @@ Round 3 节奏映射里 022 原写"绘图产物接可复现门禁"。实际执�
 - **验证**：新测试覆盖独立配置、成功 / 失败 / 超时清理、不存在的可执行文件；负向进程返回 7 或被 SIGKILL 时确实拒绝。`npm run quality` exit 0，162/162 后端测试、类型检查、构建、6 图 0 布局缺陷。日志 `.cache/quality-baseline-20261002.log` 与 `.cache/quality-chrome-fixed-20261002.log`。实际 PNG/PDF 生成成功且 SVG 数据复现 / 扰动门禁通过，未改已提交的科研数据或图。
 - **边界**：无新增依赖、无共享模型调用；macOS 沙箱启动 Chrome 会 SIGABRT，完整 Chrome 验证经自动审批在外层执行，配置和产物仍写在仓库内。
 
+## 修复 087 — Legacy Agent 停止、错误与工具可达性（2026-10-02）
+
+- **根因**：Legacy adapter 传入 signal，但 `runToolAgent` 丢弃它；LangChain 此版本默认吞掉工具运行错误，模型可以继续宣称成功；未授权工具仍出现在工具列表，Skill 读取被名称中的 `search` 误映射成联网能力，`get_compile_log` 没有能力映射。原路径也没有工具执行事件。
+- **实现**：取消信号传入 `executor.invoke`、arXiv 检索与元数据请求，执行工具前与返回结果前检查取消。工具失败重新抛出。按已授予能力过滤工具并据此构造联网说明；具体只读名称优先于宽泛正则。Legacy 转发 emit，由真实工具回调记录 start/end/error，不记录输入与正文。工具可空参数采用 nullish schema，避免供应商工具 schema 告警。
+- **验证**：新增测试使用真实 LangChain 与 OpenAI SDK，以可注入模型 factory 仅替换 HTTP 传输，不访问网络。4 个核心测试修复前 0/4，修复后 6/6；验证 Skill 内容确实进入下一模型请求、模型取消、工具失败不再触发后续调用、只读工具列表、Harness 持久化 Skill 事件与 token 用量，以及 arXiv 元数据取消。`npm run quality` exit 0，168/168 后端测试、类型检查、构建、6 图 0 缺陷；日志 `.cache/agent-service-red-20261002.log`、`.cache/quality-agent-fixed-20261002.log`。
+- **限制**：模拟 HTTP 验证执行机制，不证明真实模型任务质量；没有增加 Skill 数量或新 UI，也没有声称编辑器已有任意 Skill 选择能力。
+
 ## 环境变化记录
 
 - 本会话文件策略从 `workspace-write` 变为 `danger-full-access`，外层沙箱撤掉后 `/usr/bin/sandbox-exec` 恢复可用（exit 0），基线 4 个红测试**在无代码改动时即转绿**。迭代 002 的价值因此改为：让 Runner 在 OS 沙箱**不可用**的环境（容器 / CI / 嵌套沙箱）仍能执行，并记录实际使用的隔离方式。

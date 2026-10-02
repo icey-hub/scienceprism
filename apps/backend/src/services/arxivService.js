@@ -16,11 +16,11 @@ export function extractArxivId(input) {
   return id;
 }
 
-export async function fetchArxivEntry(arxivId) {
+export async function fetchArxivEntry(arxivId, { signal } = {}) {
   const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'scienceprism/1.0' },
-    signal: AbortSignal.timeout(30_000)
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
   });
   if (!res.ok) {
     throw new Error(`arXiv API failed: ${res.status}`);

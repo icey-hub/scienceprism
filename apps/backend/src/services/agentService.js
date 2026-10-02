@@ -14,7 +14,7 @@ import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from './llm
 import { getProjectRoot } from './projectService.js';
 import { extractArxivId, fetchArxivEntry, buildArxivBibtex } from './arxivService.js';
 import { t } from '../i18n/index.js';
-import { assertCapability, assertNetworkHost, assertProjectPath, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
+import { assertCapability, assertNetworkHost, assertProjectPath, capabilityForToolName, hasCapability, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
 import { readEnabledResearchSkillDocument } from './researchResearch/researchSkills.js';
 
 /**
@@ -72,8 +72,12 @@ export async function runToolAgent({
   limits,
   lang = 'zh-CN',
   capabilities = DEFAULT_PROJECT_CAPABILITIES,
-  capabilityPolicy
+  capabilityPolicy,
+  signal,
+  emit = () => {},
+  modelFactory = buildToolAgentModel
 }) {
+  signal?.throwIfAborted();
   if (!projectId) {
     return { ok: false, reply: t(lang, 'missing_project_id_tools'), patches: [] };
   }
@@ -97,7 +101,7 @@ export async function runToolAgent({
   const listFilesTool = new DynamicStructuredTool({
     name: 'list_files',
     description: 'List files under a directory. Input: { dir } (relative path, optional).',
-    schema: z.object({ dir: z.string().optional() }),
+    schema: z.object({ dir: z.string().nullish() }),
     func: async ({ dir }) => {
       const safePath = assertProjectPath(dir || '', effectiveCapabilityPolicy, { operation: 'read' });
       const root = safePath ? safeJoin(projectRoot, safePath) : projectRoot;
@@ -129,7 +133,7 @@ export async function runToolAgent({
   const applyPatchTool = new DynamicStructuredTool({
     name: 'apply_patch',
     description: 'Apply a unified diff to a file and propose changes. Input: { patch, path? }. This does NOT write.',
-    schema: z.object({ patch: z.string(), path: z.string().optional() }),
+    schema: z.object({ patch: z.string(), path: z.string().nullish() }),
     func: async ({ patch, path: providedPath }) => {
       const filePath = providedPath || extractPathFromPatch(patch);
       if (!filePath) {
@@ -153,6 +157,7 @@ export async function runToolAgent({
     description: 'Return the latest compile log from the client (read-only). Input: { }.',
     schema: z.object({}),
     func: async () => {
+      assertCapability(effectiveCapabilityPolicy, 'project.read');
       return compileLog || 'No compile log provided.';
     }
   });
@@ -160,13 +165,13 @@ export async function runToolAgent({
   const arxivSearchTool = new DynamicStructuredTool({
     name: 'arxiv_search',
     description: 'Search arXiv papers. Input: { query, maxResults? }.',
-    schema: z.object({ query: z.string(), maxResults: z.number().optional() }),
+    schema: z.object({ query: z.string(), maxResults: z.number().nullish() }),
     func: async ({ query, maxResults }) => {
       assertCapability(effectiveCapabilityPolicy, 'research.search');
       const max = Math.min(10, Math.max(1, maxResults || 5));
       const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${max}`;
       assertNetworkHost(effectiveCapabilityPolicy, url);
-      const res = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' } });
+      const res = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' }, signal });
       if (!res.ok) {
         throw new Error(`arXiv search failed: ${res.status}`);
       }
@@ -200,7 +205,7 @@ export async function runToolAgent({
       const id = extractArxivId(arxivId);
       if (!id) throw new Error('Invalid arXiv ID');
       assertNetworkHost(effectiveCapabilityPolicy, `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}`);
-      const entry = await fetchArxivEntry(id);
+      const entry = await fetchArxivEntry(id, { signal });
       if (!entry) throw new Error('No arXiv metadata found');
       return buildArxivBibtex(entry);
     }
@@ -210,23 +215,26 @@ export async function runToolAgent({
   const readResearchSkillTool = new DynamicStructuredTool({
     name: 'read_research_skill',
     description: 'Read the instructions for a research Skill enabled in this Run. Input: { name, file? }. Start with SKILL.md; optionally read its referenced Markdown files.',
-    schema: z.object({ name: z.string(), file: z.string().optional() }),
+    schema: z.object({ name: z.string(), file: z.string().nullish() }),
     func: async ({ name, file }) => {
       assertCapability(effectiveCapabilityPolicy, 'project.read');
       return readEnabledResearchSkillDocument({ projectId, enabledSkillNames: enabledResearchSkills, name, file, capabilityPolicy: effectiveCapabilityPolicy });
     }
   });
 
-  const { resolved, model: llm } = buildToolAgentModel({ llmConfig, limits });
+  const { resolved, model: llm } = modelFactory({ llmConfig, limits });
   if (!resolved.apiKey) {
     return { ok: false, reply: 'SCIENCEPRISM_LLM_API_KEY not set', patches: [] };
   }
+
+  const tools = [readFileTool, listFilesTool, proposePatchTool, applyPatchTool, compileLogTool, arxivSearchTool, arxivBibtexTool, ...(enabledResearchSkills.length ? [readResearchSkillTool] : [])]
+    .filter((tool) => hasCapability(effectiveCapabilityPolicy, capabilityForToolName(tool.name)));
 
   const system = [
     'You are a LaTeX paper assistant for SciencePrism.',
     'You can read files and propose patches via tools, and you may call tools multiple times.',
     'If a request affects multiple files (e.g., sections + bib), inspect and update all relevant files.',
-    'You can use arxiv_search to find papers and arxiv_bibtex to generate BibTeX.',
+    hasCapability(effectiveCapabilityPolicy, 'research.search') ? 'You can use arxiv_search to find papers and arxiv_bibtex to generate BibTeX.' : '',
     'Never assume writes are applied; use propose_patch and wait for user confirmation.',
     'Use apply_patch for localized edits; use propose_patch for full-file rewrites.',
     enabledResearchSkills.length ? `Research Skills enabled for this Run: ${enabledResearchSkills.join(', ')}. Read each relevant SKILL.md with read_research_skill before producing the stage output; follow its references only when needed.` : '',
@@ -248,11 +256,27 @@ export async function runToolAgent({
     new MessagesPlaceholder('agent_scratchpad')
   ]);
 
-  const tools = [readFileTool, listFilesTool, proposePatchTool, applyPatchTool, compileLogTool, arxivSearchTool, arxivBibtexTool, ...(enabledResearchSkills.length ? [readResearchSkillTool] : [])];
   const agent = await createOpenAIToolsAgent({ llm, tools, prompt: promptTemplate });
-  const executor = new AgentExecutor({ agent, tools });
+  const executor = new AgentExecutor({ agent, tools, handleToolRuntimeErrors: (error) => { throw error; } });
   const usageTracker = createLLMUsageTracker();
-  const result = await executor.invoke({ input: userInput }, { callbacks: [usageTracker.callback] });
+  const toolEvents = BaseCallbackHandler.fromMethods({
+    handleToolStart(_tool, _input, callId, _parentId, _tags, _metadata, name) {
+      signal?.throwIfAborted();
+      assertCapability(effectiveCapabilityPolicy, capabilityForToolName(name));
+      emit({ type: 'tool/start', data: { name, callId } });
+      signal?.throwIfAborted();
+    },
+    handleToolEnd(_output, callId) {
+      emit({ type: 'tool/end', data: { callId } });
+    },
+    handleToolError(_error, callId) {
+      emit({ type: 'tool/error', data: { callId } });
+    }
+  });
+  toolEvents.raiseError = true;
+  toolEvents.awaitHandlers = true;
+  const result = await executor.invoke({ input: userInput }, { signal, callbacks: [usageTracker.callback, toolEvents] });
+  signal?.throwIfAborted();
 
   return {
     ok: true,
