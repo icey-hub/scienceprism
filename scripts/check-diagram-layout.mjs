@@ -19,12 +19,10 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { CHROME, runHeadlessChrome } from './lib/headless-chrome.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = process.env.SCIENCEPRISM_CHROME
-  || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 const { FIGURES, OUTPUT_DIR, buildSvg } = await import(path.join(REPO_ROOT, 'scripts', 'build-diagrams.mjs'));
 
@@ -155,15 +153,7 @@ function report(name, dom, problems) {
 }
 
 function runChrome(url) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(CHROME, ['--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', url], {
-      stdio: ['ignore', 'pipe', 'ignore']
-    });
-    let out = '';
-    child.stdout.on('data', (chunk) => { out += chunk.toString(); });
-    child.once('error', reject);
-    child.once('close', () => resolve(out));
-  });
+  return runHeadlessChrome(['--dump-dom', url]);
 }
 
 async function chromeAvailable() {
@@ -189,8 +179,7 @@ let checked = 0;
 // the same rule rather than getting a pass because it is generated.
 const AIDOC = process.env.SCIENCEPRISM_FIGURE_DATA || path.join(REPO_ROOT, 'aidoc');
 const EXTRA_SVGS = ['cot-results.svg', 'experiment-results.svg']
-  .map((name) => path.join(AIDOC, name))
-  .filter((full) => fsAccessOk(full));
+  .map((name) => path.join(AIDOC, name));
 
 for (const name of Object.keys(FIGURES)) {
   const markup = buildSvg(name);
@@ -224,6 +213,7 @@ for (const name of Object.keys(FIGURES)) {
 }
 
 for (const full of EXTRA_SVGS) {
+  if (!(await fsAccessOk(full))) continue;
   const text = await fs.readFile(full, 'utf8');
   const name = path.basename(full, '.svg');
   const dom = await measure(text);

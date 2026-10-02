@@ -20,11 +20,10 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runHeadlessChrome } from './lib/headless-chrome.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = process.env.SCIENCEPRISM_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 // Overridable so a gate can point the generator at perturbed data and check
 // that the figure actually changes: a figure with hardcoded numbers would not.
@@ -203,24 +202,21 @@ const outDir = OUT_DIR;
 const svgPath = path.join(outDir, 'cot-results.svg');
 await fs.writeFile(svgPath, svg, 'utf8');
 
-const scratch = path.join(REPO_ROOT, '.cache', 'cot-figure');
-await fs.mkdir(scratch, { recursive: true });
+const cacheRoot = path.join(REPO_ROOT, '.cache');
+await fs.mkdir(cacheRoot, { recursive: true });
+const scratch = await fs.mkdtemp(path.join(cacheRoot, 'cot-figure-'));
 const htmlPath = path.join(scratch, 'figure.html');
 await fs.writeFile(htmlPath, `<!doctype html><meta charset="utf-8"><style>@page{size:${W}px ${H}px;margin:0}html,body{margin:0;padding:0}svg{display:block}</style><body>${svg}</body>`, 'utf8');
 
 const pdfPath = path.join(outDir, 'cot-results.pdf');
-await new Promise((resolve, reject) => {
-  const child = spawn(CHROME, ['--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', `--print-to-pdf=${pdfPath}`, `file://${htmlPath}`], { stdio: ['ignore', 'ignore', 'ignore'] });
-  child.once('error', reject);
-  child.once('close', resolve);
-});
 const pngPath = path.join(scratch, 'figure.png');
-await new Promise((resolve) => {
-  const child = spawn(CHROME, ['--headless', '--disable-gpu', '--no-sandbox', '--hide-scrollbars', `--screenshot=${pngPath}`, `--window-size=${W},${H}`, '--default-background-color=ffffffff', `file://${htmlPath}`], { stdio: ['ignore', 'ignore', 'ignore'] });
-  child.once('close', resolve);
-});
-await fs.copyFile(pngPath, path.join(outDir, 'cot-results.png'));
-await fs.rm(scratch, { recursive: true, force: true });
+try {
+  await runHeadlessChrome(['--no-pdf-header-footer', `--print-to-pdf=${pdfPath}`, `file://${htmlPath}`]);
+  await runHeadlessChrome(['--hide-scrollbars', `--screenshot=${pngPath}`, `--window-size=${W},${H}`, '--default-background-color=ffffffff', `file://${htmlPath}`]);
+  await fs.copyFile(pngPath, path.join(outDir, 'cot-results.png'));
+} finally {
+  await fs.rm(scratch, { recursive: true, force: true });
+}
 
 console.log(`  cot-results.svg  ${(await fs.stat(svgPath)).size} B`);
 console.log(`  cot-results.pdf  ${(await fs.stat(pdfPath)).size} B`);
