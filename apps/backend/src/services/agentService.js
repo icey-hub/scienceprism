@@ -1,4 +1,3 @@
-import { promises as fs } from 'fs';
 import { applyPatch, createTwoFilesPatch } from 'diff';
 import { XMLParser } from 'fast-xml-parser';
 import { z } from 'zod';
@@ -17,6 +16,8 @@ import { t } from '../i18n/index.js';
 import { assertCapability, assertNetworkHost, assertProjectPath, capabilityForToolName, hasCapability, DEFAULT_PROJECT_CAPABILITIES } from './harnessRuntime/capabilities.js';
 import { readEnabledResearchSkillDocument } from './researchResearch/researchSkills.js';
 import { formatHarnessInput } from './harnessRuntime/contextPackager.js';
+import { readFileState, sameVersion } from './harnessRuntime/fileVersions.js';
+import { HarnessRuntimeError } from './harnessRuntime/errors.js';
 
 /**
  * Builds the tool-agent model.
@@ -69,6 +70,7 @@ export async function runToolAgent({
   selection,
   compileLog,
   contextPack,
+  source,
   researchSkills = [],
   llmConfig,
   limits,
@@ -87,6 +89,27 @@ export async function runToolAgent({
   const projectRoot = await getProjectRoot(projectId);
   const pendingPatches = [];
   const effectiveCapabilityPolicy = capabilityPolicy || { granted: capabilities };
+  const readVersions = new Map((contextPack?.files || []).map((file) => [file.path, { exists: true, sha256: file.sha256 }]));
+  const readSnapshot = async (filePath, { requireRead = false } = {}) => {
+    signal?.throwIfAborted();
+    const state = await readFileState(projectRoot, filePath);
+    const previous = readVersions.get(filePath);
+    if (previous && !sameVersion(previous, state)) {
+      throw new HarnessRuntimeError(409, 'DOCUMENT_VERSION_CONFLICT', 'A file changed after the assistant read it.', { path: filePath });
+    }
+    if (requireRead && state.exists && !previous) {
+      throw new HarnessRuntimeError(409, 'PATCH_REQUIRES_READ', 'Read the file before proposing a replacement.', { path: filePath });
+    }
+    const version = { exists: state.exists, sha256: state.sha256 };
+    readVersions.set(filePath, version);
+    emit({ type: 'file/read', data: { path: filePath, version } });
+    return state;
+  };
+  const recordPatch = (patch) => {
+    const index = pendingPatches.findIndex((item) => item.path === patch.path);
+    if (index < 0) pendingPatches.push(patch);
+    else pendingPatches[index] = patch;
+  };
 
   const readFileTool = new DynamicStructuredTool({
     name: 'read_file',
@@ -94,9 +117,9 @@ export async function runToolAgent({
     schema: z.object({ path: z.string() }),
     func: async ({ path: filePath }) => {
       const safePath = assertProjectPath(filePath, effectiveCapabilityPolicy, { operation: 'read' });
-      const abs = safeJoin(projectRoot, safePath);
-      const content = await fs.readFile(abs, 'utf8');
-      return content.slice(0, 20000);
+      const state = await readSnapshot(safePath);
+      if (!state.exists) throw Object.assign(new Error(`ENOENT: file not found: ${safePath}`), { code: 'ENOENT' });
+      return state.content.slice(0, 20000);
     }
   });
 
@@ -119,15 +142,10 @@ export async function runToolAgent({
     schema: z.object({ path: z.string(), content: z.string() }),
     func: async ({ path: filePath, content }) => {
       const safePath = assertProjectPath(filePath, effectiveCapabilityPolicy, { operation: 'patch' });
-      let original = '';
-      try {
-        const abs = safeJoin(projectRoot, safePath);
-        original = await fs.readFile(abs, 'utf8');
-      } catch {
-        original = '';
-      }
+      const state = await readSnapshot(safePath, { requireRead: true });
+      const original = state.content;
       const diff = createTwoFilesPatch(safePath, safePath, original, content, 'current', 'proposed');
-      pendingPatches.push({ path: safePath, original, content, diff });
+      recordPatch({ path: safePath, original, content, diff, baseVersion: { exists: state.exists, sha256: state.sha256 } });
       return `Patch prepared for ${safePath}. Awaiting user confirmation.`;
     }
   });
@@ -142,14 +160,14 @@ export async function runToolAgent({
         throw new Error('Patch missing file path');
       }
       const safePath = assertProjectPath(filePath, effectiveCapabilityPolicy, { operation: 'patch' });
-      const abs = safeJoin(projectRoot, safePath);
-      const original = await fs.readFile(abs, 'utf8');
+      const state = await readSnapshot(safePath, { requireRead: true });
+      const original = state.content;
       const patched = applyPatch(original, patch);
       if (patched === false) {
         throw new Error('Failed to apply patch');
       }
       const diff = createTwoFilesPatch(safePath, safePath, original, patched, 'current', 'proposed');
-      pendingPatches.push({ path: safePath, original, content: patched, diff });
+      recordPatch({ path: safePath, original, content: patched, diff, baseVersion: { exists: state.exists, sha256: state.sha256 } });
       return `Patch applied in memory for ${safePath}. Awaiting user confirmation.`;
     }
   });
@@ -241,6 +259,7 @@ export async function runToolAgent({
     'Use apply_patch for localized edits; use propose_patch for full-file rewrites.',
     enabledResearchSkills.length ? `Research Skills enabled for this Run: ${enabledResearchSkills.join(', ')}. Read each relevant SKILL.md with read_research_skill before producing the stage output; follow its references only when needed.` : '',
     'Be concise. Provide a short summary in the final response.'
+    , source === 'editor' ? 'Use tools for edits: never put replacement file content only in the final reply. Return a final JSON object with reply and constraintProposal (null unless the user requests a durable rule). Supported rules: reply.forbid_text, patch.forbid_text, patch.forbid_path, with kind, value, statement. A rule is a proposal until human acceptance; never claim it is active.' : ''
   ].filter(Boolean).join(' ');
 
   const userInput = formatHarnessInput({ task, activePath, prompt, humanInstructions, selection, compileLog, contextPack });

@@ -193,15 +193,20 @@ export function getProjectTree(id: string) {
   return request<{ items: FileItem[]; fileOrder?: FileOrderMap }>(`/api/projects/${id}/tree`);
 }
 
-export function getFile(id: string, filePath: string) {
-  const qs = new URLSearchParams({ path: filePath }).toString();
-  return request<{ content: string }>(`/api/projects/${id}/file?${qs}`);
+export interface FileVersion {
+  exists: boolean;
+  sha256: string | null;
 }
 
-export function writeFile(id: string, filePath: string, content: string) {
-  return request<{ ok: boolean }>(`/api/projects/${id}/file`, {
+export function getFile(id: string, filePath: string) {
+  const qs = new URLSearchParams({ path: filePath }).toString();
+  return request<{ content: string; version: FileVersion }>(`/api/projects/${id}/file?${qs}`);
+}
+
+export function writeFile(id: string, filePath: string, content: string, expectedVersion?: FileVersion) {
+  return request<{ ok: boolean; version: FileVersion }>(`/api/projects/${id}/file`, {
     method: 'PUT',
-    body: JSON.stringify({ path: filePath, content })
+    body: JSON.stringify({ path: filePath, content, expectedVersion })
   });
 }
 
@@ -357,6 +362,15 @@ export function getAgentRoles(stage?: HarnessResearchStageId) {
   }>(`/api/agent/roles${stage ? `?stage=${encodeURIComponent(stage)}` : ''}`);
 }
 
+export interface HarnessPatch {
+  path: string;
+  diff?: string;
+  content?: string;
+  original?: string;
+  deleted?: boolean;
+  baseVersion?: FileVersion | null;
+}
+
 export interface HarnessRun {
   id: string;
   projectId: string;
@@ -375,7 +389,14 @@ export interface HarnessRun {
   capabilities?: { granted?: string[]; denied?: string[]; constraints?: Record<string, unknown> };
   limits?: { timeoutMs?: number; maxTokens?: number; maxConcurrent?: number; retryLimit?: number };
   events?: { type?: string; name?: string; capability?: string; text?: string; at?: string }[];
-  patches?: { path: string; diff: string; content: string; deleted?: boolean }[];
+  patches?: HarnessPatch[];
+  request?: Partial<AssistantRunInput> & { source?: string };
+  documentVersions?: (FileVersion & { path: string })[];
+  appliedPatches?: string[];
+  patchDecisions?: Record<string, { status: string; at?: string }>;
+  application?: { status?: string; error?: { message?: string } };
+  constraintProposal?: { id: string };
+  constraintProposalError?: { code: string; message: string };
   tokenUsage?: Record<string, unknown> | null;
   humanDecision?: { status: string; actor?: string; note?: string; at?: string };
   outputValidation?: { ok?: boolean; warnings?: string[]; errors?: string[] } | null;
@@ -431,11 +452,37 @@ export function replayHarnessRun(projectId: string, runId: string) {
   });
 }
 
-export function decideHarnessRun(projectId: string, runId: string, decision: 'accept' | 'reject', note = '') {
+export function decideHarnessRun(projectId: string, runId: string, decision: 'accept' | 'reject', note = '', paths?: string[]) {
   return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/decision`, {
     method: 'POST',
-    body: JSON.stringify({ decision, note })
+    body: JSON.stringify({ decision, note, paths })
   });
+}
+
+export interface AssistantRunInput {
+  requestId: string;
+  permission: 'read' | 'edit';
+  task: string;
+  prompt: string;
+  activePath?: string;
+  selection?: string;
+  compileLog?: string;
+  history?: { role: 'user' | 'assistant'; content: string }[];
+  documentVersions?: (FileVersion & { path: string })[];
+  llmConfig?: Partial<LLMConfig>;
+}
+
+export function startAssistantRun(projectId: string, input: AssistantRunInput) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/assistant-runs`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function applyHarnessRunPatches(projectId: string, runId: string, paths: string[]) {
+  return request<{ ok: boolean; run: HarnessRun; applied: string[]; alreadyApplied: string[] }>(
+    `/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/apply`,
+    { method: 'POST', body: JSON.stringify({ paths }) }
+  );
 }
 
 export function compileProject(payload: {

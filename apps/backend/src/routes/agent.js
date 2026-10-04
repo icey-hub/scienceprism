@@ -4,6 +4,7 @@ import { listRoles, roleCatalog } from '../services/agentRoles/index.js';
 import { getLang, t } from '../i18n/index.js';
 import { assertApprovedConstraint, createConstraintProposal, ConstraintProposalError } from '../services/constraintRegistry/proposals.js';
 import { parseConstraintChatEnvelope } from '../services/constraintRegistry/chatEnvelope.js';
+import { startAssistantRun } from '../services/assistantService.js';
 
 async function checkedReply(projectId, response) {
   if (!projectId || !response.ok) return response;
@@ -17,6 +18,16 @@ async function checkedReply(projectId, response) {
 }
 
 export function registerAgentRoutes(fastify, { callModel = callOpenAICompatible } = {}) {
+  fastify.post('/api/projects/:id/assistant-runs', async (req, reply) => {
+    try {
+      const run = await startAssistantRun(req.params.id, req.body || {});
+      return reply.code(202).send({ ok: true, run });
+    } catch (error) {
+      return reply.code(error.statusCode || 500).send({ ok: false, error: {
+        code: error.code || 'ASSISTANT_FAILED', message: error.message, details: error.details
+      } });
+    }
+  });
   fastify.get('/api/agent/runtime', async (req) => {
     return { ok: true, ...getAgentRuntimeStatus(req.query || {}) };
   });

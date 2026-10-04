@@ -36,11 +36,11 @@ function sendError(req, reply, error) {
   return reply.code(500).send({ ok: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error.' } });
 }
 
-function route(handler) {
+function route(handler, field = 'run') {
   return async (req, reply) => {
     try {
-      const run = await handler(req);
-      return reply.send({ ok: true, run });
+      const value = await handler(req, reply);
+      return reply.send({ ok: true, [field]: value });
     } catch (error) {
       return sendError(req, reply, error);
     }
@@ -48,7 +48,7 @@ function route(handler) {
 }
 
 export function registerHarnessRunRoutes(fastify) {
-  fastify.get(BASE_PATH, route((req) => listHarnessRuns(req.params.id, req.query || {})));
+  fastify.get(BASE_PATH, route((req) => listHarnessRuns(req.params.id, req.query || {}), 'runs'));
   fastify.get(`${BASE_PATH}/:runId`, route((req) => getHarnessRun(req.params.id, req.params.runId)));
 
   fastify.post(BASE_PATH, route(async (req, reply) => {
@@ -75,7 +75,8 @@ export function registerHarnessRunRoutes(fastify) {
     return decideHarnessRun(req.params.id, req.params.runId, {
       decision: body.decision,
       actor: body.actor || req.headers?.['x-scienceprism-actor'] || 'human',
-      note: body.note
+      note: body.note,
+      paths: body.paths
     });
   }));
 
@@ -88,7 +89,7 @@ export function registerHarnessRunRoutes(fastify) {
         actor: body.actor || req.headers?.['x-scienceprism-actor'] || 'human',
         paths: body.paths
       });
-      return reply.send({ ok: true, run: result.run, applied: result.applied });
+      return reply.send({ ok: true, ...result });
     } catch (error) {
       return sendError(req, reply, error);
     }

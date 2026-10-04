@@ -13,6 +13,8 @@ const IGNORED_CONTEXT_FILES = new Set(['project.json', '.compile']);
 const IGNORED_CONTEXT_PREFIXES = ['.dsh/skills/'];
 const MAX_EVIDENCE_ITEMS = 80;
 const MAX_DECISIONS = 40;
+const MAX_HISTORY_ITEMS = 8;
+const MAX_HISTORY_ITEM_BYTES = 16_000;
 const TEXT_BYTES_PER_TOKEN = 4;
 const CONTEXT_FILE_PRIORITY = Object.freeze({
   active: 1_000,
@@ -107,6 +109,17 @@ function boundedText(value, maxBytes) {
 function normalizeList(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean))];
+}
+
+function normalizeHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
+    .slice(-MAX_HISTORY_ITEMS)
+    .map((item) => ({
+      role: item.role,
+      content: boundedText(item.content, MAX_HISTORY_ITEM_BYTES).text
+    }));
 }
 
 function getPriorityPathItems(value) {
@@ -351,7 +364,7 @@ function compactStageContract(stageContract) {
   };
 }
 
-function buildContextWithoutHash({ stage, task, activePath, prompt, humanInstructions, selection, compileLog, files, evidence, evidenceGraph, decisions, skills, stageContract, warnings, prompts, budget, workflowVersion, projectConstraints }) {
+function buildContextWithoutHash({ stage, task, activePath, prompt, humanInstructions, selection, compileLog, history, files, evidence, evidenceGraph, decisions, skills, stageContract, warnings, prompts, budget, workflowVersion, projectConstraints }) {
   return {
     schemaVersion: CONTEXT_PACK_SCHEMA_VERSION,
     stage: stage || null,
@@ -366,6 +379,7 @@ function buildContextWithoutHash({ stage, task, activePath, prompt, humanInstruc
     },
     selection: selection || '',
     compileLog: compileLog || '',
+    history: clone(history || []),
     projectConstraints: clone(projectConstraints),
     files: files.map(({ content, ...manifest }) => ({ ...manifest, content })),
     evidence: clone(evidence),
@@ -424,6 +438,11 @@ function truncateToBudget(pack, budget) {
   }
   if (estimatedTokens > budget && pack.evidenceGraph) {
     pack.evidenceGraph = { relations: pack.evidenceGraph.relations || [] };
+    estimatedTokens = estimateTokens(pack);
+    truncated = true;
+  }
+  while (estimatedTokens > budget && pack.history.length) {
+    pack.history.shift();
     estimatedTokens = estimateTokens(pack);
     truncated = true;
   }
@@ -501,6 +520,7 @@ export async function buildContextPack({ projectId, projectRoot: providedRoot, r
   const skillMetadata = Array.isArray(request.researchSkillMetadata) ? request.researchSkillMetadata : [];
   const skills = skillMetadata.length ? skillMetadata : normalizeList(request.researchSkills).map((name) => ({ name, description: '', stages: stage ? [stage] : [] }));
   const stageContract = request.stageContract || RESEARCH_STAGE_CONTRACTS[normalizeResearchStage(request.stage || stage)] || null;
+  const history = normalizeHistory(request.history);
   const contextInputs = {
     ...request,
     stage,
@@ -529,6 +549,7 @@ export async function buildContextPack({ projectId, projectRoot: providedRoot, r
     humanInstructions: request.humanInstructions,
     selection: request.selection,
     compileLog: request.compileLog,
+    history,
     files: fileCandidates,
     evidence,
     evidenceGraph,
@@ -578,6 +599,7 @@ export function contextManifest(contextPack) {
     schemaVersion: CONTEXT_PACK_SCHEMA_VERSION,
     contextHash: null,
     files: [],
+    history: [],
     evidenceIds: [],
     decisionIds: [],
     warnings: []
@@ -590,6 +612,11 @@ export function contextManifest(contextPack) {
     task: contextPack.task || null,
     activePath: contextPack.activePath || null,
     budget: clone(contextPack.budget || {}),
+    history: (contextPack.history || []).map((item) => ({
+      role: item.role,
+      characters: item.content.length,
+      sha256: contentHash(item.content)
+    })),
     files: (contextPack.files || []).map((file) => ({
       path: file.path,
       priority: file.priority,

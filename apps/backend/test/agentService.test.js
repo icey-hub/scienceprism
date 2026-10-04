@@ -10,7 +10,18 @@ await mkdir(cacheRoot, { recursive: true });
 const dataDir = await mkdtemp(path.join(cacheRoot, 'agent-service-test-'));
 process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 const { runToolAgent, buildToolAgentModel } = await import('../src/services/agentService.js');
-const { runHarnessRequest, getHarnessRun, registerHarnessAdapter } = await import('../src/services/harnessRuntime/index.js');
+const {
+  cancelHarnessRun,
+  createHarnessRun,
+  getHarnessRun,
+  pauseHarnessRun,
+  registerHarnessAdapter,
+  resumeHarnessRun,
+  runHarnessRequest,
+  startHarnessRun,
+  waitForHarnessRun
+} = await import('../src/services/harnessRuntime/index.js');
+const { startAssistantRun } = await import('../src/services/assistantService.js');
 const { deepseekHarnessAdapter } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
 const { fetchArxivEntry } = await import('../src/services/arxivService.js');
 const { HarnessRuntimeError } = await import('../src/services/harnessRuntime/errors.js');
@@ -198,6 +209,120 @@ test('DeepSeek retains its isolated workspace and proposes changes without apply
   } finally {
     registerHarnessAdapter(deepseekHarnessAdapter);
   }
+});
+
+test('cancelling during Legacy fallback remains cancelled instead of failed', async (t) => {
+  const projectId = 'test';
+  let started;
+  let reportStarted;
+  started = new Promise((resolve) => { reportStarted = resolve; });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    reportStarted();
+    return new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+  });
+  registerHarnessAdapter({
+    ...deepseekHarnessAdapter,
+    async run() {
+      throw new HarnessRuntimeError(502, 'PROVIDER_ERROR', 'fixture failure', undefined, { retryable: true });
+    }
+  });
+  try {
+    const run = await createHarnessRun(projectId, { ...baseRequest, adapter: 'deepseek', fallback: true });
+    await startHarnessRun(projectId, run.id);
+    await started;
+    const cancelled = await cancelHarnessRun(projectId, run.id);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal((await getHarnessRun(projectId, run.id)).status, 'cancelled');
+  } finally {
+    registerHarnessAdapter(deepseekHarnessAdapter);
+  }
+});
+
+test('pausing during Legacy fallback preserves a resumable Run', async (t) => {
+  let fallbackStarted;
+  const started = new Promise((resolve) => { fallbackStarted = resolve; });
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    fallbackStarted();
+    return new Promise((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+  });
+  let deepseekAttempts = 0;
+  registerHarnessAdapter({
+    ...deepseekHarnessAdapter,
+    async run() {
+      deepseekAttempts += 1;
+      if (deepseekAttempts === 1) {
+        throw new HarnessRuntimeError(502, 'PROVIDER_ERROR', 'fixture failure', undefined, { retryable: true });
+      }
+      return { finalResponse: 'resumed fallback', patches: [] };
+    }
+  });
+  try {
+    const run = await createHarnessRun('test', {
+      ...baseRequest, adapter: 'deepseek', fallback: true, fakeResponse: 'resumed fallback'
+    });
+    await startHarnessRun('test', run.id);
+    await started;
+    const paused = await pauseHarnessRun('test', run.id);
+    assert.equal(paused.status, 'running', 'pause returns the current persisted snapshot while execution unwinds');
+    const settled = await waitForHarnessRun('test', run.id);
+    assert.equal(settled.status, 'paused');
+    const resumed = await resumeHarnessRun('test', run.id, { wait: true, request: { fakeResponse: 'resumed fallback' } });
+    assert.equal(resumed.status, 'completed');
+    assert.equal(resumed.reply, 'resumed fallback');
+    assert.equal(resumed.attempt, 2);
+  } finally {
+    registerHarnessAdapter(deepseekHarnessAdapter);
+  }
+});
+
+test('editor assistant requests are idempotent, source-isolated, and retain bounded context', async () => {
+  const projectId = 'test';
+  const request = {
+    requestId: 'editor-request-01',
+    task: 'polish',
+    permission: 'read',
+    prompt: 'Keep the terminology consistent.',
+    history: Array.from({ length: 12 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: `turn-${index}` })),
+    documentVersions: [{ path: 'main.tex', exists: true, sha256: (await import('../src/services/harnessRuntime/fileVersions.js')).contentHash('saved manuscript') }],
+    llmConfig: { runtime: 'legacy' }
+  };
+  const first = await startAssistantRun(projectId, request, { adapter: 'fake', fakeResponse: 'read-only answer' });
+  const repeated = await startAssistantRun(projectId, request, { adapter: 'fake', fakeResponse: 'different answer' });
+  assert.equal(repeated.id, first.id);
+  const result = await waitForHarnessRun(projectId, first.id);
+  assert.equal(result.status, 'completed');
+  assert.equal(result.request.source, 'editor');
+  assert.equal(result.contextPack.history.length, 8);
+  assert.equal(result.contextPack.history.at(-1).content, 'turn-11');
+  assert.equal(result.capabilities.granted.includes('patch.propose'), false);
+
+  await assert.rejects(
+    () => startAssistantRun(projectId, { ...request, prompt: 'A changed task.' }, { adapter: 'fake' }),
+    (error) => error.code === 'REQUEST_ID_CONFLICT'
+  );
+  const stored = await getHarnessRun(projectId, first.id);
+  assert.equal(stored.request.source, 'editor');
+});
+
+test('an active editor assistant Run blocks another request but permits a distinct source', async () => {
+  const projectId = 'test';
+  const active = await startAssistantRun(projectId, {
+    requestId: 'editor-active-01', task: 'polish', permission: 'read', prompt: 'wait', llmConfig: { runtime: 'legacy' }
+  }, { adapter: 'fake', fakeDelayMs: 200, fakeResponse: 'done' });
+  await assert.rejects(
+    () => startAssistantRun(projectId, {
+      requestId: 'editor-active-02', task: 'polish', permission: 'read', prompt: 'second', llmConfig: { runtime: 'legacy' }
+    }, { adapter: 'fake' }),
+    (error) => error.code === 'ASSISTANT_BUSY'
+  );
+  await waitForHarnessRun(projectId, active.id);
+  const direct = await runHarnessRequest({ projectId, adapter: 'fake', source: 'automation', fakeResponse: 'separate source' });
+  assert.equal(direct.ok, true);
+  assert.equal((await waitForHarnessRun(projectId, active.id)).status, 'completed');
 });
 
 test('Legacy fallback retains the Run limits and reported token usage', async (t) => {

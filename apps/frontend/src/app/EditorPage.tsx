@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, Dispatch, MouseEvent as ReactMouseEvent, SetStateAction, DragEvent } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent, DragEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -30,7 +30,11 @@ import { buildSplitDiff, SplitDiffView } from './editor/EditorDiff';
 import { PdfPreview } from './editor/PdfPreview';
 import { getLatexBodyInsertionRange } from './editor/latexSnippetInsertion';
 import { compileDiagnostics, parseCompileErrors, resolveCompileFile, type CompileError } from './editor/compileDiagnostics';
-import { ConstraintProposalPanel } from './editor/ConstraintProposalPanel';
+import { AssistantPanel, type AssistantIntent } from './editor/AssistantPanel';
+import { useAssistantRun } from './editor/useAssistantRun';
+import { useChangeReview, type PendingChange } from './editor/useChangeReview';
+import { useDocumentDrafts } from './editor/useDocumentDrafts';
+import type { HarnessRun } from '../api/assistantAdapter';
 import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings, pickCollabColor } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
 import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
@@ -54,11 +58,6 @@ import {
   X
 } from 'lucide-react';
 
-interface Message {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
 interface WebsearchItem {
   id: string;
   title: string;
@@ -66,14 +65,6 @@ interface WebsearchItem {
   url: string;
   bibtex: string;
   citeKey: string;
-}
-
-interface PendingChange {
-  filePath: string;
-  original: string;
-  proposed: string;
-  diff: string;
-  deleted?: boolean;
 }
 
 type InlineEdit =
@@ -796,19 +787,12 @@ export default function EditorPage() {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [inlineSuggestionText, setInlineSuggestionText] = useState('');
   const [suggestionPos, setSuggestionPos] = useState<{ left: number; top: number } | null>(null);
-  const [assistantMode, setAssistantMode] = useState<'chat' | 'agent'>('agent');
-  const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [constraintRefreshToken, setConstraintRefreshToken] = useState(0);
-  const [agentMessages, setAgentMessages] = useState<Message[]>([]);
-  const [prompt, setPrompt] = useState('');
-  const [task, setTask] = useState(DEFAULT_TASKS(t)[0].value);
-  const [mode, setMode] = useState<'direct' | 'tools'>('direct');
-  const [translateScope, setTranslateScope] = useState<'selection' | 'file' | 'project'>('selection');
-  const [translateTarget, setTranslateTarget] = useState('English');
-  const [taskDropdownOpen, setTaskDropdownOpen] = useState(false);
-  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
-  const [translateScopeDropdownOpen, setTranslateScopeDropdownOpen] = useState(false);
-  const [translateTargetDropdownOpen, setTranslateTargetDropdownOpen] = useState(false);
+  const assistant = useAssistantRun(projectId);
+  const changeReview = useChangeReview(projectId, assistant.runs, assistant.remember);
+  const drafts = useDocumentDrafts(projectId);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const openFileSequenceRef = useRef(0);
   const [rightViewDropdownOpen, setRightViewDropdownOpen] = useState(false);
   const [mainFileDropdownOpen, setMainFileDropdownOpen] = useState(false);
   const [engineDropdownOpen, setEngineDropdownOpen] = useState(false);
@@ -821,7 +805,7 @@ export default function EditorPage() {
   const [wsTexDropdownOpen, setWsTexDropdownOpen] = useState(false);
   const [plotTypeDropdownOpen, setPlotTypeDropdownOpen] = useState(false);
   const [figureDropdownOpen, setFigureDropdownOpen] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+  const pendingChanges = changeReview.pending;
   const [compileLog, setCompileLog] = useState('');
   const [compiledSources, setCompiledSources] = useState<Record<string, string>>({});
   const [compiledMainFile, setCompiledMainFile] = useState('main.tex');
@@ -908,7 +892,7 @@ export default function EditorPage() {
   const [reviewNotes, setReviewNotes] = useState<{ title: string; content: string }[]>([]);
   const [reviewReport, setReviewReport] = useState('');
   const [reviewReportBusy, setReviewReportBusy] = useState(false);
-  const [diagnoseBusy, setDiagnoseBusy] = useState(false);
+  const diagnoseBusy = assistant.busy;
   const [websearchSelectedAll, setWebsearchSelectedAll] = useState(false);
   const [collabEnabled, setCollabEnabled] = useState(() => Boolean(getCollabToken()));
   const [collabStatus, setCollabStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
@@ -926,7 +910,6 @@ export default function EditorPage() {
   const inlineAnchorRef = useRef<number | null>(null);
   const applyingSuggestionRef = useRef(false);
   const suppressDirtyRef = useRef(false);
-  const typewriterTimerRef = useRef<number | null>(null);
   const requestSuggestionRef = useRef<() => void>(() => {});
   const acceptSuggestionRef = useRef<() => void>(() => {});
   const acceptChunkRef = useRef<() => void>(() => {});
@@ -1212,6 +1195,7 @@ export default function EditorPage() {
         }
         const path = activePathRef.current;
         if (path && (!programmatic || collabActiveRef.current)) {
+          draftsRef.current.changed(path, value);
           setFiles((prev) => ({ ...prev, [path]: value }));
         }
       }
@@ -1338,6 +1322,14 @@ export default function EditorPage() {
   }, []);
 
   const openFile = async (filePath: string) => {
+    const request = ++openFileSequenceRef.current;
+    let draft = drafts.get(filePath);
+    if (!draft) {
+      const data = await getFile(projectId, filePath);
+      if (request !== openFileSequenceRef.current || draftsRef.current !== drafts) return '';
+      drafts.loaded(filePath, data.content, data.version);
+      draft = drafts.get(filePath)!;
+    }
     setActivePath(filePath);
     activePathRef.current = filePath;
     setSelectedPath(filePath);
@@ -1353,25 +1345,13 @@ export default function EditorPage() {
         return next;
       });
     }
-    if (Object.prototype.hasOwnProperty.call(files, filePath)) {
-      const cached = files[filePath] ?? '';
-      const collabTextFile = collabEnabled && isTextPath(filePath);
-      setEditorValue(collabTextFile ? '' : cached);
-      setIsDirty(false);
-      if (!collabTextFile) {
-        setEditorDoc(cached);
-      }
-      return cached;
-    }
-    const data = await getFile(projectId, filePath);
-    setFiles((prev) => ({ ...prev, [filePath]: data.content }));
+    const content = draft.content;
+    setFiles((prev) => ({ ...prev, [filePath]: content }));
     const collabTextFile = collabEnabled && isTextPath(filePath);
-    setEditorValue(collabTextFile ? '' : data.content);
-    setIsDirty(false);
-    if (!collabTextFile) {
-      setEditorDoc(data.content);
-    }
-    return data.content;
+    setEditorValue(collabTextFile ? '' : content);
+    setIsDirty(draft.content !== draft.saved);
+    if (!collabTextFile) setEditorDoc(content);
+    return content;
   };
 
   const setEditorDoc = useCallback((value: string) => {
@@ -1548,40 +1528,30 @@ export default function EditorPage() {
   }, [requestInlineSuggestion, acceptInlineSuggestion, acceptSuggestionChunk, clearInlineSuggestion]);
 
   const saveActiveFile = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (!activePath) return;
-      if (collabActiveRef.current) {
-        setIsSaving(true);
-        try {
-          await flushCollabFile(projectId, activePath);
-          setSavePulse(true);
-          window.setTimeout(() => setSavePulse(false), 1200);
-          if (!opts?.silent) {
-            setStatus(t('协作已同步 {{path}}', { path: activePath }));
-          }
-        } catch (err) {
-          setStatus(t('协作同步失败: {{error}}', { error: String(err) }));
-        } finally {
-          setIsSaving(false);
-        }
-        return;
-      }
+    async (opts?: { silent?: boolean; throwOnError?: boolean }) => {
       setIsSaving(true);
       try {
-        await writeFile(projectId, activePath, editorValue);
-        setIsDirty(false);
+        if (collabActiveRef.current && activePath) {
+          if (collabStatus !== 'connected') throw new Error(t('协作尚未连接，任务未启动。'));
+          await flushCollabFile(projectId, activePath);
+          const stored = await getFile(projectId, activePath);
+          if (stored.content !== cmViewRef.current?.state.doc.toString()) throw new Error(t('协作文稿尚未保存，请稍后重试。'));
+          drafts.loaded(activePath, stored.content, stored.version);
+          await drafts.save();
+        } else {
+          await drafts.save();
+        }
+        const draft = drafts.get(activePath);
+        if (activePathRef.current === activePath) setIsDirty(Boolean(draft && draft.content !== draft.saved));
         setSavePulse(true);
         window.setTimeout(() => setSavePulse(false), 1200);
-        if (!opts?.silent) {
-          setStatus(t('已保存 {{path}}', { path: activePath }));
-        }
+        if (!opts?.silent) setStatus(t('已保存 {{path}}', { path: activePath }));
       } catch (err) {
         setStatus(t('保存失败: {{error}}', { error: String(err) }));
-      } finally {
-        setIsSaving(false);
-      }
+        if (opts?.throwOnError) throw err;
+      } finally { setIsSaving(false); }
     },
-    [activePath, editorValue, projectId, t]
+    [activePath, collabStatus, drafts, projectId, t]
   );
 
   const writeFileCompat = useCallback(
@@ -1595,9 +1565,15 @@ export default function EditorPage() {
         setIsDirty(false);
         return { ok: true };
       }
-      return writeFile(projectId, path, content);
+      return drafts.exclusive(async () => {
+        const draft = drafts.get(path);
+        const result = await writeFile(projectId, path, content, draft?.version);
+        if (!result.ok) throw new Error(t('保存失败: {{error}}', { error: path }));
+        drafts.persisted(path, content, result.version, draft?.content);
+        return result;
+      });
     },
-    [activePath, projectId]
+    [activePath, drafts, projectId, t]
   );
 
   useEffect(() => {
@@ -1709,14 +1685,17 @@ export default function EditorPage() {
 
   const ensureFileContent = useCallback(
     async (path: string) => {
-      if (Object.prototype.hasOwnProperty.call(files, path)) {
-        return files[path] ?? '';
-      }
+      const draft = drafts.get(path);
+      if (draft) return draft.content;
       const data = await getFile(projectId, path);
-      setFiles((prev) => ({ ...prev, [path]: data.content }));
-      return data.content;
+      if (draftsRef.current === drafts) {
+        // Another reader may have opened and edited this file during the fetch.
+        if (!drafts.get(path)) drafts.loaded(path, data.content, data.version);
+        setFiles((prev) => ({ ...prev, [path]: drafts.get(path)!.content }));
+      }
+      return drafts.get(path)?.content ?? data.content;
     },
-    [files, projectId]
+    [drafts, projectId]
   );
 
   const buildProjectContext = useCallback(async () => {
@@ -1928,34 +1907,11 @@ export default function EditorPage() {
           citePayload.length > 0 ? t('Papers: {{payload}}', { payload: JSON.stringify(citePayload) }) : ''
         ].filter(Boolean).join(' ');
         try {
-          const targetContent = await ensureFileContent(targetFile);
-          const res = await runAgent({
-            task: 'insert_citations',
-            prompt,
-            selection: '',
-            content: targetContent || '',
-            mode: 'tools',
-            projectId,
-            activePath: targetFile,
-            compileLog,
-            llmConfig: searchLlmConfig,
-            interaction: 'agent',
-            history: []
-          });
-          if (res.patches && res.patches.length > 0) {
-            const nextPending = res.patches.map((patch) => ({
-              filePath: patch.path,
-              original: files[patch.path] ?? '',
-              proposed: patch.content,
-              diff: patch.diff,
-              deleted: patch.deleted
-            }));
-            setPendingChanges(nextPending);
-            setRightView('diff');
-            setArxivStatus(t('已生成引用插入建议，请在 Diff 面板应用。'));
-          } else {
-            setArxivStatus(t('未生成可应用的引用修改。'));
-          }
+          await ensureFileContent(targetFile);
+          const started = await assistant.start({ task: 'insert_citations', prompt, permission: 'edit',
+            activePath: targetFile, llmConfig: searchLlmConfig, history: assistant.history }, prepareAssistantDocuments);
+          if (started) { setActiveSidebar('agent'); setSidebarOpen(true); }
+          setArxivStatus(started ? t('引用任务已启动，请在助手中查看和审阅。') : t('引用任务未启动，请查看助手提示。'));
         } catch (err) {
           setArxivStatus(t('引用插入失败: {{error}}', { error: String(err) }));
         }
@@ -2339,6 +2295,8 @@ export default function EditorPage() {
     try {
       const result = await deleteFile(projectId, target);
       if (result.ok) {
+        drafts.forget(target);
+        setFiles((previous) => Object.fromEntries(Object.entries(previous).filter(([path]) => path !== target && !path.startsWith(`${target}/`))));
         // If deleted file was the active file, clear it
         if (target === activePath) {
           setActivePath('');
@@ -2368,7 +2326,10 @@ export default function EditorPage() {
       const to = parent ? `${parent}/${value}` : value;
       const entry = tree.find((item) => item.path === from);
       const fromName = from.split('/').pop() || '';
-      await renamePath(projectId, from, to);
+      await drafts.exclusive(async () => {
+        await renamePath(projectId, from, to);
+        drafts.rename(from, to);
+      });
       if (activePath === from) {
         setActivePath(to);
         activePathRef.current = to;
@@ -2415,7 +2376,10 @@ export default function EditorPage() {
     if (!fileName) return;
     const target = folderPath ? `${folderPath}/${fileName}` : fileName;
     if (target === fromPath) return;
-    await renamePath(projectId, fromPath, target);
+    await drafts.exclusive(async () => {
+      await renamePath(projectId, fromPath, target);
+      drafts.rename(fromPath, target);
+    });
     if (activePath === fromPath) {
       setActivePath(target);
       activePathRef.current = target;
@@ -2865,14 +2829,7 @@ export default function EditorPage() {
     setCompiledSources({});
     setCompiledMainFile(mainFile);
     try {
-      // The backend compiles files on disk; wait for the latest editor content.
-      if (activePath) {
-        if (collabActiveRef.current) await flushCollabFile(projectId, activePath);
-        else await writeFile(projectId, activePath, editorValue);
-        if (activePathRef.current === activePath && cmViewRef.current?.state.doc.toString() === editorValue) {
-          setIsDirty(false);
-        }
-      }
+      await saveActiveFile({ silent: true, throwOnError: true });
       const { files: serverFiles } = await getAllFiles(projectId);
       const fileMap: Record<string, string | Uint8Array> = {};
       const sources: Record<string, string> = {};
@@ -2950,13 +2907,7 @@ export default function EditorPage() {
       : [];
     view.dispatch(setDiagnostics(view.state, compileDiagnostics(currentErrors, activePath, editorValue)));
   }, [compileErrors, compiledSources, activePath, editorValue]);
-  const pendingGrouped = useMemo(() => {
-    const map = new Map<string, PendingChange>();
-    pendingChanges.forEach((item) => {
-      map.set(item.filePath, item);
-    });
-    return Array.from(map.values());
-  }, [pendingChanges]);
+  const pendingGrouped = pendingChanges;
 
   const figureFiles = useMemo(
     () =>
@@ -3039,239 +2990,82 @@ export default function EditorPage() {
     setPdfFitScale((prev) => (prev && Math.abs(prev - value) < 0.005 ? prev : value));
   }, []);
 
-  const startTypewriter = useCallback((setHistory: Dispatch<SetStateAction<Message[]>>, text: string) => {
-    if (typewriterTimerRef.current) {
-      window.clearTimeout(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
-    if (!text) {
-      setHistory((prev) => {
-        if (prev.length === 0) return prev;
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last.role === 'assistant') {
-          next[next.length - 1] = { ...last, content: '' };
-        }
-        return next;
-      });
-      return;
-    }
-    let idx = 0;
-    const step = () => {
-      idx = Math.min(text.length, idx + 2);
-      const slice = text.slice(0, idx);
-      setHistory((prev) => {
-        if (prev.length === 0) return prev;
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last.role !== 'assistant') return prev;
-        next[next.length - 1] = { ...last, content: slice };
-        return next;
-      });
-      if (idx < text.length) {
-        typewriterTimerRef.current = window.setTimeout(step, 16);
-      }
-    };
-    step();
-  }, []);
+  const prepareAssistantDocuments = async () => {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    await saveActiveFile({ silent: true, throwOnError: true });
+    return drafts.versions();
+  };
 
-  useEffect(() => {
-    return () => {
-      if (typewriterTimerRef.current) {
-        window.clearTimeout(typewriterTimerRef.current);
-      }
-    };
-  }, []);
+  const sendAssistant = async (intent: AssistantIntent) => {
+    const accepted = await assistant.start({
+      ...intent, activePath, compileLog, llmConfig, history: assistant.history
+    }, prepareAssistantDocuments);
+    if (accepted) { setActiveSidebar('agent'); setSidebarOpen(true); }
+    return accepted;
+  };
 
-  const sendPrompt = async () => {
-    const isChat = assistantMode === 'chat';
-    if (!activePath && !isChat) return;
-    if (isChat === false && task === 'translate') {
-      if (translateScope === 'selection' && !selectionText) {
-        setStatus(t('请选择要翻译的文本。'));
-        return;
-      }
-    }
-    const userMsg: Message = { role: 'user', content: prompt || t('(empty)') };
-    const setHistory = isChat ? setChatMessages : setAgentMessages;
-    const history = isChat ? chatMessages : agentMessages;
-    const nextHistory = [...history, userMsg];
-    setHistory(nextHistory);
-    try {
-      let effectivePrompt = prompt;
-      let effectiveSelection = selectionText;
-      let effectiveContent = editorValue;
-      let effectiveMode = mode;
-      let effectiveTask = task;
-
-      if (!isChat && task === 'translate') {
-        const note = prompt ? `\n${t('User note')}: ${prompt}` : '';
-        if (translateScope === 'project') {
-          effectiveMode = 'tools';
-          effectiveSelection = '';
-          effectiveContent = '';
-          effectivePrompt = t('Translate all .tex files in the project to {{target}}. Preserve LaTeX commands and structure.{{note}}', { target: translateTarget, note });
-        } else if (translateScope === 'file') {
-          effectiveSelection = '';
-          effectivePrompt = t('Translate the current file to {{target}}. Preserve LaTeX commands and structure.{{note}}', { target: translateTarget, note });
-        } else {
-          effectivePrompt = t('Translate the selected text to {{target}}. Preserve LaTeX commands and structure.{{note}}', { target: translateTarget, note });
-        }
-        effectiveTask = 'translate';
-      }
-
-      if (!isChat && task === 'websearch') {
-        effectiveMode = 'tools';
-        effectiveSelection = '';
-        effectiveContent = '';
-        effectivePrompt = prompt
-          ? t('Search arXiv and return 3-5 relevant papers with BibTeX entries. User query: {{query}}', { query: prompt })
-          : t('Search arXiv and return 3-5 relevant papers with BibTeX entries.');
-        effectiveTask = 'websearch';
-      }
-
-      if (!isChat && effectiveTask !== 'websearch') {
-        const context = await buildProjectContext();
-        if (context) {
-          effectivePrompt = `${effectivePrompt}\n\n[Project Context]\n${context}`;
-        }
-      }
-
-      const effectiveLlmConfig = !isChat && effectiveTask === 'websearch' ? searchLlmConfig : llmConfig;
-      const res = await runAgent({
-        task: effectiveTask,
-        prompt: effectivePrompt,
-        selection: effectiveSelection,
-        content: effectiveContent,
-        mode: isChat ? 'direct' : effectiveMode,
-        projectId,
-        activePath,
-        compileLog,
-        llmConfig: effectiveLlmConfig,
-        interaction: isChat ? 'chat' : 'agent',
-        history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
-      });
-      const replyText = `${res.reply || t('已生成建议。')}${isChat && res.constraintProposalError ? `\n\n约束提案未创建：${res.constraintProposalError.message}` : ''}`;
-      if (isChat && res.constraintProposal) setConstraintRefreshToken((value) => value + 1);
-      setHistory((prev) => [...prev, { role: 'assistant', content: '' }]);
-      window.setTimeout(() => startTypewriter(setHistory, replyText), 0);
-
-      if (!isChat && res.patches && res.patches.length > 0) {
-        const nextPending = res.patches.map((patch) => ({
-          filePath: patch.path,
-          original: files[patch.path] ?? '',
-          proposed: patch.content,
-          diff: patch.diff,
-          deleted: patch.deleted
-        }));
-        setPendingChanges(nextPending);
-        setRightView('diff');
-      } else if (!isChat && res.suggestion) {
-        const proposed = selectionText
-          ? replaceSelection(editorValue, selectionRange[0], selectionRange[1], res.suggestion)
-          : res.suggestion;
-        const diff = createTwoFilesPatch(activePath, activePath, editorValue, proposed, 'current', 'suggested');
-        setPendingChanges([{ filePath: activePath, original: editorValue, proposed, diff }]);
-        setRightView('diff');
-      }
-    } catch (err) {
-      setHistory((prev) => [...prev, { role: 'assistant', content: t('请求失败: {{error}}', { error: String(err) }) }]);
-    }
+  const retryAssistant = async (run: HarnessRun) => {
+    const request = run.request;
+    if (!request) return;
+    await assistant.start({
+      task: request.task || run.task, prompt: request.prompt || '',
+      permission: request.permission || 'edit', activePath: request.activePath,
+      selection: '', compileLog: run.task === 'debug_compile' ? compileLog : request.compileLog,
+      history: request.history, llmConfig
+    }, prepareAssistantDocuments);
   };
 
   const diagnoseCompile = async () => {
-    if (!compileLog) {
-      setStatus(t('暂无编译日志可诊断。'));
-      return;
-    }
-    if (!activePath) return;
-    setDiagnoseBusy(true);
-    const userMsg: Message = { role: 'user', content: t('诊断并修复编译错误') };
-    const nextHistory = [...agentMessages, userMsg];
-    setAgentMessages(nextHistory);
-    try {
-      const res = await runAgent({
-        task: 'debug_compile',
-        prompt: t('基于编译日志诊断并修复错误，给出可应用的 diff。'),
-        selection: compileLog,
-        content: editorValue,
-        mode: 'tools',
-        projectId,
-        activePath,
-        compileLog,
-        llmConfig,
-        interaction: 'agent',
-        history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
-      });
-      const assistant: Message = {
-        role: 'assistant',
-        content: res.reply || t('已生成编译修复建议。')
-      };
-      setAgentMessages((prev) => [...prev, assistant]);
-      if (res.patches && res.patches.length > 0) {
-        const nextPending = res.patches.map((patch) => ({
-          filePath: patch.path,
-          original: files[patch.path] ?? '',
-          proposed: patch.content,
-          diff: patch.diff,
-          deleted: patch.deleted
-        }));
-        setPendingChanges(nextPending);
-        setRightView('diff');
+    if (!compileLog || !activePath) return;
+    await sendAssistant({ task: 'debug_compile', permission: 'edit',
+      prompt: t('基于编译日志诊断并修复错误，给出可审阅的修改。') });
+  };
+
+  const applyReviewedChanges = async (work: () => Promise<void>, changes: PendingChange[]) => {
+    await drafts.exclusive(async () => {
+      const before = new Map<string, string | undefined>();
+      for (const change of changes) {
+        const draft = drafts.get(change.filePath);
+        const live = change.filePath === activePathRef.current ? cmViewRef.current?.state.doc.toString() : draft?.content;
+        if (draft && live !== draft.saved) throw new Error(t('存在未保存的新内容，请先保存再审阅：{{path}}', { path: change.filePath }));
+        before.set(change.filePath, live);
       }
-    } catch (err) {
-      setAgentMessages((prev) => [...prev, { role: 'assistant', content: t('请求失败: {{error}}', { error: String(err) }) }]);
-    } finally {
-      setDiagnoseBusy(false);
-    }
+      try { await work(); }
+      finally {
+        for (const filePath of before.keys()) {
+          const currentContent = () => filePath === activePathRef.current ? cmViewRef.current?.state.doc.toString() : drafts.get(filePath)?.content;
+          if (currentContent() !== before.get(filePath)) continue;
+          const stored = await getFile(projectId, filePath).catch(() => null);
+          if (currentContent() !== before.get(filePath)) continue;
+          if (!stored) {
+            const { items } = await getProjectTree(projectId);
+            if (items.some((item) => item.path === filePath) || currentContent() !== before.get(filePath)) continue;
+            drafts.forget(filePath);
+            setFiles((previous) => { const next = { ...previous }; delete next[filePath]; return next; });
+            if (activePathRef.current === filePath) {
+              setActivePath(''); activePathRef.current = ''; setEditorValue(''); setEditorDoc('');
+            }
+          } else {
+            drafts.loaded(filePath, stored.content, stored.version);
+            setFiles((previous) => ({ ...previous, [filePath]: stored.content }));
+            if (activePathRef.current === filePath && !collabActiveRef.current) {
+              setEditorValue(stored.content); setEditorDoc(stored.content); setIsDirty(false);
+            }
+          }
+        }
+      }
+    });
+    await refreshTree();
   };
 
   const applyPending = async (change?: PendingChange) => {
-    const list = change ? [change] : pendingChanges;
-    for (const item of list) {
-      if (item.deleted) {
-        const result = await deleteFile(projectId, item.filePath);
-        if (!result.ok) throw new Error(result.error || `Failed to delete ${item.filePath}`);
-        setFiles((prev) => {
-          const next = { ...prev };
-          delete next[item.filePath];
-          return next;
-        });
-        if (activePath === item.filePath && !collabActiveRef.current) {
-          setActivePath('');
-          setEditorValue('');
-          setEditorDoc('');
-        }
-      } else {
-        await writeFileCompat(item.filePath, item.proposed);
-        setFiles((prev) => ({ ...prev, [item.filePath]: item.proposed }));
-        if (activePath === item.filePath && !collabActiveRef.current) {
-          setEditorDoc(item.proposed);
-        }
-      }
+    if (await changeReview.review(change ? [change] : pendingChanges, 'accept', applyReviewedChanges)) {
+      setDiffFocus(null); setStatus(t('已应用修改'));
     }
-    if (change) {
-      setPendingChanges((prev) => prev.filter((item) => item.filePath !== change.filePath));
-      if (diffFocus?.filePath === change.filePath) {
-        setDiffFocus(null);
-      }
-    } else {
-      setPendingChanges([]);
-      setDiffFocus(null);
-    }
-    setStatus(t('已应用修改'));
   };
 
-  const discardPending = (change?: PendingChange) => {
-    if (change) {
-      setPendingChanges((prev) => prev.filter((item) => item.filePath !== change.filePath));
-      if (diffFocus?.filePath === change.filePath) {
-        setDiffFocus(null);
-      }
-    } else {
-      setPendingChanges([]);
-      setDiffFocus(null);
-    }
+  const discardPending = async (change?: PendingChange) => {
+    if (await changeReview.review(change ? [change] : pendingChanges, 'reject', applyReviewedChanges)) setDiffFocus(null);
   };
 
   const startColumnDrag = useCallback(
@@ -3692,251 +3486,9 @@ export default function EditorPage() {
                 </div>
               </>
             ) : activeSidebar === 'agent' ? (
-              <>
-                <div className="panel-header">
-                  <div>{assistantMode === 'chat' ? t('Chat') : t('Agent')}</div>
-                  <div className="panel-actions">
-                    <div className="mode-toggle">
-                      <button
-                        className={`mode-btn ${assistantMode === 'chat' ? 'active' : ''}`}
-                        onClick={() => setAssistantMode('chat')}
-                      >
-                        {t('Chat')}
-                      </button>
-                      <button
-                        className={`mode-btn ${assistantMode === 'agent' ? 'active' : ''}`}
-                        onClick={() => setAssistantMode('agent')}
-                      >
-                        {t('Agent')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {assistantMode === 'chat' && (
-                  <div className="context-tags">
-                    <span className="context-tag">{t('只读当前文件')}</span>
-                    {selectionText && <span className="context-tag">{t('只读选区')}</span>}
-                    {compileLog && <span className="context-tag">{t('只读编译日志')}</span>}
-                  </div>
-                )}
-                {assistantMode === 'chat' && projectId && <ConstraintProposalPanel projectId={projectId} refreshToken={constraintRefreshToken} />}
-                <div className="chat-messages">
-                  {assistantMode === 'chat' && chatMessages.length === 0 && (
-                    <div className="muted">{t('输入问题，进行只读对话。')}</div>
-                  )}
-                  {assistantMode === 'agent' && agentMessages.length === 0 && (
-                    <div className="muted">{t('输入任务描述，生成修改建议。')}</div>
-                  )}
-                  {(assistantMode === 'chat' ? chatMessages : agentMessages).map((msg, idx) => (
-                    <div key={idx} className={`chat-msg ${msg.role}`}>
-                      <div className="role">{msg.role}</div>
-                      <div className={`content ${msg.role === 'assistant' ? 'markdown-body' : ''}`}>
-                        {msg.role === 'assistant' ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                        ) : (
-                          msg.content
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="chat-controls">
-                  <div className="row chat-control-row">
-                    {assistantMode === 'agent' ? (
-                      <>
-                        <div className="ios-select-wrapper">
-                          <button
-                            className="ios-select-trigger"
-                            onClick={() => {
-                              setTaskDropdownOpen(!taskDropdownOpen);
-                              setModeDropdownOpen(false);
-                            }}
-                          >
-                            <span>{DEFAULT_TASKS(t).find((item) => item.value === task)?.label || t('选择任务')}</span>
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={taskDropdownOpen ? 'rotate' : ''}>
-                              <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                          </button>
-                          {taskDropdownOpen && (
-                            <div className="ios-dropdown">
-                              {DEFAULT_TASKS(t).map((item) => (
-                                <div
-                                  key={item.value}
-                                  className={`ios-dropdown-item ${task === item.value ? 'active' : ''}`}
-                                  onClick={() => {
-                                    setTask(item.value);
-                                    setTaskDropdownOpen(false);
-                                  }}
-                                >
-                                  {item.label}
-                                  {task === item.value && (
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="agent-mode-wrap">
-                          <div className="ios-select-wrapper">
-                            <button
-                              className="ios-select-trigger"
-                              onClick={() => {
-                                setModeDropdownOpen(!modeDropdownOpen);
-                                setTaskDropdownOpen(false);
-                              }}
-                            >
-                              <span>{mode === 'direct' ? t('Direct') : t('Tools')}</span>
-                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={modeDropdownOpen ? 'rotate' : ''}>
-                                <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                              </svg>
-                            </button>
-                            {modeDropdownOpen && (
-                              <div className="ios-dropdown">
-                                <div
-                                  className={`ios-dropdown-item ${mode === 'direct' ? 'active' : ''}`}
-                                  onClick={() => {
-                                    setMode('direct');
-                                    setModeDropdownOpen(false);
-                                  }}
-                                >
-                                  {t('Direct')}
-                                  {mode === 'direct' && (
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                                <div
-                                  className={`ios-dropdown-item ${mode === 'tools' ? 'active' : ''}`}
-                                  onClick={() => {
-                                    setMode('tools');
-                                    setModeDropdownOpen(false);
-                                  }}
-                                >
-                                  {t('Tools')}
-                                  {mode === 'tools' && (
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <span className="info-icon">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                              <path d="M8 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                              <circle cx="8" cy="5" r="0.5" fill="currentColor"/>
-                            </svg>
-                            <span className="tooltip">{t('Direct: 单轮生成 · Tools: 多轮工具调用/多文件修改')}</span>
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="muted">{t('Chat 模式仅对话，不会改动文件。')}</div>
-                    )}
-                  </div>
-                  {assistantMode === 'agent' && task === 'translate' && (
-                    <div className="row chat-control-row">
-                      <div className="ios-select-wrapper">
-                        <button
-                          className="ios-select-trigger"
-                          onClick={() => {
-                            setTranslateScopeDropdownOpen(!translateScopeDropdownOpen);
-                            setTranslateTargetDropdownOpen(false);
-                          }}
-                          >
-                          <span>
-                            {translateScope === 'selection' ? t('选区') : translateScope === 'file' ? t('当前文件') : t('整个项目')}
-                          </span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={translateScopeDropdownOpen ? 'rotate' : ''}>
-                            <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                        {translateScopeDropdownOpen && (
-                          <div className="ios-dropdown">
-                            {[
-                              { value: 'selection', label: t('选区') },
-                              { value: 'file', label: t('当前文件') },
-                              { value: 'project', label: t('整个项目') }
-                            ].map((item) => (
-                              <div
-                                key={item.value}
-                                className={`ios-dropdown-item ${translateScope === item.value ? 'active' : ''}`}
-                                onClick={() => {
-                                  setTranslateScope(item.value as 'selection' | 'file' | 'project');
-                                  setTranslateScopeDropdownOpen(false);
-                                }}
-                              >
-                                {item.label}
-                                {translateScope === item.value && (
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="ios-select-wrapper">
-                        <button
-                          className="ios-select-trigger"
-                          onClick={() => {
-                            setTranslateTargetDropdownOpen(!translateTargetDropdownOpen);
-                            setTranslateScopeDropdownOpen(false);
-                          }}
-                        >
-                          <span>{translateTargetOptions.find((item) => item.value === translateTarget)?.label || translateTarget}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={translateTargetDropdownOpen ? 'rotate' : ''}>
-                            <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                        {translateTargetDropdownOpen && (
-                          <div className="ios-dropdown">
-                            {translateTargetOptions.map((lang) => (
-                              <div
-                                key={lang.value}
-                                className={`ios-dropdown-item ${translateTarget === lang.value ? 'active' : ''}`}
-                                onClick={() => {
-                                  setTranslateTarget(lang.value);
-                                  setTranslateTargetDropdownOpen(false);
-                                }}
-                              >
-                                {lang.label}
-                                {translateTarget === lang.value && (
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <textarea
-                    className="chat-input"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder={assistantMode === 'chat' ? t('例如：帮我解释这一段的实验设计。') : t('例如：润色这个段落，使其更符合 ACL 风格。')}
-                  />
-                  <button onClick={sendPrompt} className="btn full">
-                    {assistantMode === 'chat' ? t('发送') : t('生成建议')}
-                  </button>
-                  {selectionText && assistantMode === 'agent' && (
-                    <div className="muted">{t('已选择 {{count}} 字符，将用于任务输入', { count: selectionText.length })}</div>
-                  )}
-                  {assistantMode === 'agent' && task === 'translate' && translateScope === 'selection' && !selectionText && (
-                    <div className="muted">{t('翻译选区前请先选择文本。')}</div>
-                  )}
-                </div>
-              </>
+              <AssistantPanel key={projectId} projectId={projectId} assistant={assistant}
+                activePath={activePath} selection={selectionText} onSend={sendAssistant}
+                onRetry={(run) => void retryAssistant(run)} onReview={() => setRightView('diff')} />
             ) : activeSidebar === 'vision' ? (
               <>
                 <div className="panel-header">
@@ -4638,17 +4190,6 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                             history: []
                           });
                           setReviewNotes((prev) => [{ title: t('一致性检查'), content: res.reply || t('无结果') }, ...prev]);
-                          if (res.patches && res.patches.length > 0) {
-                            const nextPending = res.patches.map((patch) => ({
-                              filePath: patch.path,
-                              original: files[patch.path] ?? '',
-                              proposed: patch.content,
-                              diff: patch.diff,
-                              deleted: patch.deleted
-                            }));
-                            setPendingChanges(nextPending);
-                            setRightView('diff');
-                          }
                         }}
                       >
                         <span className="review-btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
@@ -5082,20 +4623,22 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
               {rightView === 'diff' && (
                 <div className="diff-panel">
                   <div className="diff-title">{t('Diff Preview ({{count}})', { count: pendingGrouped.length })}</div>
+                  {changeReview.error && <div role="alert">{changeReview.error}</div>}
+                  {changeReview.busy && <div role="status">{t('正在保存审阅决定…')}</div>}
                   {pendingGrouped.length === 0 && <div className="muted">{t('暂无待确认修改。')}</div>}
                   {pendingGrouped.map((change) => (
                     (() => {
                       const rows = buildSplitDiff(change.original, change.proposed);
                       return (
-                        <div key={change.filePath} className="diff-item">
+                        <div key={`${change.runId}:${change.filePath}`} className="diff-item">
                           <div className="diff-header">
                             <div className="diff-path">{change.filePath}</div>
                             <button className="btn ghost" onClick={() => setDiffFocus(change)}>{t('放大')}</button>
                           </div>
                           <SplitDiffView rows={rows} />
                           <div className="row">
-                            <button className="btn" onClick={() => applyPending(change)}>{t('应用此修改')}</button>
-                            <button className="btn ghost" onClick={() => discardPending(change)}>{t('放弃')}</button>
+                            <button className="btn" disabled={changeReview.busy} onClick={() => applyPending(change)}>{t('应用此修改')}</button>
+                            <button className="btn ghost" disabled={changeReview.busy} onClick={() => discardPending(change)}>{t('放弃')}</button>
                           </div>
                         </div>
                       );
@@ -5103,8 +4646,8 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                   ))}
                   {pendingGrouped.length > 1 && (
                     <div className="row">
-                      <button className="btn" onClick={() => applyPending()}>{t('应用全部')}</button>
-                      <button className="btn ghost" onClick={() => discardPending()}>{t('全部放弃')}</button>
+                      <button className="btn" disabled={changeReview.busy} onClick={() => applyPending()}>{t('应用全部')}</button>
+                      <button className="btn ghost" disabled={changeReview.busy} onClick={() => discardPending()}>{t('全部放弃')}</button>
                     </div>
                   )}
                 </div>
