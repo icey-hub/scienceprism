@@ -1,99 +1,261 @@
-# AGENTS.md — 本仓库的 agent 工作约定
+# AGENTS.md — OpenPrism 模块化重构工作约定
 
-领域词汇：`CONTEXT.md`。既有架构计划：`docs/architecture-roadmap.md`（阶段 1–10 已完成）。
+> **日期**: 2026-10-04  
+> **分支**: fix/agent-runtime-reliability  
+> **状态**: 重构计划已完成，等待开始实施
 
-## 本次方向（2026-10-02）
+## 🎯 重构方向确认
 
-用户反馈「功能太多华而不实」，要求完善代码、参考开源项目并更新本文件。
-本次以 **打开论文 → 描述任务 / 选择内容 → 审阅修改 → 接受 → 编译定位错误** 为核心闭环。
+### 产品定位
+**OpenPrism 是一个研究工具**，不是单纯的编辑器：
+- ✅ 8 阶段研究流程是产品核心价值
+- ✅ Evidence Ledger 证据追踪
+- ✅ AI 能力层（Harness Runtime + Skill 系统）
+- ✅ 约束和角色系统
+- ✅ 多 Agent 协作
 
-- 优先修复停止失效、无效文件复制、重复上下文和不可达的 Skill，保留现有项目数据与人工决定。
-- 新增功能先说明它解决哪一步的实际问题，以及用什么运行证据验证；常用操作优先复用现有入口。
-- 简化 Agent 时保留路径、能力、证据和人工接受边界；将角色、阶段与多 Agent 设计放到具体任务需要的地方。
-- Skill 摘要用于发现，正文和引用按需读取；减少重复发送已经在 Context Pack 中的任务输入。
-- 借鉴开源实现时读 [开源收敛研究](docs/agent-governance/open-source-simplification.md)：Aider 的局部编辑、OpenCode 的 Skill 加载、TeXlyre 的编辑 / 编译交互。查明许可证再复用源码。
+**对标产品**: Notion Research + Overleaf + Zotero + ChatGPT
 
-本段记录后续工作方向，不代表整个界面与所有研究阶段已经简化；实际完成与验证以治理看板为准。
+### 真正的问题
 
-用户已明确说「OK 把功能解耦」「执行计划」。当前**已授权实施** [tasks/plan.md](tasks/plan.md)，逐项验收见 [tasks/todo.md](tasks/todo.md)。允许按计划解耦 `EditorPage.tsx`、收缩工作台入口；先打通真实任务，再移除旧路径。历史计划中的对应非目标不再限制本轮。
+不是功能太多，而是：
+1. **EditorPage.tsx 承载了太多职责**（4899 行）
+2. **模块间耦合严重**，难以维护和扩展
+3. **核心功能不够可靠**（停止失败、刷新丢失、假打字动画）
+4. **缺少产品级打磨**（错误处理、进度显示、性能优化）
 
-## 每次迭代前的必读（硬性）
+### 重构策略
 
-动手改任何文件之前，按顺序读完：
+**模块化重构 + 产品级打磨**
+- 保留所有功能
+- 拆分 EditorPage 成 5-6 个独立模块
+- 提升可靠性和用户体验
+- 4 周完成
 
-1. `docs/agent-governance/requirements.md` — 需求（用户原始需求 + 追加要求）
-2. `docs/agent-governance/plan.md` — 执行计划、设计与非目标
-3. `docs/agent-governance/README.md` — 当前进度、下一步最小动作、恢复协议
-4. 若本次迭代属于某条子 agent 线，读对应任务书：
-   `docs/agent-governance/subagents/constraint-line.md`（I-03…I-06）、
-   `docs/agent-governance/subagents/role-line.md`（I-07…I-08）、
-   `docs/agent-governance/subagents/drawing-line.md`（I-11…I-14）
-5. 改约束或做验证时，读对应 playbook：
-   `docs/agent-governance/playbooks/adding-a-constraint.md`（把规则写进代码的完整流程）、
-   `docs/agent-governance/playbooks/verification-discipline.md`（门禁必须证明会红、边界自检、目视复核）
+## 📋 已完成的工作
 
-**迭代收尾**：更新 `docs/agent-governance/README.md` 的迭代表与「当前状态」，并单独更新 `iterations.md`；不更新看板的迭代不算完成。
+### 诊断和规划文档（2026-10-04）
 
-## Skill 与 playbook 的根目录分离（硬约束）
+1. **[REFACTOR-SUMMARY.md](REFACTOR-SUMMARY.md)** - 总纲
+   - 产品定位修正
+   - 模块化重构方案
+   - 4 周实施计划
 
-- `.dsh/skills/` — **只放产品研究 skill**。它会被复制进 Harness 工作区，且加载器**只认带 `stages:` frontmatter 的 skill，不合规项被静默丢弃**。门禁 `researchSkillReachability.test.js` 会断言该目录下每个子目录都是有效产品 skill。
-- `docs/agent-governance/playbooks/` — **开发侧 playbook**（本仓库怎么改、怎么验证）。放错到 `.dsh/skills` 会被静默忽略。
+2. **[docs/refactor-research-tool.md](docs/refactor-research-tool.md)** - 详细方案
+   - 三层架构设计
+   - 模块划分
+   - 成功指标
 
-## 子 agent 派发规则（硬约束）
+3. **[docs/refactor-quick-wins.md](docs/refactor-quick-wins.md)** - 快速改进
+   - 5 个 1-2 天见效的改进
+   - 可立即实施
 
-派发前必须先查**当前存活的子 agent 数量**：
+4. **[docs/refactor-progress.md](docs/refactor-progress.md)** - 进度追踪
+   - Week 1-4 详细计划
+   - 代码行数追踪
+   - 风险和应对
 
-- **存活数 ≥ 2 → 不派发，先等已有子 agent 结束**，结束后重新计数再决定（U-16）。
-- 存活数 ≤ 1 时才可派发，且**一次只派 1 个**。
-- 子 agent 不得执行 git 写操作；分支、提交、推送由 Lead 独占。
-- 子 agent 的写范围必须互不重叠，并在任务书里写明「不得触碰」清单。
+5. **已推送到 GitHub**
+   - 分支: `fix/agent-runtime-reliability`
+   - 远程: `scienceprism`
+   - 最新提交: `1a4fc7e`
 
-## 原治理目标（历史记录：goal-16c676ec）
+## 🏗️ 新的模块架构
 
-把 agent 工作流从「规则写在 prompt 里」改造成「规则写在代码里」：
+```
+apps/frontend/src/modules/
+├── research-workflow/       # 研究流程模块（8 阶段）
+│   ├── ResearchView.tsx
+│   ├── StageNavigation.tsx
+│   └── stages/
+│       ├── DirectionStage.tsx
+│       ├── SearchStage.tsx
+│       └── ... (完整 8 个阶段)
+│
+├── document-editor/         # 文档编辑模块
+│   ├── EditorView.tsx      (< 500 行)
+│   ├── FileTree.tsx        (< 300 行)
+│   ├── CodeEditor.tsx      (< 400 行)
+│   └── useEditorState.ts   (< 200 行)
+│
+├── ai-assistant/            # AI 助手模块
+│   ├── AssistantPanel.tsx
+│   ├── SkillPicker.tsx
+│   └── RunHistory.tsx
+│
+├── compilation/             # 编译模块
+│   ├── CompileButton.tsx
+│   ├── PdfPreview.tsx
+│   └── ErrorList.tsx
+│
+└── evidence-tracking/       # 证据追踪模块
+    ├── EvidenceLedger.tsx
+    └── CitationManager.tsx
+```
 
-1. **约束注册表** — 可执行、可开关、可审计、可测试，替代散落在 prompt / 路由 / 页面里的约束。
-2. **收口 4 处高危绕过** — `transfer` 零能力校验、`plot` 无门禁执行 LLM 生成的 Python、`vision` 未审批写盘、`/api/llm` 裸代理。
-3. **角色注册表** — 8 个角色，逐个写明 authority / 允许能力 / 允许 skill / 禁止行为，并接入 Harness Runtime。
-4. **skill 补齐** — 产品侧研究 skill + 开发侧 playbook。
-5. **文档绘图** — 目标是**复杂矢量插画级**（细胞结构图、架构图、对比图表），不是线段加方框。
+**EditorPage.tsx** 只保留布局和组合逻辑（< 500 行）
 
-## 非目标
+## 📅 4 周实施计划
 
-- 不改产品内 LaTeX 文档插图能力；不做 Skill 市场。`EditorPage.tsx` 按本轮已授权计划分步解耦。
-- 沿用既有视觉风格，按本轮计划简化入口；不另做移动端产品；不推 `origin`（OpenDCAI/OpenPrism）。
-- 不推倒重写现有 16 条约束：先零行为变更包装，再逐条迁移。
+### Week 1: 拆分 EditorPage
+**目标**: EditorPage 从 4899 行 → < 500 行
 
-## 迭代节奏
+- Day 1-2: 文档编辑模块
+- Day 3: AI 助手模块
+- Day 4: 编译模块
+- Day 5: 集成测试
 
-- **1 迭代 = 1 个已提交且已验证的纵向切片**：改动 + 可执行验证证据 + 1 条 commit。
-- 每 **10 迭代 = 1 个 round**：新分支 + 一份前后对比文档。
-- Round 1 = `feat/agent-governance-r1`（迭代 001–010）；Round 2 = `feat/agent-governance-r2`（011–020）；Round 3 = `feat/agent-governance-r3`（021–030）。
-- 每次迭代收尾 `npm run quality` 必须全绿；不绿就不提交。
-- 每轮结束推送 `scienceprism` 并留 PR 给人工审，**不自动合并**。
-  用户已明确要求将当前成果提交主分支，迭代 065 因此已快进并推送到 `scienceprism/main`；后续按用户当次指令处理。
+**验收**:
+- [ ] EditorPage.tsx < 500 行
+- [ ] 5 个独立模块
+- [ ] 所有功能正常
+- [ ] 193 项测试通过
 
-## 文档目录约定
+### Week 2: 完善研究流程
+**目标**: 研究阶段与编辑器深度集成
 
-- `aidoc/` — **科研工具（SciencePrism）产出的文档落地目录**：工具生成的手稿、写作 Brief、报告、图表等。**不是** agent 治理文档的目录。
-- `docs/agent-governance/` — agent 的治理文档：需求、计划、看板、任务书、审计、对比文档。
-- `docs/` — 项目自身文档（ADR、roadmap、约束清单、契约）。
+- 阶段间数据流可视化
+- 研究与写作联动
+- Evidence 追踪完善
+- 阶段完成度显示
 
-## 写入边界（硬约束）
+**验收**:
+- [ ] 阶段间数据流清晰
+- [ ] 研究结果可直接用于写作
+- [ ] Evidence 到文档的追踪可靠
+- [ ] 用户知道下一步该做什么
 
-- 读写与删除**仅限本仓库内**；安装只落本仓库内。
-- 允许：`npm i -D`（配 `npm_config_cache=./.npm-cache`）、`python3 -m venv ./.venv`、解包到 `./tools/`、缓存写 `./.cache/`。
-- 禁止：`brew install`、全局 `npm`/`pip`、写 `~/.dsh`、`~/.codex`、`~/.cache`、`/opt/homebrew`。
-- 读工作区外的文件可以（含 skill 目录）；写与删不行。外部信息走 `web_search` / `web_fetch`。
-- 推送目标只有 `scienceprism`。
-- **用户未明确指示执行时，不得擅自改代码**（U-12）；状态记为「尚未进入执行计划」。
-- **本机 LLM 网关 `127.0.0.1:7864` 与 DSH 会话共享并发**（U-20）：模型调用必须串行、单发，禁止并发压测或批量并行。
-- **迭代交付物必须是项目真实跑出来的文档**（U-21）：工具产出放 `aidoc/`；agent 的治理 md 只作内部过程记录。
+### Week 3: 产品级打磨
+**目标**: 可靠性、性能、用户体验达标
 
-## 历史环境基线与踩坑清单
+- 真实流式输出（< 1s 首 token）
+- 停止按钮 100% 可靠
+- 刷新不丢失状态
+- 自动保存 + 历史版本
+- 性能优化（首屏 < 2s）
 
-- 迭代 001 时，`experimentRunner` 的 4 个测试因 `/usr/bin/sandbox-exec` 返回 exit 71 而失败；这是**历史基线**，不代表当前门禁状态。迭代 065 的 `npm run quality` 已通过 126 项后端测试、类型检查、构建和 6 张图的布局检查。
-- 已实证的替代隔离：**Node 权限模型**（`node --permission --allow-fs-read/write=<workspace>`）在本机可用，实测能拦住越权读 `/etc/hosts`、越权写、`child_process` 与网络；坑是 workspace 必须传**真实路径**（`/tmp` 是 `/private/tmp` 的软链，授权匹配不上）。
-- 本机无 matplotlib / seaborn（产品 `plotService` 因此不可用）；LaTeX 只有 `tectonic`（无 `pdflatex`/`xelatex`/`latexmk`）；无 Java。
-- `.dsh/skills` 是**产品研究 skill 的源目录**，且只认带 `stages:` frontmatter 的 skill；开发侧 skill 不放这里。
-- 前端已有 `react-markdown` + `remark-gfm`；GUI 的 Figure 面板会渲染项目树里的 `.svg`/`.pdf`，所以提交 SVG 即可查看，无需前端改动。
+**验收**:
+- [ ] 核心操作 0 失败
+- [ ] 性能指标达标
+- [ ] 用户体验流畅
+- [ ] 数据不丢失
+
+### Week 4: 测试和文档
+**目标**: 准备发布
+
+- 端到端测试
+- 性能基准测试
+- 用户文档
+- 发布准备
+
+**验收**:
+- [ ] 所有测试通过
+- [ ] 文档完整
+- [ ] 可以给真实用户试用
+
+## 📊 成功指标
+
+### 代码质量
+- EditorPage.tsx: 4899 行 → < 500 行 ⬇️ 90%
+- 模块平均大小: < 800 行
+- 模块间耦合度: 低
+- 测试覆盖: > 80%
+
+### 产品质量
+- 8 阶段流程流畅
+- 停止/刷新/保存 100% 可靠
+- 性能达标（< 2s 首屏）
+- 用户可以完成完整研究流程
+
+### 用户体验
+- 新用户 15 分钟完成第一个阶段
+- 研究数据可追溯
+- 错误处理友好
+- 文档齐全
+
+## 🚀 下一步
+
+### 立即可以开始的工作
+
+**创建模块结构**:
+```bash
+mkdir -p apps/frontend/src/modules/{document-editor,ai-assistant,compilation,evidence-tracking,research-workflow}
+```
+
+**第一步：拆分文档编辑模块**（Day 1，4-6 小时）:
+1. 提取文件树 → `FileTree.tsx`
+2. 提取 CodeMirror → `CodeEditor.tsx`
+3. 提取状态管理 → `useEditorState.ts`
+4. 提取文件操作 → `fileCommands.ts`
+5. 更新 EditorPage 导入
+
+**预计产出**:
+- EditorPage 从 4899 行 → ~3400 行
+- 4 个新模块文件（各 < 300 行）
+
+## 📝 开发约定
+
+### 写入边界
+- **允许修改**: `apps/frontend/src/` 下所有文件
+- **允许新建**: `apps/frontend/src/modules/` 下所有模块
+- **保留不动**: `.dsh/skills/` 已有 Skill（先兼容）
+- **谨慎修改**: 后端 `apps/backend/src/` （改前端为主）
+
+### 提取原则
+1. **单一职责** - 每个模块只做一件事
+2. **清晰接口** - 通过 props 传递数据
+3. **独立测试** - 每个模块可以独立测试
+4. **渐进迁移** - 先提取，再优化，保证功能不变
+5. **保留兼容** - EditorPage 暂时保留旧代码，稳定后再删除
+
+### 验收标准
+每次提取后必须：
+- [ ] 所有功能正常工作
+- [ ] 测试通过（`npm test`）
+- [ ] 类型检查通过（`npm run typecheck`）
+- [ ] 构建成功（`npm run build`）
+- [ ] 性能不退化
+
+### Git 工作流
+```bash
+# 每完成一个模块提交一次
+git add apps/frontend/src/modules/document-editor/
+git commit -m "refactor(editor): extract FileTree module
+
+- Extract file tree rendering and operations
+- EditorPage: 4899 → 4100 lines
+- All features work, tests pass"
+
+# Week 1 结束推送
+git push scienceprism fix/agent-runtime-reliability
+```
+
+## ⚠️ 风险和应对
+
+| 风险 | 应对措施 |
+|------|---------|
+| 模块间依赖复杂 | 先提取纯展示组件，再处理状态 |
+| 状态管理混乱 | 使用 Context 或状态提升 |
+| 测试失败 | 每次提取后立即运行测试 |
+| 协作功能冲突 | Y.js 保持独立，后续优化 |
+| 性能退化 | 保持代码结构，不做提前优化 |
+
+## 📚 参考文档
+
+- [REFACTOR-SUMMARY.md](REFACTOR-SUMMARY.md) - 总体计划和决策
+- [docs/refactor-research-tool.md](docs/refactor-research-tool.md) - 详细技术方案
+- [docs/refactor-progress.md](docs/refactor-progress.md) - 进度追踪
+- [docs/refactor-quick-wins.md](docs/refactor-quick-wins.md) - 快速改进方案
+
+## 🎯 当前状态
+
+**阶段**: 规划完成，准备开始实施  
+**分支**: fix/agent-runtime-reliability  
+**最新提交**: 1a4fc7e (已推送)  
+**下一步**: 创建模块目录，开始拆分文档编辑模块
+
+---
+
+**最后更新**: 2026-10-04  
+**方向确认**: 保留所有功能，模块化重构，4 周完成  
+**GitHub**: https://github.com/icey-hub/scienceprism/tree/fix/agent-runtime-reliability
