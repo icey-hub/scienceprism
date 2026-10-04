@@ -76,6 +76,33 @@
 | 018 | 加 | **角色接入 Harness Runtime**（目标 ② 收尾）：`createHarnessRun` 接受 `request.role`，用 `resolveRoleCapabilities` 把项目授予与角色允许**取交集**得到有效能力；命名角色**只能删能力、不能加**；**未知角色 fail-closed**（400 `UNKNOWN_ROLE`），不再"静默无约束运行"；Run 记录 `role` 与 `roleAuthority`，被删掉的能力进入 `capabilities.denied` **可见而非静默**。不传角色时行为完全不变 | `npm run quality` exit 0（76 项，73 → 76）；新增 3 项测试：① 项目授予 `project.read`+`patch.propose`+`research.search` 时，`paper-reviewer` 角色只拿到 `project.read`，且 `patch.propose` 出现在 `denied`；② 未知角色抛 `UNKNOWN_ROLE`；③ 不传角色时授予保持 `project.read`+`patch.propose` 不变 |
 | 019 | 减 | **删掉 prompt 里的假约束，改用角色在代码里强制**（U-04「约束以代码形式加而不是加在 agent 本身」）。① **研究阶段**：prompt 里那句 "Provide analysis and structured suggestions only" **已删除**——因为该阶段现在真的以 `research-stage-assistant` 角色运行（只持 `project.read`），**结构上无法提 Patch**，重述即为冗余。② **前端三个只读任务**（`peer_review` / `consistency_check` / `missing_citations`）此前 prompt 写着"不要提 patch"却走 `mode:'tools'` 并持有 `patch.propose`——现在它们传 `role: 'paper-reviewer'`，后端把能力收窄到 `project.read`，**那句话第一次成为真的**。③ 打通 `role` 透传链：`client.ts` → `routes/agent.js` → `agentRuntime` → `runHarnessRequest` → `createHarnessRun` | `npm run quality` exit 0（78 项，76 → 78，含**前端 tsc 类型检查**）；新增/扩展 3 项测试：① 研究阶段的 Harness 请求携带 `role=research-stage-assistant` 且 `capabilities=['project.read']`；② prompt 断言**不再包含**那句被角色取代的文案；③ `POST /api/agent/run` 传未知角色时返回 **400 且响应体含角色名**——只有路由真的转发了 role 才会如此，以此证明透传链而非 prompt 文案 |
 
+## 迭代 090：统一助手执行与版本绑定应用（2026-10-03）
+
+**目标**：完成首个可用里程碑，统一普通助手任务生命周期，支持上下文、停止、恢复与重试；修改提案关联文稿版本，经统一应用接口审阅，拒绝覆盖用户的新修改。
+
+**实现**：
+- 后端：`assistantService` 串行化启动并检查冲突；Context Pack 存储历史并投影 manifest；生命周期恢复 `cancelled`/`paused`，编辑器 Run 保留完整记录；版本绑定应用全量预检、事务写入与自动恢复；保存与应用共享项目锁。
+- 前端：`useAssistantRun` 轮询持久 Run，启动前准备版本，明确停止；`useDocumentDrafts` 串行化保存与版本获取；`useChangeReview` 派生待审阅项，接受使用统一 apply；`applyReviewedChanges` 预检未保存草稿并刷新受影响文件。
+- 测试：agentService 14 项、harnessRuntime 26 项、patchApplication 14 项，覆盖生命周期、Context、应用预检、失败恢复、协作与保存互斥。
+
+**验证**：
+```bash
+node --test apps/backend/test/{agentService,harnessRuntime,patchApplication}.test.js
+# 54/54 通过
+npm run quality
+# 193/193 后端测试、类型检查、前端构建、6 图 0 缺陷，exit 0
+```
+
+**遗留**：浏览器/API 验收未执行，实际模型输出质量未评估；Skill 目录未迁移，默认导航未收缩，编译/引用未闭环，旧路径未删除；这些属于后续 T06–T12。
+
+**文件**：修改 19 个文件，新增 9 个文件（assistantService、assistantReply、fileVersions、patchApplication 及其测试、前端 useAssistantRun、useDocumentDrafts、useChangeReview、AssistantPanel）；未触碰 `.dsh/skills/`、研究阶段、实验/绘图/OCR 和用户数据。
+
+**决定**：复用 Harness Run、事件、decision、apply；Context Pack 存储历史并投影元数据；版本绑定应用预检与事务恢复；草稿与应用互斥；串行启动与冲突检测。
+
+**状态**：里程碑完成，待提交并规划后续三次工作台改进迭代。
+
+---
+
 ## Round 3 节奏映射（迭代 021–030）
 
 | # | 拍型 | 内容 | 状态 |

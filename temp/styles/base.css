@@ -1,0 +1,181 @@
+/* ==========================================================================
+   base.css — reset、排版工具类、材料层、滚动边缘
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { height: 100%; -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font-ui);
+  font-optical-sizing: var(--font-optical);
+  font-size: var(--t-body-size);
+  line-height: var(--t-body-lh);
+  letter-spacing: var(--t-body-tr);
+  font-weight: var(--w-regular);
+  color: var(--text);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+/* 底色是一层固定的极淡折射，不做满屏动画（降低动效偏好下也不动） */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--bg-layer);
+  pointer-events: none;
+  z-index: -2;
+}
+
+h1, h2, h3, h4, p, figure, dl, dd, dt { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 2px; }
+img, svg { display: block; }
+code, pre, kbd { font-family: var(--font-mono); }
+::selection { background: var(--accent-soft); }
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-xs);
+}
+
+.skip-link {
+  position: absolute; left: var(--s4); top: -60px; z-index: 200;
+  padding: 8px 14px; border-radius: var(--r-sm);
+  background: var(--mat-solid); box-shadow: var(--shadow-2);
+  color: var(--text); font-size: var(--t-callout-size);
+  transition: top var(--dur-hover) var(--ease-out);
+}
+.skip-link:focus { top: var(--s4); }
+
+/* --- 滚动条：细、低对比，悬停才显形 ----------------------------------- */
+.scroll { overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.scroll::-webkit-scrollbar-thumb {
+  background: transparent; border-radius: var(--r-full);
+  border: 3px solid transparent; background-clip: content-box;
+}
+.scroll:hover::-webkit-scrollbar-thumb { background: var(--mat-fill-2); background-clip: content-box; }
+.scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* --- 材料层：模糊 + 半透明 + 上沿被光打亮的一线 ----------------------- */
+.mat-rail {
+  background: var(--mat-rail);
+  -webkit-backdrop-filter: blur(var(--mat-rail-blur)) saturate(180%);
+  backdrop-filter: blur(var(--mat-rail-blur)) saturate(180%);
+}
+.mat-chrome {
+  background: var(--mat-chrome);
+  -webkit-backdrop-filter: blur(var(--mat-chrome-blur)) saturate(180%);
+  backdrop-filter: blur(var(--mat-chrome-blur)) saturate(180%);
+}
+.mat-panel {
+  background: var(--mat-panel);
+  -webkit-backdrop-filter: blur(var(--mat-panel-blur)) saturate(160%);
+  backdrop-filter: blur(var(--mat-panel-blur)) saturate(160%);
+}
+.mat-sheet {
+  background: var(--mat-sheet);
+  -webkit-backdrop-filter: blur(var(--mat-sheet-blur)) saturate(180%);
+  backdrop-filter: blur(var(--mat-sheet-blur)) saturate(180%);
+}
+.mat-popover {
+  background: var(--mat-popover);
+  -webkit-backdrop-filter: blur(var(--mat-popover-blur)) saturate(180%);
+  backdrop-filter: blur(var(--mat-popover-blur)) saturate(180%);
+}
+.mat-solid { background: var(--mat-solid); }
+
+/* 材料上的文字要保持鲜活：字重抬一档、字距微加，而不是用灰色 */
+.vibrant { color: var(--text); font-weight: var(--w-medium); letter-spacing: 0.004em; }
+
+/* 浮层压在内容上时，内容从边缘淡出，而不是被一条 1px 分割线切开 */
+.edge-fade-top {
+  position: sticky; top: 0; height: 10px; margin-bottom: -10px; z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--bg-base), transparent);
+  opacity: 0.9;
+}
+
+/* --- 排版工具类 -------------------------------------------------------- */
+.t-display { font-size: var(--t-display-size); line-height: var(--t-display-lh); letter-spacing: var(--t-display-tr); font-weight: var(--w-semibold); }
+.t-title1  { font-size: var(--t-title1-size);  line-height: var(--t-title1-lh);  letter-spacing: var(--t-title1-tr);  font-weight: var(--w-semibold); }
+.t-title2  { font-size: var(--t-title2-size);  line-height: var(--t-title2-lh);  letter-spacing: var(--t-title2-tr);  font-weight: var(--w-semibold); }
+.t-title3  { font-size: var(--t-title3-size);  line-height: var(--t-title3-lh);  letter-spacing: var(--t-title3-tr);  font-weight: var(--w-semibold); }
+.t-headline{ font-size: var(--t-headline-size);line-height: var(--t-headline-lh);letter-spacing: var(--t-headline-tr);font-weight: var(--w-semibold); }
+.t-body    { font-size: var(--t-body-size);    line-height: var(--t-body-lh);    letter-spacing: var(--t-body-tr); }
+.t-callout { font-size: var(--t-callout-size); line-height: var(--t-callout-lh); letter-spacing: var(--t-callout-tr); }
+.t-caption { font-size: var(--t-caption-size); line-height: var(--t-caption-lh); letter-spacing: var(--t-caption-tr); }
+.t-overline{
+  font-size: var(--t-overline-size); line-height: var(--t-overline-lh);
+  letter-spacing: var(--t-overline-tr); text-transform: uppercase;
+  font-weight: var(--w-semibold); color: var(--text-3);
+}
+.t-muted { color: var(--text-2); }
+.t-dim { color: var(--text-3); }
+.t-mono { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0; }
+.t-num { font-variant-numeric: tabular-nums; }
+
+/* --- 布局工具 ---------------------------------------------------------- */
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.between { justify-content: space-between; }
+.gap1 { gap: var(--s1); } .gap2 { gap: var(--s2); } .gap3 { gap: var(--s3); }
+.gap4 { gap: var(--s4); } .gap5 { gap: var(--s5); } .gap6 { gap: var(--s6); }
+.wrap { flex-wrap: wrap; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.clamp3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hidden { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* --- 应用骨架 ---------------------------------------------------------- */
+.app { height: 100%; }
+.layer-root { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
+.layer-root > * { pointer-events: auto; }
+
+/* --- 视图切换：克制的交叉淡入 + 6px 上浮，不做整页横推 ----------------- */
+.view-enter { animation: viewEnter 260ms var(--ease-out) both; }
+@keyframes viewEnter {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* --- 降低动效：只留淡入，去掉位移与弹性 ------------------------------- */
+:root[data-motion="reduced"] .view-enter { animation: viewFade 180ms linear both; }
+@keyframes viewFade { from { opacity: 0 } to { opacity: 1 } }
+:root[data-motion="reduced"] * { animation-duration: 1ms !important; }
+:root[data-motion="reduced"] .spin,
+:root[data-motion="reduced"] .pulse-dot { animation: none !important; }
+
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.pulse-dot { animation: pulseDot 1.4s ease-in-out infinite; }
+@keyframes pulseDot { 0%, 100% { opacity: .45; transform: scale(.85) } 50% { opacity: 1; transform: scale(1) } }
+
+/* 尊重「降低透明度」：去掉所有 backdrop-filter 的视觉依赖 */
+:root[data-transparency="reduced"] .mat-rail,
+:root[data-transparency="reduced"] .mat-chrome,
+:root[data-transparency="reduced"] .mat-panel,
+:root[data-transparency="reduced"] .mat-sheet,
+:root[data-transparency="reduced"] .mat-popover,
+:root[data-transparency="reduced"] .sheet,
+:root[data-transparency="reduced"] .popover,
+:root[data-transparency="reduced"] .palette,
+:root[data-transparency="reduced"] .toast,
+:root[data-transparency="reduced"] .md-glass {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}

@@ -1,0 +1,198 @@
+/* ==========================================================================
+   tokens.css — 设计变量（单一事实源）
+   Apple 侧的两条硬规则在这里落地：
+   1) 字体用系统栈（自带 optical sizing / tracking 表），不引外部字体；
+   2) 字号、字距、行高三者成组定义，字距随字号变化，绝不一个值用到底。
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* --- 字体 ------------------------------------------------------------- */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+             "Hiragino Sans GB", "Microsoft YaHei", system-ui, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --font-optical: auto;
+
+  /* --- 排版（size / line-height / tracking 成组） ------------------------ */
+  --t-display-size: 34px;  --t-display-lh: 1.06; --t-display-tr: -0.024em;
+  --t-title1-size: 26px;   --t-title1-lh: 1.14;  --t-title1-tr: -0.021em;
+  --t-title2-size: 20px;   --t-title2-lh: 1.22;  --t-title2-tr: -0.015em;
+  --t-title3-size: 17px;   --t-title3-lh: 1.28;  --t-title3-tr: -0.011em;
+  --t-headline-size: 15px; --t-headline-lh: 1.34; --t-headline-tr: -0.006em;
+  --t-body-size: 14.5px;   --t-body-lh: 1.5;     --t-body-tr: -0.002em;
+  --t-callout-size: 13px;  --t-callout-lh: 1.46; --t-callout-tr: 0;
+  --t-caption-size: 11.5px; --t-caption-lh: 1.36; --t-caption-tr: 0.006em;
+  --t-overline-size: 10.5px; --t-overline-lh: 1.2; --t-overline-tr: 0.09em;
+
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 700;
+
+  /* --- 间距（用 rem 以跟随用户字号设置） -------------------------------- */
+  --s1: 0.25rem; --s2: 0.5rem;  --s3: 0.75rem; --s4: 1rem;
+  --s5: 1.25rem; --s6: 1.5rem;  --s7: 2rem;    --s8: 2.5rem;
+
+  /* --- 圆角（同心：外大内小） ------------------------------------------- */
+  --r-xs: 6px; --r-sm: 10px; --r-md: 14px; --r-lg: 20px; --r-xl: 28px; --r-full: 999px;
+
+  /* --- 品牌：棱镜青 + 一道只在标记上出现的光谱 ------------------------- */
+  --accent: #0a7f72;
+  --accent-strong: #076257;
+  --accent-soft: rgba(10, 127, 114, 0.12);
+  --accent-ink: #ffffff;
+  --prism: linear-gradient(100deg, #ff6b5e, #ffb340, #35c98a, #3aa8ff, #8f6bff);
+  --prism-soft: linear-gradient(100deg, rgba(255,107,94,.9), rgba(255,179,64,.9),
+                                rgba(53,201,138,.9), rgba(58,168,255,.9), rgba(143,107,255,.9));
+
+  /* --- 语义色 ----------------------------------------------------------- */
+  --ok: #1f8a4c;      --ok-soft: rgba(31, 138, 76, 0.12);
+  --warn: #a86400;    --warn-soft: rgba(168, 100, 0, 0.13);
+  --danger: #c3362a;  --danger-soft: rgba(195, 54, 42, 0.12);
+  --info: #2b6cb0;    --info-soft: rgba(43, 108, 176, 0.12);
+
+  /* --- 文本 ------------------------------------------------------------- */
+  --text: #0f1418;
+  --text-2: #4c5661;
+  --text-3: #7d8792;
+  --text-inverse: #ffffff;
+
+  /* --- 分隔线（不用纯灰实线，用极低对比的墨色） ------------------------- */
+  --line: rgba(15, 20, 24, 0.09);
+  --line-strong: rgba(15, 20, 24, 0.17);
+
+  /* --- 材料：越大的面越厚（更强模糊 + 更深阴影） ------------------------ */
+  --mat-rail: rgba(244, 246, 249, 0.72);
+  --mat-rail-blur: 28px;
+  --mat-chrome: rgba(250, 251, 253, 0.72);
+  --mat-chrome-blur: 24px;
+  --mat-panel: rgba(255, 255, 255, 0.86);
+  --mat-panel-blur: 18px;
+  --mat-solid: #ffffff;
+  --mat-sheet: rgba(250, 251, 253, 0.82);
+  --mat-sheet-blur: 40px;
+  --mat-popover: rgba(252, 253, 255, 0.76);
+  --mat-popover-blur: 30px;
+  --mat-scrim: rgba(10, 14, 20, 0.32);
+  --mat-fill: rgba(120, 132, 148, 0.12);
+  --mat-fill-2: rgba(120, 132, 148, 0.19);
+  --mat-hover: rgba(15, 20, 24, 0.045);
+  --mat-press: rgba(15, 20, 24, 0.08);
+  --edge-light: rgba(255, 255, 255, 0.65);   /* 材料上沿被光打亮的一线 */
+  --edge-light-strong: rgba(255, 255, 255, 0.9);
+
+  /* --- 阴影：分层，越靠前越深 ------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 0 0 0.5px rgba(16, 24, 40, 0.05);
+  --shadow-2: 0 6px 18px -8px rgba(16, 24, 40, 0.20), 0 0 0 0.5px rgba(16, 24, 40, 0.06);
+  --shadow-3: 0 22px 54px -22px rgba(16, 24, 40, 0.34), 0 0 0 0.5px rgba(16, 24, 40, 0.06);
+  --shadow-4: 0 44px 96px -34px rgba(16, 24, 40, 0.46), 0 0 0 0.5px rgba(16, 24, 40, 0.08);
+  --focus-ring: 0 0 0 3.5px rgba(10, 127, 114, 0.32);
+
+  /* --- 底色：一层极淡的棱镜折射，不做满屏动效 --------------------------- */
+  --bg-base: #eceef2;
+  --bg-layer:
+    radial-gradient(1100px 620px at 8% -12%, rgba(10, 127, 114, 0.10), transparent 62%),
+    radial-gradient(900px 520px at 92% -6%, rgba(90, 122, 255, 0.10), transparent 58%),
+    linear-gradient(180deg, #f7f8fa 0%, #eceef2 100%);
+
+  /* --- 尺寸 ------------------------------------------------------------- */
+  --rail-w: 244px;
+  --chrome-h: 52px;
+
+  /* --- 动效：CSS 只负责 hover/press 这类无手势过渡，手势一律走 JS 弹簧 -- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-press: 110ms;
+  --dur-hover: 150ms;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --accent: #34d3bf;
+  --accent-strong: #6ee7d6;
+  --accent-soft: rgba(52, 211, 191, 0.16);
+  --accent-ink: #06231f;
+
+  --ok: #4ade80;      --ok-soft: rgba(74, 222, 128, 0.16);
+  --warn: #fbbf24;    --warn-soft: rgba(251, 191, 36, 0.16);
+  --danger: #ff6b5e;  --danger-soft: rgba(255, 107, 94, 0.16);
+  --info: #6ab3ff;    --info-soft: rgba(106, 179, 255, 0.16);
+
+  --text: #f2f4f7;
+  --text-2: #b3bcc6;
+  --text-3: #858f9a;
+  --text-inverse: #0f1418;
+
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: rgba(255, 255, 255, 0.20);
+
+  --mat-rail: rgba(28, 32, 38, 0.70);
+  --mat-chrome: rgba(24, 27, 32, 0.70);
+  --mat-panel: rgba(32, 36, 42, 0.80);
+  --mat-solid: #22262c;
+  --mat-sheet: rgba(30, 34, 40, 0.86);
+  --mat-popover: rgba(34, 38, 44, 0.76);
+  --mat-scrim: rgba(0, 0, 0, 0.52);
+  --mat-fill: rgba(255, 255, 255, 0.10);
+  --mat-fill-2: rgba(255, 255, 255, 0.16);
+  --mat-hover: rgba(255, 255, 255, 0.07);
+  --mat-press: rgba(255, 255, 255, 0.12);
+  --edge-light: rgba(255, 255, 255, 0.14);
+  --edge-light-strong: rgba(255, 255, 255, 0.24);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --shadow-2: 0 8px 22px -10px rgba(0, 0, 0, 0.7), 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --shadow-3: 0 26px 60px -24px rgba(0, 0, 0, 0.8), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  --shadow-4: 0 48px 104px -36px rgba(0, 0, 0, 0.9), 0 0 0 0.5px rgba(255, 255, 255, 0.10);
+  --focus-ring: 0 0 0 3.5px rgba(52, 211, 191, 0.36);
+
+  --bg-base: #14171b;
+  --bg-layer:
+    radial-gradient(1100px 620px at 6% -12%, rgba(52, 211, 191, 0.10), transparent 62%),
+    radial-gradient(900px 520px at 94% -8%, rgba(90, 122, 255, 0.12), transparent 58%),
+    linear-gradient(180deg, #171b20 0%, #12151a 100%);
+}
+
+/* --- 偏好：降低透明度 → 材料变实心，去掉模糊 ------------------------- */
+:root[data-transparency="reduced"] {
+  --mat-rail: #f2f4f7;
+  --mat-chrome: #f8f9fb;
+  --mat-panel: #ffffff;
+  --mat-sheet: #fbfcfd;
+  --mat-popover: #ffffff;
+  --mat-rail-blur: 0px; --mat-chrome-blur: 0px; --mat-panel-blur: 0px;
+  --mat-sheet-blur: 0px; --mat-popover-blur: 0px;
+  --mat-scrim: rgba(10, 14, 20, 0.5);
+}
+:root[data-theme="dark"][data-transparency="reduced"] {
+  --mat-rail: #1c2026;
+  --mat-chrome: #191d22;
+  --mat-panel: #23272d;
+  --mat-sheet: #20242a;
+  --mat-popover: #23272d;
+}
+
+/* --- 偏好：提高对比 → 实心底 + 明确的边框 ---------------------------- */
+:root[data-contrast="more"] {
+  --mat-rail: #ffffff;
+  --mat-chrome: #ffffff;
+  --mat-panel: #ffffff;
+  --mat-sheet: #ffffff;
+  --mat-popover: #ffffff;
+  --line: rgba(0, 0, 0, 0.42);
+  --line-strong: rgba(0, 0, 0, 0.68);
+  --text-2: #333b44;
+  --text-3: #4a535d;
+}
+:root[data-theme="dark"][data-contrast="more"] {
+  --mat-rail: #15181c;
+  --mat-chrome: #15181c;
+  --mat-panel: #1c2025;
+  --mat-sheet: #1c2025;
+  --mat-popover: #1c2025;
+  --line: rgba(255, 255, 255, 0.5);
+  --line-strong: rgba(255, 255, 255, 0.78);
+  --text-2: #d8dee5;
+  --text-3: #b9c1ca;
+}

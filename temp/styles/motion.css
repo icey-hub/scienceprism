@@ -1,0 +1,228 @@
+/* ==========================================================================
+   motion.css — 招牌特效的样式层
+   ========================================================================== */
+
+/* ---------------------------------------------------------- 环境光斑 -- */
+/* 极慢的折射光斑：让静止画面也是「活」的。降低动效下完全停住。 */
+.ambient { position: fixed; inset: -10%; z-index: -1; pointer-events: none; overflow: hidden; }
+.ambient i {
+  position: absolute; display: block; border-radius: 50%;
+  filter: blur(70px); opacity: .5;
+  will-change: transform;
+}
+.ambient i:nth-child(1) { width: 46vw; height: 46vw; left: -6vw; top: -10vw; background: radial-gradient(circle, rgba(10,127,114,.55), transparent 70%); animation: drift1 34s ease-in-out infinite; }
+.ambient i:nth-child(2) { width: 38vw; height: 38vw; right: -4vw; top: 2vw; background: radial-gradient(circle, rgba(90,122,255,.45), transparent 70%); animation: drift2 42s ease-in-out infinite; }
+.ambient i:nth-child(3) { width: 34vw; height: 34vw; left: 34vw; bottom: -14vw; background: radial-gradient(circle, rgba(255,150,90,.38), transparent 70%); animation: drift3 50s ease-in-out infinite; }
+:root[data-theme="dark"] .ambient i { opacity: .42; }
+@keyframes drift1 { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(6vw,5vw,0) scale(1.12); } }
+@keyframes drift2 { 0%,100% { transform: translate3d(0,0,0) scale(1.05); } 50% { transform: translate3d(-5vw,7vw,0) scale(0.95); } }
+@keyframes drift3 { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(4vw,-6vw,0) scale(1.1); } }
+/* Apple 的提醒：慢速循环会让人不适，所以「降低动效」下必须停 */
+:root[data-motion="reduced"] .ambient i { animation: none !important; }
+
+/* ------------------------------------------------------------ 英雄过渡 -- */
+.hero-clone {
+  position: fixed; left: 0; top: 0; z-index: 200;
+  margin: 0; transform-origin: 0 0;
+  overflow: hidden; pointer-events: none;
+  box-shadow: var(--shadow-4);
+  background: var(--mat-solid);
+}
+.hero-clone.is-contained { position: absolute; z-index: 40; }
+/* 克隆体逐帧被弹簧驱动，任何 CSS transition 都会打架 */
+.hero-clone, .hero-clone * { transition: none !important; }
+
+/* --------------------------------------------------------- 橡皮筋滚动 -- */
+.elastic-inner { will-change: transform; }
+
+/* ------------------------------------------------------------ 动态岛 -- */
+.island {
+  display: inline-flex; align-items: center;
+  height: 30px; padding: 0 12px;
+  border-radius: var(--r-full);
+  background: var(--mat-fill);
+  color: var(--text);
+  overflow: hidden; white-space: nowrap;
+  font-size: var(--t-caption-size); font-weight: var(--w-medium);
+  transition: background 260ms var(--ease-out), color 260ms var(--ease-out);
+  will-change: width;
+}
+.island-body { display: inline-flex; align-items: center; gap: 7px; }
+.island[data-tone="busy"] { background: var(--accent-soft); color: var(--accent); }
+.island[data-tone="ok"] { background: var(--ok-soft); color: var(--ok); }
+.island[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); }
+
+/* ------------------------------------------------------- 液态玻璃高光 -- */
+.specular { position: relative; }
+.specular::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; z-index: 3;
+  background:
+    radial-gradient(200px circle at var(--sx, 50%) var(--sy, 0%),
+      rgba(255, 255, 255, .62), rgba(255, 255, 255, .16) 42%, rgba(255, 255, 255, 0) 68%);
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+}
+.specular:hover::after, .specular.is-lit::after { opacity: 1; }
+:root[data-theme="dark"] .specular::after {
+  background: radial-gradient(200px circle at var(--sx, 50%) var(--sy, 0%),
+    rgba(255, 255, 255, .20), rgba(255, 255, 255, .06) 42%, rgba(255, 255, 255, 0) 68%);
+}
+
+/* 一次性扫光 */
+.sheen-host { position: relative; overflow: hidden; }
+.sheen-host::before {
+  content: ""; position: absolute; top: -20%; bottom: -20%; left: 0; width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .72), transparent);
+  transform: translateX(-140%) skewX(-18deg);
+  opacity: 0; pointer-events: none; z-index: 4;
+}
+.sheen-host.is-sheen::before { animation: sheen 1000ms var(--ease-out) 1; }
+@keyframes sheen {
+  0% { opacity: 0; transform: translateX(-140%) skewX(-18deg); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(320%) skewX(-18deg); }
+}
+
+/* ---------------------------------------------------------- 3D 视差 -- */
+.tilts { transform-style: preserve-3d; will-change: transform; }
+.tilts.specular::after { transform: translate3d(var(--tilt-x, 0), var(--tilt-y, 0), 0); }
+
+/* ========================================================== 特效巡演页 == */
+.mo-toolbar {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--mat-panel);
+  box-shadow: var(--shadow-1);
+  border: 0.5px solid var(--edge-light);
+}
+.mo-grid { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); align-items: start; }
+@media (max-width: 940px) { .mo-grid { grid-template-columns: 1fr; } }
+
+.mo-card {
+  border-radius: var(--r-lg);
+  background: var(--mat-panel);
+  -webkit-backdrop-filter: blur(var(--mat-panel-blur)) saturate(160%);
+  backdrop-filter: blur(var(--mat-panel-blur)) saturate(160%);
+  box-shadow: var(--shadow-2);
+  border: 0.5px solid var(--edge-light);
+  overflow: hidden;
+}
+.mo-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s3); padding: var(--s4) var(--s4) var(--s3); }
+.mo-head h3 { margin-top: 2px; }
+.mo-head p { color: var(--text-2); font-size: var(--t-caption-size); margin-top: 3px; max-width: 46ch; }
+.mo-stage {
+  position: relative; height: 210px; margin: 0 var(--s4) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--mat-fill);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  overflow: hidden;
+  touch-action: none;
+}
+.mo-stage.tall { height: 250px; }
+.mo-stage .mo-hint {
+  position: absolute; left: 12px; bottom: 10px; z-index: 5;
+  color: var(--text-3); font-size: var(--t-caption-size);
+}
+
+/* 英雄过渡演示 */
+.mo-mini-card {
+  position: absolute; left: 16px; top: 62px; width: 152px; height: 86px;
+  border-radius: var(--r-sm); background: var(--mat-solid);
+  box-shadow: var(--shadow-2); border: 0.5px solid var(--line);
+  padding: 11px 12px; overflow: hidden; text-align: left;
+}
+.mo-mini-card .pp-kicker { display: block; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); font-weight: var(--w-semibold); margin-bottom: 5px; }
+.mo-mini-card strong { display: block; font-size: 12.5px; line-height: 1.32; letter-spacing: -0.01em; }
+.mo-mini-target {
+  position: absolute; left: 16px; right: 16px; top: 18px; height: 46px;
+  border-radius: var(--r-md); background: var(--accent-soft);
+  display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  color: var(--accent); font-weight: var(--w-semibold); font-size: var(--t-callout-size);
+}
+
+/* 迷你抽屉 */
+.mo-sheet {
+  position: absolute; left: 12px; right: 12px; bottom: 0; height: 132px;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--mat-solid); box-shadow: var(--shadow-3);
+  padding: 10px 14px; will-change: transform;
+}
+.mo-sheet .mo-grab { width: 36px; height: 5px; border-radius: 3px; background: var(--mat-fill-2); margin: 0 auto 8px; cursor: grab; }
+.mo-sheet p { font-size: var(--t-caption-size); color: var(--text-2); }
+
+/* 迷你滚动区 */
+.mo-scroll {
+  position: absolute; inset: 12px; border-radius: var(--r-sm);
+  background: var(--mat-solid); box-shadow: inset 0 0 0 0.5px var(--line);
+  overflow: auto; padding: 8px 12px;
+}
+.mo-scroll .mo-line { height: 26px; border-radius: 6px; background: var(--mat-fill); margin-bottom: 6px; }
+
+/* 迷你玻璃板 */
+.mo-glass {
+  position: absolute; inset: 16px; border-radius: var(--r-md);
+  display: grid; place-items: center;
+  color: var(--text); font-weight: var(--w-semibold); font-size: var(--t-callout-size);
+}
+.mo-glass .mo-glass-bg { position: absolute; inset: 0; border-radius: inherit; background: var(--prism-soft); }
+.mo-glass .mo-glass-mat { position: absolute; inset: 0; border-radius: inherit;
+  background: var(--mat-chrome);
+  -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+  border: 0.5px solid var(--edge-light-strong);
+}
+.mo-glass span { position: relative; z-index: 2; }
+
+/* 迷你列表 */
+.mo-list { position: absolute; inset: 14px; display: flex; flex-direction: column; gap: 7px; }
+.mo-list .row-item {
+  background: var(--mat-solid); box-shadow: var(--shadow-1);
+  border: 0.5px solid var(--line); cursor: grab; touch-action: none;
+  padding: 9px 12px; border-radius: var(--r-sm);
+}
+.mo-list .row-item.is-lifted { box-shadow: var(--shadow-3); z-index: 20; background: var(--mat-solid); border-color: var(--accent); }
+
+/* 挤压 / 拉伸演示的落点 */
+.mo-pad { position: absolute; left: 50%; bottom: 18px; width: 120px; height: 8px; margin-left: -60px; border-radius: 4px; background: var(--mat-fill-2); }
+.mo-throw-line { position: absolute; left: 18px; right: 18px; top: 50%; height: 1px; background: var(--line); }
+.mo-drop { position: absolute; left: 50%; top: 92px; width: 64px; height: 64px; margin-left: -32px; will-change: transform; }
+.mo-drop .play-token { left: 0; top: 0; }
+.island .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; display: inline-block; }
+.island .spin { display: inline-block; animation: spin 900ms linear infinite; }
+
+/* ---------------------------------------------------------- 照片缩放 -- */
+/* 点一个小图 → 它自己长成一块大面板；关闭时沿原路缩回原处（进入/退出同一条路径）。 */
+.zoom-wrap { position: fixed; inset: 0; }
+.zoom-panel {
+  position: fixed; overflow: hidden;
+  background: var(--mat-solid);
+  box-shadow: var(--shadow-4);
+  will-change: transform, width, height, top, left;
+}
+.zoom-panel .paper-page { width: 100%; height: 100%; aspect-ratio: auto; box-shadow: none; }
+.paper-page { cursor: zoom-in; }
+
+/* 抽屉沿运动方向拉伸：固定边在原点，材料才会「被拉长」而不是整体平移 */
+.sheet-wrap.bottom .sheet { transform-origin: center bottom; }
+.sheet-wrap.right .sheet { transform-origin: right center; }
+.sheet-wrap.left .sheet { transform-origin: left center; }
+
+/* 说明条 */
+.notice {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: 18px; z-index: 130;
+  display: flex; align-items: center; gap: var(--s3);
+  max-width: min(760px, calc(100vw - 32px));
+  padding: 10px 12px 10px 16px;
+  border-radius: var(--r-lg);
+  background: var(--mat-sheet);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: var(--shadow-3);
+  border: 0.5px solid var(--edge-light-strong);
+}
+.notice p { font-size: var(--t-caption-size); color: var(--text-2); }
+.notice strong { font-size: var(--t-callout-size); }
+/* 有说明条时把提示条抬起来，别叠在一起 */
+:root[data-notice="on"] .toast-root { bottom: 82px; }
