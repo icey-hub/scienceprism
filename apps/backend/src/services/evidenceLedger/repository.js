@@ -54,7 +54,7 @@ function migrateLedger(value, projectId) {
     schemaVersion: 1,
     projectId,
     version: Number.isInteger(input.version) && input.version > 0 ? input.version : 1,
-    entries: entries.map((entry) => normalizeEvidenceRecord(entry, { now: timestamp })),
+    entries: entries.map((entry) => normalizeEvidenceRecord(entry, { now: entry?.updatedAt || timestamp })),
     relations: normalizedRelations,
     updatedAt: timestamp
   };

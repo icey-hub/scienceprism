@@ -106,11 +106,27 @@ test('approved Node Experiment Run archives reproducible artifacts and Evidence'
   assert.equal(completed.metrics[0].value, 0.91);
   assert.ok(completed.artifacts.some((artifact) => artifact.kind === 'metric'));
   assert.ok(completed.evidence.runId);
+  assert.equal(completed.evidence.runId, `experiment-run-${completed.id}`);
+  assert.equal(completed.manifest.code.snapshotHash, created.manifest.code.snapshotHash);
 
   const ledger = await getEvidenceLedger(projectId);
   assert.ok(ledger.entries.some((entry) => entry.id === completed.evidence.runId && entry.kind === 'experiment-run'));
   assert.ok(ledger.entries.some((entry) => entry.kind === 'table' && entry.metadata.runId === completed.id));
   assert.ok(ledger.relations.some((relation) => relation.fromId === completed.evidence.runId && relation.type === 'produces'));
+  const runEvidence = ledger.entries.find((entry) => entry.id === completed.evidence.runId);
+  assert.equal(runEvidence.version, completed.manifest.code.snapshotHash);
+  assert.deepEqual(runEvidence.metadata.dataset, completed.manifest.dataset);
+  for (const artifact of completed.artifacts) {
+    const evidenceId = `experiment-artifact-${completed.id}-${artifact.id.split('-').at(-1)}`;
+    assert.ok(completed.evidence.artifactIds.includes(evidenceId));
+    const entry = ledger.entries.find((item) => item.id === evidenceId);
+    assert.equal(entry.version, artifact.sha256);
+    assert.equal(entry.sha256, artifact.sha256);
+    assert.equal(entry.sourcePath, artifact.path);
+    assert.equal(entry.metadata.artifactId, artifact.id);
+    assert.ok(ledger.relations.some((relation) => relation.type === 'produces' && relation.fromId === runEvidence.id && relation.toId === evidenceId));
+  }
+  assert.deepEqual(await getEvidenceLedger(projectId), ledger, 'reading the projection must not rewrite the Ledger');
 
   const tasks = await listTasks(projectId, { kind: 'experiment-run' });
   assert.equal(tasks[0].status, 'completed');

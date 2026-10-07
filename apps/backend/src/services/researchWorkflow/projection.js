@@ -35,7 +35,8 @@ export function toFrontendWorkflow(workflow) {
   const papers = rawPapers.map((paper) => {
     const candidateId = String(paper?.candidate?.id || paper?.id || '');
     const selected = selectedDetails.get(candidateId);
-    return selected ? paperForUi({ ...paper, candidate: { ...(paper.candidate || {}), ...selected } }, selectedIds) : paperForUi(paper, selectedIds);
+    const projected = selected ? paperForUi({ ...paper, candidate: { ...(paper.candidate || {}), ...selected } }, selectedIds) : paperForUi(paper, selectedIds);
+    return { ...projected, humanReview: (selection.reviews || []).find((review) => review.paperId === candidateId) || null };
   });
   const ideas = ideation.ideas || ideation.innovationPoints || [];
   const currentStage = STAGE_TO_UI[workflow.currentStage] || workflow.currentStage;
@@ -44,12 +45,25 @@ export function toFrontendWorkflow(workflow) {
     activeStage: currentStage, currentStage,
     humanInstructions: Object.fromEntries(Object.entries(workflow.humanInstructions || {}).map(([id, text]) => [STAGE_TO_UI[id] || id, text])),
     stages: workflow.stages.map((stage) => ({ id: STAGE_TO_UI[stage.id] || stage.id, state: frontendStageState(stage, workflow.currentStage), status: stage.status, updatedAt: stage.updatedAt, readiness: stage.id === workflow.currentStage ? getStageReadiness(workflow, stage.id) : undefined })),
-    direction: { question: direction.researchQuestion || direction.topic || direction.question || '', keywords: direction.seedKeywords || direction.keywords || [], scope: direction.scope || '', notes: direction.notes || '' },
-    search: { query: search.query || search.queries?.[0] || '', count: papers.length, lastRunAt: search.lastRunAt || null, sources: search.sources || [], policy: search.policy || null },
+    direction: { question: direction.researchQuestion || direction.topic || direction.question || '', keywords: direction.seedKeywords || direction.keywords || [], scope: direction.scope || '', notes: direction.notes || '', falsificationCondition: direction.falsificationCondition || '' },
+    search: {
+      query: search.query || search.queries?.[0] || '',
+      queries: search.queries || [],
+      count: papers.length,
+      lastRunAt: search.lastRunAt || null,
+      sources: search.sources || [],
+      requestedSources: search.requestedSources || [],
+      inclusionCriteria: search.aiSearchStrategy?.inclusionCriteria || [],
+      exclusionCriteria: search.aiSearchStrategy?.exclusionCriteria || [],
+      strategyRationale: search.aiSearchStrategy?.rationale || '',
+      policy: search.policy || null
+    },
     papers,
     replication: replication.replication || replication.replicationPlan || replication,
-    ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: idea.evidence || idea.relatedPaperIds || [], selected: Boolean(idea.selected) })),
+    ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: idea.evidence || idea.relatedPaperIds || [], hypothesis: idea.hypothesis || '', novelty: idea.novelty || '', validationPlan: idea.validationPlan || [], risks: idea.risks || [], humanReview: idea.humanReview || null, selected: Boolean(idea.selected) })),
     ideaComparison: ideation.comparison || [],
+    ideaHumanDirection: ideation.humanDirection || '',
+    ideaCaveats: ideation.caveats || [],
     method: { title: methodDraft.title || methodDraft.name || '', hypothesis: methodDraft.hypothesis || methodDraft.description || '', baselines: methodDraft.baselines || [], ablations: methodDraft.ablations || [] },
     methodCandidates: method.methodProposals || [],
     experiment: {

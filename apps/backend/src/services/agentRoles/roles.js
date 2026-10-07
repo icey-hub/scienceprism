@@ -15,6 +15,11 @@ import { HARNESS_EXECUTED_STAGES } from '../researchWorkflow/executedStages.js';
  *   Evidence Ledger) are deliberately NOT roles. They enforce; they do not have
  *   an AI authority level, and modelling them as roles would blur that line.
  *
+ * `allowedSkills` lists static role associations for discovery, not an execution
+ * allowlist. Run selections and research stage bindings choose enabled Skills;
+ * project capabilities and path policy still govern every document read. An
+ * empty association list does not disable the editor's dynamic Skill selection.
+ *
  * `authority` values:
  *   suggest-only       returns text or structured advice; changes nothing
  *   propose-patch      may propose file changes for human confirmation

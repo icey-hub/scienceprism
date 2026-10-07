@@ -55,6 +55,7 @@ export interface ResearchDirection {
   keywords: string[];
   scope: string;
   notes: string;
+  falsificationCondition?: string;
 }
 
 export interface SearchRunSummary {
@@ -63,6 +64,11 @@ export interface SearchRunSummary {
   selectedCount: number;
   lastRunAt?: string;
   sources?: string[];
+  queries?: string[];
+  requestedSources?: string[];
+  inclusionCriteria?: string[];
+  exclusionCriteria?: string[];
+  strategyRationale?: string;
 }
 
 export interface FilterPolicy {
@@ -75,6 +81,14 @@ export interface FilterPolicy {
 }
 
 export type PaperEligibility = 'pass' | 'review' | 'reject';
+
+export interface PaperReview {
+  paperId: string;
+  decision: 'include' | 'exclude' | 'undecided';
+  reason: string;
+  criterion: string;
+  at?: string;
+}
 
 export interface PaperCandidate {
   id: string;
@@ -90,6 +104,7 @@ export interface PaperCandidate {
   reason?: string;
   selected?: boolean;
   evidenceId?: string;
+  humanReview?: PaperReview | null;
   source?: string;
   sourceCount?: number;
   sourceRecords?: { provider?: string; id?: string; retrievedAt?: string }[];
@@ -98,10 +113,20 @@ export interface PaperCandidate {
 
 export interface ReplicationPlan {
   repository: string;
+  codeVersion?: string;
   environment: string;
   dataset: string;
+  datasetVersion?: string;
+  expectedMetrics?: string;
+  gaps?: string;
   note: string;
+  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
+  parameters?: Record<string, unknown>;
+  seed?: string;
+  resources?: { timeoutMs?: number };
+  artifacts?: { path: string; kind: string; name?: string }[];
   status?: string;
+  resultRun?: ReplicationResultSummary;
 }
 
 export interface InnovationIdea {
@@ -116,6 +141,7 @@ export interface InnovationIdea {
   relatedPaperIds?: string[];
   validationPlan?: string[];
   risks?: string[];
+  humanReview?: { falsificationCondition: string; at?: string } | null;
 }
 
 export interface MethodDraft {
@@ -145,6 +171,32 @@ export interface ExperimentPlan {
   resources?: { timeoutMs?: number };
   status?: string;
   metrics: ExperimentMetric[];
+  resultRun?: ExperimentResultSummary;
+}
+
+export interface ExperimentResultSummary {
+  id: string;
+  status: string;
+  codeSnapshotHash?: string;
+  dataset?: { id: string; version: string };
+  artifacts: { id: string; evidenceId?: string; name: string; kind: string; path: string; sha256: string }[];
+}
+
+export interface ReplicationResultSummary {
+  id: string;
+  status: string;
+  evidenceId?: string;
+  evidenceStatus: string;
+  evidenceConfirmed?: boolean;
+  supportsSuccessfulFinding?: boolean;
+  verificationNote?: string;
+  provenance: import('../../api/client').ReplicationProvenance;
+  codeVersion: string;
+  codeSnapshotHash: string;
+  dataset: { id: string; version: string };
+  environment: { node: string; platform: string; arch: string; runner: string; recorded?: string };
+  metrics: { name: string; value?: unknown; unit?: string | null; uncertainty?: unknown }[];
+  artifacts: { id: string; evidenceId?: string; evidenceStatus: string; name: string; kind: string; path: string; sha256: string }[];
 }
 
 export interface WritingEvidenceSummary {
@@ -159,16 +211,9 @@ export interface WritingEvidenceSummary {
     supportedClaims: number;
     unsupportedClaims: number;
     needsVerificationClaims: number;
-    rows: Array<{
-      id: string;
-      text: string;
-      status: string;
-      evidenceIds: string[];
-      missingEvidenceIds: string[];
-      unverifiedEvidenceIds: string[];
-      staleEvidenceIds: string[];
-    }>;
+    rows: import('../../api/client').ClaimEvidenceRow[];
   };
+  replicationRun?: ReplicationResultSummary;
 }
 
 export type ProjectSkillSource = 'built-in' | 'project';

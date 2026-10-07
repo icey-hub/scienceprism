@@ -29,9 +29,12 @@
   --warning: #c93400;
   --danger: #d70015;
   --success: #248a3d;
-  --radius-control: 7px;
+  --radius-control: 8px;
   --radius-panel: 8px;
-  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-panel: 0 2px 6px rgba(28, 39, 55, 0.02), 0 12px 32px rgba(28, 39, 55, 0.035);
+  --motion-fast: 160ms;
+  --motion-normal: 240ms;
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
 }
 
 html,
@@ -73,9 +76,9 @@ textarea:focus-visible {
 .compact-action,
 .editor-compile-button,
 .icon-text-button {
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   font-weight: 500;
-  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  transition: background-color var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-normal) var(--ease-out);
 }
 
 .btn {
@@ -175,7 +178,6 @@ textarea:focus-visible {
 }
 
 .start-intro { margin-bottom: 30px; }
-.start-eyebrow { color: var(--accent); font-size: 11px; font-weight: 700; }
 .start-intro h1 { margin: 8px 0 10px; font-size: 38px; line-height: 1.12; font-weight: 700; }
 .start-intro p { max-width: 560px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 
@@ -365,8 +367,8 @@ textarea:focus-visible {
 .project-action-menu button.is-danger { color: var(--danger); }
 .project-footer { color: #8e8e93; }
 
-.modal-backdrop { background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(3px); }
-.modal { border: 1px solid rgba(0, 0, 0, 0.12); border-radius: 8px; background: #fff; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22); }
+.modal-backdrop { background: rgba(25, 32, 44, 0.24); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); animation: apple-fade-in 180ms ease-out both; }
+.modal { border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 8px; background: #fff; box-shadow: 0 32px 90px rgba(20, 30, 50, 0.2), 0 4px 16px rgba(20, 30, 50, 0.08); animation: apple-surface-in 320ms var(--ease-out) both; }
 .modal-header { border-color: #e5e5ea; font-weight: 650; }
 .modal-actions { border-color: #e5e5ea; background: #fbfbfd; }
 .input,
@@ -459,7 +461,7 @@ textarea:focus-visible {
 .hub-panel,
 .hub-setup-card,
 .evidence-stat-grid { border-color: var(--border); border-radius: 8px; background: #fff; }
-.hub-panel { box-shadow: none; }
+.hub-panel { border-radius: var(--radius-panel); box-shadow: var(--shadow-panel); }
 .hub-next-panel { border-color: #b7d8ff; background: #f0f7ff; }
 .hub-stat-grid { overflow: hidden; }
 .hub-stat-grid > div { border-color: #e5e5ea; }
@@ -575,7 +577,29 @@ textarea:focus-visible {
 .research-status-badge,
 .research-context-stage-status,
 .research-sidebar-harness { border-radius: 7px; }
-.research-primary-button { border-radius: 7px; background: var(--accent); }
+.research-primary-button { border-radius: var(--radius-control); background: var(--accent); }
+
+/* Motion belongs to the surface being acted on, never to the whole workspace. */
+:where(.btn, .icon-btn, .toolbar-btn, .compact-action, .editor-compile-button, .sidebar-create-btn, .hub-primary-button, .hub-small-button, .research-primary-button):not(:disabled):active {
+  transform: scale(.97);
+  transition-duration: 80ms;
+}
+.project-main-title, .hub-page-heading h2 { letter-spacing: 0; }
+.project-main-header, .hub-page-heading { animation: apple-surface-in 400ms var(--ease-out) both; }
+.project-table-row td { transition: background-color var(--motion-fast); }
+.modal-header { font-family: inherit; border-radius: 8px 8px 0 0; }
+.modal-actions { border-radius: 0 0 8px 8px; }
+@keyframes apple-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes apple-surface-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  :where(.btn, .icon-btn, .toolbar-btn, .compact-action, .editor-compile-button, .sidebar-create-btn, .hub-primary-button, .hub-small-button, .research-primary-button):not(:disabled):active { transform: none; }
+  .project-main-header, .hub-page-heading, .modal { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .modal-backdrop { background: rgba(25, 32, 44, .55); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .top-bar, .project-hub-topbar { background: #fafafc; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
 
 @media (max-width: 900px) {
   .top-bar { align-items: flex-start; }

@@ -6,9 +6,8 @@ export { AGENT_ROLES, ENFORCEMENT_MODULES, ROLE_AUTHORITIES };
 /**
  * Read projections over the role registry.
  *
- * Nothing here changes behaviour yet: the registry makes each role's purpose,
- * authority, and forbidden actions explicit so the wiring beat can consume them
- * and the tests can check them.
+ * The registry describes role purpose and authority. Runtime capability checks
+ * use resolveRoleCapabilities below; static Skill associations are descriptive.
  */
 export function listRoles({ authority, stage } = {}) {
   return AGENT_ROLES.filter((role) => {

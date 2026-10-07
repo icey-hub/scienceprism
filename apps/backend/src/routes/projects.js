@@ -11,7 +11,10 @@ import { isTextFile, extractDocumentBody, mergeTemplateBody } from '../utils/tex
 import { readTemplateManifest, copyTemplateIntoProject } from '../services/templateService.js';
 import { getProjectRoot } from '../services/projectService.js';
 import { downloadArxivSource, extractArxivId } from '../services/arxivService.js';
+import { collabFileMatches, syncCollabFile } from '../services/collab/docStore.js';
 import { getLang, t } from '../i18n/index.js';
+import { withHarnessRunLock } from '../services/harnessRuntime/repository.js';
+import { contentHash, readFileState, sameVersion } from '../services/harnessRuntime/fileVersions.js';
 
 export function registerProjectRoutes(fastify) {
   fastify.get('/api/projects', async () => {
@@ -301,7 +304,7 @@ export function registerProjectRoutes(fastify) {
     const projectRoot = await getProjectRoot(id);
     const abs = safeJoin(projectRoot, filePath);
     const content = await fs.readFile(abs, 'utf8');
-    return { content };
+    return { content, version: { exists: true, sha256: contentHash(content) } };
   });
 
   fastify.get('/api/projects/:id/blob', async (req, reply) => {
@@ -342,21 +345,33 @@ export function registerProjectRoutes(fastify) {
     return { ok: true, files: saved };
   });
 
-  fastify.put('/api/projects/:id/file', async (req) => {
+  fastify.put('/api/projects/:id/file', async (req, reply) => {
     const { id } = req.params;
-    const { path: filePath, content } = req.body || {};
+    const { path: filePath, content, expectedVersion } = req.body || {};
     if (!filePath) return { ok: false };
     const projectRoot = await getProjectRoot(id);
-    const abs = safeJoin(projectRoot, filePath);
-    await ensureDir(path.dirname(abs));
-    await fs.writeFile(abs, content ?? '', 'utf8');
-    try {
-      const metaPath = path.join(projectRoot, 'project.json');
-      const meta = await readJson(metaPath);
-      meta.updatedAt = new Date().toISOString();
-      await writeJson(metaPath, meta);
-    } catch { /* ignore */ }
-    return { ok: true };
+    return withHarnessRunLock(id, async () => {
+      const abs = safeJoin(projectRoot, filePath);
+      const current = await readFileState(projectRoot, filePath);
+      if (expectedVersion !== undefined && !sameVersion(current, expectedVersion)) {
+        return reply.code(409).send({ ok: false, error: { code: 'DOCUMENT_VERSION_CONFLICT', message: 'The saved file changed. Reload before saving.', details: { path: filePath, actual: { exists: current.exists, sha256: current.sha256 } } } });
+      }
+      const collabKey = `${id}:${filePath}`;
+      if (!collabFileMatches(collabKey, current)) {
+        return reply.code(409).send({ ok: false, error: { code: 'DOCUMENT_VERSION_CONFLICT', message: 'The collaborative draft has unsaved changes. Reload before saving.', details: { path: filePath, actual: { exists: current.exists, sha256: current.sha256 } } } });
+      }
+      const saved = content ?? '';
+      await ensureDir(path.dirname(abs));
+      await fs.writeFile(abs, saved, 'utf8');
+      syncCollabFile(collabKey, saved);
+      try {
+        const metaPath = path.join(projectRoot, 'project.json');
+        const meta = await readJson(metaPath);
+        meta.updatedAt = new Date().toISOString();
+        await writeJson(metaPath, meta);
+      } catch { /* ignore */ }
+      return { ok: true, version: { exists: true, sha256: contentHash(saved) } };
+    });
   });
 
   fastify.get('/api/projects/:id/files', async (req) => {

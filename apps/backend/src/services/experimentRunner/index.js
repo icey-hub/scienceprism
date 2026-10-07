@@ -6,12 +6,14 @@ import { isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
 import { getHarnessRun } from '../harnessRuntime/index.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
+import { withWorkflowLock } from '../researchWorkflow/repository.js';
 import { artifactDirectory, clone, readExperimentRuns, resolveExperimentProjectRoot, withExperimentRunLock, writeExperimentRuns } from './repository.js';
 import { experimentAdapters } from './adapters.js';
 import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary } from './manifest.js';
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
+import { assertReplicationPreparationUnchangedFromWorkflow, isReplicationRequest, readReplicationContextFromWorkflow } from './replicationContext.js';
 
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
@@ -52,6 +54,55 @@ async function updateRun(projectId, runId, updater) {
   });
 }
 
+const CONFIRMED_EVIDENCE_STATUSES = new Set(['verified', 'human-confirmed', 'approved']);
+
+export function replicationRunSummary(run, evidenceEntries = []) {
+  if (!run?.manifest?.replication) return null;
+  const artifacts = Array.isArray(run.artifacts) ? run.artifacts : [];
+  const artifactEvidenceIds = Array.isArray(run.evidence?.artifactIds) ? run.evidence.artifactIds : [];
+  const runEvidenceId = run.evidence?.runId || `experiment-run-${run.id}`;
+  const evidenceById = new Map((Array.isArray(evidenceEntries) ? evidenceEntries : []).map((entry) => [entry.id, entry]));
+  const runEvidence = evidenceById.get(runEvidenceId);
+  const fallbackStatus = run.status === 'completed' && artifacts.length > 0 ? 'pending' : 'unverified';
+  const evidenceStatus = runEvidence?.verificationStatus || fallbackStatus;
+  const artifactRows = artifacts.map((artifact, index) => {
+    const evidenceId = artifactEvidenceIds[index] || null;
+    const artifactEvidence = evidenceId ? evidenceById.get(evidenceId) : null;
+    return {
+      id: artifact.id,
+      evidenceId,
+      evidenceStatus: artifactEvidence?.verificationStatus || evidenceStatus,
+      name: artifact.name,
+      kind: artifact.kind,
+      path: artifact.path,
+      sha256: artifact.sha256
+    };
+  });
+  const evidenceConfirmed = CONFIRMED_EVIDENCE_STATUSES.has(evidenceStatus)
+    && artifactRows.every((artifact) => CONFIRMED_EVIDENCE_STATUSES.has(artifact.evidenceStatus));
+  const supportsSuccessfulFinding = run.status === 'completed' && evidenceConfirmed;
+  return {
+    id: run.id,
+    status: run.status,
+    evidenceId: runEvidence?.id || runEvidenceId,
+    evidenceStatus,
+    evidenceConfirmed,
+    supportsSuccessfulFinding,
+    verificationNote: supportsSuccessfulFinding
+      ? 'Run and all archived artifact Evidence are confirmed.'
+      : run.status === 'completed'
+        ? 'Run completed, but its Evidence is pending or unverified; human verification is required before treating findings as successful.'
+        : `Run status is ${run.status}; it cannot support a successful finding.`,
+    provenance: run.manifest.replication,
+    codeVersion: run.manifest.code?.version || '',
+    codeSnapshotHash: run.manifest.code?.snapshotHash || '',
+    dataset: run.manifest.dataset,
+    environment: run.manifest.environment,
+    metrics: Array.isArray(run.metrics) ? run.metrics : [],
+    artifacts: artifactRows
+  };
+}
+
 export async function listExperimentRuns(projectId, { status, limit = 100 } = {}) {
   const { document } = await getRunDocument(projectId);
   const runs = document.runs
@@ -67,21 +118,10 @@ export async function getExperimentRun(projectId, runId) {
   return clone(run);
 }
 
-export async function createExperimentRun(projectId, input = {}, { actor = 'human' } = {}) {
-  const root = await resolveExperimentProjectRoot(projectId);
-  try {
-    const workflow = await getResearchWorkflow(projectId);
-    const experimentStage = workflow.stages?.find((stage) => stage.id === 'experiment');
-    if (experimentStage && experimentStage.status !== 'approved') {
-      throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_NOT_APPROVED', 'Approve the Experiment Plan before creating an Experiment Run.');
-    }
-  } catch (error) {
-    if (error instanceof ExperimentRunnerError || error?.code !== 'WORKFLOW_NOT_FOUND') throw error;
-  }
-  const runId = `experiment-run-${randomUUID()}`;
-  const manifest = await buildExperimentManifest(projectId, runId, input, root);
-  const run = {
-    id: runId,
+function makeRun(projectId, manifest, actor, { retryOf = null, attempt = 0 } = {}) {
+  const timestamp = now();
+  return {
+    id: manifest.id,
     projectId,
     planId: manifest.planId,
     status: 'awaiting_approval',
@@ -89,8 +129,8 @@ export async function createExperimentRun(projectId, input = {}, { actor = 'huma
     manifest,
     manifestSummary: manifestSummary(manifest),
     approval: null,
-    attempt: 0,
-    retryOf: null,
+    attempt,
+    retryOf,
     execution: null,
     logs: { stdout: '', stderr: '' },
     metrics: [],
@@ -98,9 +138,12 @@ export async function createExperimentRun(projectId, input = {}, { actor = 'huma
     evidence: { runId: null, artifactIds: [] },
     interpretation: null,
     createdBy: text(actor) || 'human',
-    createdAt: now(),
-    updatedAt: now()
+    createdAt: timestamp,
+    updatedAt: timestamp
   };
+}
+
+async function persistNewRun(projectId, root, run) {
   return withExperimentRunLock(projectId, async () => {
     const document = await readExperimentRuns(root, projectId);
     document.runs.unshift(run);
@@ -110,6 +153,32 @@ export async function createExperimentRun(projectId, input = {}, { actor = 'huma
     await writeExperimentRuns(root, document);
     return clone(run);
   });
+}
+
+export async function createExperimentRun(projectId, input = {}, { actor = 'human' } = {}) {
+  const isReplication = isReplicationRequest(input);
+  const root = await resolveExperimentProjectRoot(projectId);
+  const runId = `experiment-run-${randomUUID()}`;
+  if (isReplication) {
+    return withWorkflowLock(projectId, async () => {
+      const workflow = await getResearchWorkflow(projectId);
+      const replicationContext = readReplicationContextFromWorkflow(projectId, workflow, { expectedVersion: input.expectedVersion });
+      const allowed = { sourceStage: input.sourceStage, plan: input.plan };
+      const manifest = await buildExperimentManifest(projectId, runId, allowed, root, { replicationContext });
+      return persistNewRun(projectId, root, makeRun(projectId, manifest, actor));
+    });
+  }
+  try {
+    const workflow = await getResearchWorkflow(projectId);
+    const experimentStage = workflow.stages?.find((stage) => stage.id === 'experiment');
+    if (experimentStage && experimentStage.status !== 'approved') {
+      throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_NOT_APPROVED', 'Approve the Experiment Plan before creating an Experiment Run.');
+    }
+  } catch (error) {
+    if (error instanceof ExperimentRunnerError || error?.code !== 'WORKFLOW_NOT_FOUND') throw error;
+  }
+  const manifest = await buildExperimentManifest(projectId, runId, input, root);
+  return persistNewRun(projectId, root, makeRun(projectId, manifest, actor));
 }
 
 export async function decideExperimentRun(projectId, runId, { decision = 'approve', actor = 'human', note = '' } = {}) {
@@ -258,6 +327,7 @@ async function persistRunEvidence(projectId, run) {
       status: run.status,
       codeVersion: run.manifest.code.version,
       dataset: run.manifest.dataset,
+      ...(run.manifest.replication ? { replication: run.manifest.replication } : {}),
       metrics: run.metrics,
       attempt: run.attempt
     }
@@ -274,7 +344,13 @@ async function persistRunEvidence(projectId, run) {
       verificationStatus: run.status === 'completed' ? 'pending' : 'unverified',
       version: artifact.sha256,
       sha256: artifact.sha256,
-      metadata: { runId: run.id, artifactId: artifact.id, kind: artifact.kind, bytes: artifact.bytes }
+      metadata: {
+        runId: run.id,
+        artifactId: artifact.id,
+        kind: artifact.kind,
+        bytes: artifact.bytes,
+        ...(run.manifest.replication ? { replication: run.manifest.replication } : {})
+      }
     }, { actor: 'experiment-runner' });
     await linkEvidence(projectId, { type: 'produces', fromId: runEvidenceId, toId: artifactEvidenceId }, { actor: 'experiment-runner' });
     artifactIds.push(artifactEvidenceId);
@@ -369,29 +445,55 @@ async function executeRun(projectId, runId, control) {
   }
 }
 
+async function transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled, workflow = null) {
+  return withExperimentRunLock(projectId, async () => {
+    const document = await readExperimentRuns(root, projectId);
+    const index = document.runs.findIndex((run) => run.id === runId);
+    if (index < 0) throw new ExperimentRunnerError(404, 'EXPERIMENT_RUN_NOT_FOUND', 'Experiment Run not found.', { runId });
+    if (activeRuns.has(runId)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_ACTIVE', 'The Experiment Run is already executing.');
+    const next = clone(document.runs[index]);
+    if (next.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
+    assertExecutionAllowed(constraints, next, rolloutEnabled);
+    if (next.manifest?.replication) {
+      if (!workflow) throw new ExperimentRunnerError(409, 'REPLICATION_WORKFLOW_REQUIRED', 'The replication workflow must be available before execution.');
+      assertReplicationPreparationUnchangedFromWorkflow(projectId, workflow, next.manifest.replication);
+    }
+    next.status = 'running';
+    next.phase = 'execution';
+    next.attempt = Number(next.attempt || 0) + 1;
+    next.startedAt = now();
+    next.updatedAt = now();
+    document.runs[index] = next;
+    document.version += 1;
+    document.updatedAt = now();
+    await writeExperimentRuns(root, document);
+    activeRuns.set(runId, { projectId, control, promise: null });
+    return clone(next);
+  });
+}
+
 export async function startExperimentRun(projectId, runId, { wait = false } = {}) {
   const { root } = await getRunDocument(projectId);
+  if (activeRuns.has(runId)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_ACTIVE', 'The Experiment Run is already executing.');
   const current = await getExperimentRun(projectId, runId);
   if (current.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
   const constraints = await readConstraints(root);
   const constraintPolicy = await readConstraintPolicy(projectId);
   const controller = new AbortController();
   const control = { projectId, controller, cancelRequested: false, timedOut: false };
-  assertExecutionAllowed(constraints, current, isConstraintEnabled(constraintPolicy, 'C-16'));
-  activeRuns.set(runId, { projectId, control, promise: null });
+  const rolloutEnabled = isConstraintEnabled(constraintPolicy, 'C-16');
   let run;
   try {
-    run = await updateRun(projectId, runId, (next) => {
-      if (next.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
-      next.status = 'running';
-      next.phase = 'execution';
-      next.attempt = Number(next.attempt || 0) + 1;
-      next.startedAt = now();
-      next.updatedAt = now();
-      return next;
-    });
+    if (current.manifest?.replication) {
+      run = await withWorkflowLock(projectId, async () => {
+        const workflow = await getResearchWorkflow(projectId);
+        return transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled, workflow);
+      });
+    } else {
+      run = await transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled);
+    }
   } catch (error) {
-    activeRuns.delete(runId);
+    if (activeRuns.get(runId)?.control === control) activeRuns.delete(runId);
     throw error;
   }
   const promise = executeRun(projectId, runId, control).finally(() => activeRuns.delete(runId));
@@ -417,6 +519,26 @@ export async function retryExperimentRun(projectId, runId, { actor = 'human' } =
   if (current.status !== 'failed') throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_NOT_RETRYABLE', 'Only failed Experiment Runs can be retried.');
   const root = await resolveExperimentProjectRoot(projectId);
   const id = `experiment-run-${randomUUID()}`;
+  const executionPlan = {
+    execution: current.manifest.command,
+    parameters: current.manifest.parameters,
+    seed: current.manifest.seed,
+    resources: current.manifest.resources,
+    artifacts: current.manifest.artifacts
+  };
+
+  if (current.manifest?.replication) {
+    if (current.manifest.replication.projectId !== projectId || current.manifest.replication.sourceStage !== 'replication') {
+      throw new ExperimentRunnerError(409, 'REPLICATION_PROVENANCE_INVALID', 'The failed Run has replication provenance for a different project or stage.');
+    }
+    return withWorkflowLock(projectId, async () => {
+      const workflow = await getResearchWorkflow(projectId);
+      const replicationContext = readReplicationContextFromWorkflow(projectId, workflow, { expectedVersion: workflow.version });
+      const manifest = await buildExperimentManifest(projectId, id, { plan: executionPlan }, root, { replicationContext });
+      return persistNewRun(projectId, root, makeRun(projectId, manifest, actor, { retryOf: current.id }));
+    });
+  }
+
   const manifest = await buildExperimentManifest(projectId, id, {
     plan: {
       planId: current.manifest.planId,
@@ -432,35 +554,7 @@ export async function retryExperimentRun(projectId, runId, { actor = 'human' } =
       codePaths: current.manifest.code?.paths || []
     }
   }, root);
-  const run = {
-    ...current,
-    id,
-    status: 'awaiting_approval',
-    phase: 'plan',
-    manifest,
-    manifestSummary: manifestSummary(manifest),
-    approval: null,
-    attempt: 0,
-    retryOf: current.id,
-    execution: null,
-    logs: { stdout: '', stderr: '' },
-    metrics: [],
-    artifacts: [],
-    evidence: { runId: null, artifactIds: [] },
-    interpretation: null,
-    createdBy: text(actor) || 'human',
-    createdAt: now(),
-    updatedAt: now()
-  };
-  return withExperimentRunLock(projectId, async () => {
-    const document = await readExperimentRuns(root, projectId);
-    document.runs.unshift(run);
-    document.runs = document.runs.slice(0, MAX_RUNS);
-    document.version += 1;
-    document.updatedAt = now();
-    await writeExperimentRuns(root, document);
-    return clone(run);
-  });
+  return persistNewRun(projectId, root, makeRun(projectId, manifest, actor, { retryOf: current.id }));
 }
 
 export async function recordExperimentInterpretation(projectId, runId, input = {}, { actor = 'human' } = {}) {

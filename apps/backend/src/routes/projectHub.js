@@ -1,4 +1,5 @@
 import {
+  PaperImportConflictError,
   checkPaperSource,
   deletePaper,
   getPaper,
@@ -15,6 +16,12 @@ import {
 import { getProjectDashboard, initializeProject } from '../services/projectHub/dashboard.js';
 import { getWritingQuality, recordAiQualityCheck } from '../services/projectHub/writingQuality.js';
 
+import { confirmPaperImport, PaperImportPreviewError, previewPaperImport } from '../services/projectHub/paperImportPreview.js';
+
+import { lookupPaperSource } from '../services/projectHub/paperSourceLookup.js';
+import { sourceConfirmations } from '../services/projectHub/paperSourceConfirmation.js';
+import { PaperSourceLookupError } from '../services/researchSources/doiLookup.js';
+
 const BASE = '/api/projects/:id';
 
 function bodyOf(req) {
@@ -27,9 +34,11 @@ function actor(req, body = {}) {
 
 function sendError(req, reply, error) {
   const message = error instanceof Error ? error.message : String(error);
-  const status = /not found/i.test(message) ? 404 : /required|must be|invalid|not retryable|no longer active/i.test(message) ? 400 : 500;
+  const importError = error instanceof PaperImportPreviewError || error instanceof PaperImportConflictError || error instanceof PaperSourceLookupError;
+  if (error instanceof PaperSourceLookupError && error.retryAfter) reply.header('Retry-After', String(error.retryAfter));
+  const status = importError ? error.statusCode : /not found/i.test(message) ? 404 : /required|must be|invalid|not retryable|no longer active/i.test(message) ? 400 : 500;
   req.log?.error?.(error);
-  return reply.code(status).send({ ok: false, error: { code: status === 404 ? 'NOT_FOUND' : 'PROJECT_HUB_ERROR', message } });
+  return reply.code(status).send({ ok: false, error: { code: importError ? error.code : (status === 404 ? 'NOT_FOUND' : 'PROJECT_HUB_ERROR'), message } });
 }
 
 function route(handler) {
@@ -39,10 +48,14 @@ function route(handler) {
   };
 }
 
-export function registerProjectHubRoutes(fastify) {
+export function registerProjectHubRoutes(fastify, { doiLookup, arxivLookup, confirmations = sourceConfirmations } = {}) {
   fastify.get(`${BASE}/dashboard`, route(async (req) => ({ dashboard: await getProjectDashboard(req.params.id) })));
   fastify.post(`${BASE}/initialize`, route(async (req) => ({ result: await initializeProject(req.params.id, bodyOf(req), actor(req, bodyOf(req))) })));
 
+  fastify.post(`${BASE}/papers/source-lookup`, route(async (req) => ({ lookup: await lookupPaperSource(req.params.id, bodyOf(req), { doiLookup, arxivLookup, confirmations }) })));
+  fastify.post(`${BASE}/papers/source-confirm`, route(async (req) => ({ result: await confirmations.confirm(req.params.id, bodyOf(req), { actor: req.collabAuth?.sub || 'human' }) })));
+  fastify.post(`${BASE}/papers/import-preview`, route(async (req) => ({ preview: await previewPaperImport(req.params.id, bodyOf(req)) })));
+  fastify.post(`${BASE}/papers/import-confirm`, route(async (req) => ({ result: await confirmPaperImport(req.params.id, bodyOf(req), { actor: actor(req, bodyOf(req)) }) })));
   fastify.get(`${BASE}/papers`, route(async (req) => ({ papers: await listPapers(req.params.id, req.query || {}) })));
   fastify.get(`${BASE}/papers/:paperId`, route(async (req) => ({ paper: await getPaper(req.params.id, req.params.paperId) })));
   fastify.post(`${BASE}/papers`, route(async (req) => ({ result: await importPaper(req.params.id, bodyOf(req), { actor: actor(req, bodyOf(req)) }) })));

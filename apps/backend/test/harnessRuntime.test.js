@@ -22,7 +22,7 @@ const {
   startHarnessRun,
   waitForHarnessRun
 } = await import('../src/services/harnessRuntime/index.js');
-const { buildContextPack, estimateTokens } = await import('../src/services/harnessRuntime/contextPackager.js');
+const { buildContextPack, contextManifest, estimateTokens } = await import('../src/services/harnessRuntime/contextPackager.js');
 const { assertCapability, resolveCapabilityPolicy } = await import('../src/services/harnessRuntime/capabilities.js');
 const { buildInput, childEnvironment } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
 const { PROJECT_CONSTRAINT_LIMITS } = await import('../src/config/projectConstraintDefaults.js');
@@ -201,6 +201,26 @@ test('Context Packager applies file priority, budget, sensitive filtering, and e
   assert.ok(run.contextManifest.files.some((file) => file.path === 'sections/method.tex'));
 });
 
+test('Context Packs retain bounded assistant history and expose it in the manifest', async () => {
+  const projectId = 'harness-history-context';
+  await createProject(projectId);
+  const history = Array.from({ length: 10 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: `turn-${index}`
+  }));
+  const pack = await buildContextPack({
+    projectId,
+    request: { task: 'follow up', prompt: 'answer the latest question', history },
+    policy: { granted: ['project.read'], allowedPaths: [] },
+    constraints: { contextTokenBudget: 8_000 }
+  });
+  assert.deepEqual(pack.history, history.slice(-8));
+  const historyManifest = contextManifest(pack).history;
+  assert.deepEqual(historyManifest.map(({ role, characters }) => ({ role, characters })), history.slice(-8).map(({ role, content }) => ({ role, characters: content.length })));
+  assert.ok(historyManifest.every((item) => /^[a-f0-9]{64}$/.test(item.sha256)));
+  assert.ok(estimateTokens(pack) <= pack.budget.maxTokens);
+});
+
 test('Harness workspace physically contains only allowed project paths', async () => {
   const projectId = 'harness-allowed-paths';
   const root = await createProject(projectId);
@@ -342,6 +362,45 @@ test('delegated Runs keep their parent and cannot widen its authority or delegat
   }), (error) => error.code === 'HARNESS_RUN_NOT_FOUND');
 });
 
+test('editor Runs survive the recent-run window and remain searchable by request id', async () => {
+  const projectId = 'harness-editor-history';
+  await createProject(projectId);
+  const editorRun = await createHarnessRun(projectId, {
+    adapter: 'fake', source: 'editor', requestId: 'editor-history-01', prompt: 'keep this reply'
+  });
+  await cancelHarnessRun(projectId, editorRun.id);
+  for (let index = 0; index < 101; index += 1) {
+    const run = await createHarnessRun(projectId, { adapter: 'fake', prompt: `background-${index}` });
+    await cancelHarnessRun(projectId, run.id);
+  }
+
+  const recovered = await getHarnessRun(projectId, editorRun.id);
+  const byRequest = await listHarnessRuns(projectId, { source: 'editor', requestId: 'editor-history-01' });
+  assert.equal(recovered.request.requestId, 'editor-history-01');
+  assert.equal(recovered.archived, undefined, 'editor history remains complete rather than a lossy archive summary');
+  assert.deepEqual(byRequest.map((run) => run.id), [editorRun.id]);
+});
+
+test('a persisted editor Run from an earlier process is recovered as interrupted', async () => {
+  const projectId = 'harness-editor-recovery';
+  const root = await createProject(projectId);
+  const run = await createHarnessRun(projectId, {
+    adapter: 'fake', source: 'editor', requestId: 'editor-recovery-01', prompt: 'resume after restart'
+  });
+  const runsPath = path.join(root, '.scienceprism', 'harness-runs.json');
+  const document = JSON.parse(await readFile(runsPath, 'utf8'));
+  document.runs[0].runtimeInstanceId = 'previous-server-instance';
+  document.runs[0].status = 'running';
+  await writeFile(runsPath, `${JSON.stringify(document, null, 2)}\n`);
+
+  const recovered = await getHarnessRun(projectId, run.id);
+  assert.equal(recovered.status, 'failed');
+  assert.equal(recovered.error.code, 'HARNESS_INTERRUPTED');
+  assert.equal(recovered.error.retryable, true);
+  const repeated = await getHarnessRun(projectId, run.id);
+  assert.equal(repeated.status, 'failed', 'restart recovery is persisted and remains stable');
+});
+
 test('old delegated Runs retain an archive record after the recent-run window fills', async () => {
   const projectId = 'harness-delegation-archive';
   await createProject(projectId);
@@ -404,11 +463,11 @@ test('an accepted Run applies its Patches to the project exactly once', async ()
   assert.deepEqual(applied.run.appliedPatches, ['main.tex']);
   assert.ok(applied.run.events.some((event) => event.type === 'patches.applied'));
 
-  // Applying twice must refuse rather than write the same Patch again.
-  await assert.rejects(
-    () => applyHarnessRunPatches(projectId, runId, {}),
-    (error) => error.code === 'NO_PATCHES_TO_APPLY'
-  );
+  // A duplicate request returns the stored outcome without writing again.
+  const repeated = await applyHarnessRunPatches(projectId, runId, {});
+  assert.deepEqual(repeated.applied, []);
+  assert.deepEqual(repeated.alreadyApplied, ['main.tex']);
+  assert.equal(repeated.run.events.filter((event) => event.type === 'patches.applied').length, 1);
 });
 
 test('the apply step re-checks the current policy, not the policy at Run creation', async () => {

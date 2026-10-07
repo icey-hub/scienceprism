@@ -80,27 +80,45 @@ export function registerCollabRoutes(fastify) {
       conn.socket.close(1008, 'Unauthorized');
       return;
     }
-    let projectRoot = '';
+    // The socket is already open: retain frames while project/document I/O runs.
+    const pendingMessages = [];
+    let pendingBytes = 0;
+    const bufferMessage = (data) => {
+      if (conn.socket.readyState !== 1) return;
+      pendingBytes += data.length;
+      if (pendingBytes > 1024 * 1024 || pendingMessages.length >= 256) {
+        pendingMessages.length = 0;
+        conn.socket.close(1009, 'Initialization buffer exceeded');
+        return;
+      }
+      pendingMessages.push(data);
+    };
+    conn.socket.on('message', bufferMessage);
     try {
-      projectRoot = await getProjectRoot(effectiveProjectId);
-    } catch {
-      conn.socket.close(1008, 'Project not found');
-      return;
+      let projectRoot;
+      try {
+        projectRoot = await getProjectRoot(effectiveProjectId);
+      } catch {
+        conn.socket.close(1008, 'Project not found');
+        return;
+      }
+      if (!isTextFile(filePath)) {
+        conn.socket.close(1003, 'Binary file');
+        return;
+      }
+      let absPath;
+      try {
+        absPath = safeJoin(projectRoot, filePath);
+      } catch {
+        conn.socket.close(1008, 'Invalid path');
+        return;
+      }
+      const metaPath = path.join(projectRoot, 'project.json');
+      const key = `${effectiveProjectId}:${filePath}`;
+      const doc = await getOrCreateDoc({ key, absPath, metaPath });
+      if (conn.socket.readyState === 1) setupConnection(doc, conn.socket, pendingMessages);
+    } finally {
+      conn.socket.off('message', bufferMessage);
     }
-    if (!isTextFile(filePath)) {
-      conn.socket.close(1003, 'Binary file');
-      return;
-    }
-    let absPath = '';
-    try {
-      absPath = safeJoin(projectRoot, filePath);
-    } catch {
-      conn.socket.close(1008, 'Invalid path');
-      return;
-    }
-    const metaPath = path.join(projectRoot, 'project.json');
-    const key = `${effectiveProjectId}:${filePath}`;
-    const doc = await getOrCreateDoc({ key, absPath, metaPath });
-    setupConnection(doc, conn.socket);
   });
 }

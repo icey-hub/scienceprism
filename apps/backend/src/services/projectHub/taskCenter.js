@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { cancelActiveCompile } from '../compileCancellation.js';
 import { listHarnessRuns, cancelHarnessRun, replayHarnessRun } from '../harnessRuntime/index.js';
 import { cancelExperimentRun, listExperimentRuns, retryExperimentRun } from '../experimentRunner/index.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
@@ -197,6 +198,12 @@ export async function cancelTask(projectId, taskId) {
   if (task.kind === 'experiment-run' && task.metadata?.runId) {
     const run = await cancelExperimentRun(projectId, task.metadata.runId);
     return { task: experimentRunTask(run), run };
+  }
+  if (task.kind === 'compile') {
+    if (task.status === 'cancelled') return { task };
+    if (!['queued', 'running'].includes(task.status)) throw new Error('Task is no longer active.');
+    await cancelActiveCompile(projectId, taskId);
+    return { task: await getTask(projectId, taskId) };
   }
   if (!['queued', 'running', 'paused'].includes(task.status)) throw new Error('Task is no longer active.');
   return { task: await updateTask(projectId, taskId, { status: 'cancelled', progress: 100, finishedAt: now(), log: [...task.log, 'Cancelled by human.'] }) };

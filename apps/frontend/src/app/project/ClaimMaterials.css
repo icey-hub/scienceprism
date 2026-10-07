@@ -1,0 +1,28 @@
+.claim-materials {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.claim-materials summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.claim-materials summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.claim-materials p { margin: 8px 0; white-space: pre-wrap; }
+.claim-material-card { padding: 12px 0; border-top: 1px solid var(--border-color, #d8dce2); }
+.claim-materials blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--border-color, #d8dce2); white-space: pre-wrap; }
+.claim-material-location { display: grid; gap: 6px; }
+.claim-material-location a { text-decoration: underline; }
+.claim-material-location button { width: fit-content; padding: 6px 10px; }
+.claim-material-location [role=alert] { color: #9b2c2c; }
+.claim-material-warning { font-weight: 600; }
+.claim-citation-editor { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.claim-citation-editor fieldset { min-width: 0; margin: 10px 0; padding: 12px; border: 1px solid var(--border-color, #d8dce2); }
+.claim-citation-editor label { display: grid; gap: 5px; margin: 10px 0; }
+.claim-citation-editor input:not([type=checkbox]), .claim-citation-editor textarea, .claim-citation-editor select { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; padding: 8px; }
+.claim-citation-editor textarea { resize: vertical; }
+.claim-citation-editor .claim-citation-check { display: flex; align-items: flex-start; }
+.claim-citation-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.claim-citation-editor button { padding: 7px 12px; }
+.claim-citation-editor :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }

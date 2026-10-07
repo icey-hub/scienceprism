@@ -270,6 +270,14 @@
 .research-paper-copy h3 { margin: 0; font-size: 13px; line-height: 1.35; }
 .research-paper-copy p { margin: 5px 0; color: var(--research-muted); font-size: 11px; }
 .research-paper-copy small { display: block; color: #6d756f; font-size: 11px; line-height: 1.4; }
+.research-paper-materials { margin-top: 10px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.research-paper-materials summary { cursor: pointer; font-weight: 650; }
+.research-paper-materials p { font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+.research-paper-materials ul { margin: 6px 0; padding-left: 18px; color: var(--research-muted); }
+.research-paper-review { display: grid; gap: 9px; margin-top: 10px; padding: 9px 10px; border: 1px solid var(--research-border); border-radius: 6px; background: rgba(255, 255, 255, 0.7); }
+.research-paper-review summary { cursor: pointer; color: #355e4d; font-size: 11px; font-weight: 700; }
+.research-paper-review .research-field { margin-top: 2px; }
+.research-paper-review .research-link-button { justify-self: start; }
 .research-eligibility { min-height: 19px; padding: 0 6px; border-radius: 3px; font-size: 10px; white-space: nowrap; }
 .research-eligibility.is-pass { color: #176d5a; background: #dff2e9; }
 .research-eligibility.is-review { color: #8a671f; background: #fff3d7; }

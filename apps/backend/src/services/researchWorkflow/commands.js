@@ -4,6 +4,8 @@ import { applyApprovalDecision, applyRecovery, applyReset, applyStageUpdate, cre
 import { normalizeSkillBindings } from './skillBindings.js';
 import { readWorkflowFile, resolveProjectRoot, withWorkflowLock, writeWorkflowFile } from './repository.js';
 import { assertStageId } from './stageContracts.js';
+import { applyPaperSelection } from './paperSelection.js';
+import { createStageTask } from './stageTask.js';
 
 function commandKey(value) {
   if (value === undefined || value === null || value === '') return undefined;
@@ -50,7 +52,7 @@ async function mutateWorkflow(projectId, { command, actor, note, expectedVersion
     if (version !== undefined && version !== workflow.version) {
       throw new ResearchWorkflowError(409, 'VERSION_CONFLICT', 'Research workflow changed since it was read.', { expectedVersion: version, actualVersion: workflow.version });
     }
-    const next = mutate(workflow);
+    const next = await mutate(workflow);
     rememberReceipt(next, key, expectedFingerprint, command);
     await writeWorkflowFile(root, next);
     return next;
@@ -75,6 +77,82 @@ export async function initializeResearchWorkflow(projectId, { data = {}, actor, 
     rememberReceipt(workflow, key, expectedFingerprint, 'initialize');
     await writeWorkflowFile(root, workflow);
     return workflow;
+  });
+}
+
+export function selectResearchPapers(projectId, options = {}) {
+  if (options.actor !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', 'Only a human may save paper selection.');
+  return mutateWorkflow(projectId, {
+    command: 'select-papers', actor: options.actor, note: options.note,
+    expectedVersion: options.expectedVersion, idempotencyKey: options.idempotencyKey,
+    payload: { paperIds: options.paperIds, reviews: options.reviews, note: options.note },
+    mutate: (workflow) => applyPaperSelection(projectId, workflow, options)
+  });
+}
+
+// reviews is optional for legacy selection clients; only explicit human input may set it.
+export function selectResearchIdeas(projectId, { ideaIds = [], reviews, ...options } = {}) {
+  if (reviews !== undefined && options.actor !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', 'Only a human may save innovation reviews.');
+  return mutateWorkflow(projectId, {
+    command: 'select-ideas', ...options, payload: { ideaIds, reviews, note: options.note },
+    mutate: (workflow) => {
+      const previous = workflow.stages.find(stage => stage.id === 'ideation').data;
+      const ideas = previous.ideas || [];
+      const candidates = new Map(ideas.map(idea => [String(idea.id), idea]));
+      if (!Array.isArray(ideaIds) || ideaIds.some(id => typeof id !== 'string' || !candidates.has(id)) || new Set(ideaIds).size !== ideaIds.length) {
+        throw new ResearchWorkflowError(400, 'INVALID_IDEA_SELECTION', 'ideaIds must name unique existing candidates.');
+      }
+      const invalidReview = () => { throw new ResearchWorkflowError(400, 'INVALID_IDEA_REVIEW', 'Each review must name a unique candidate and a falsificationCondition string of at most 2000 characters.'); };
+      if (reviews !== undefined && (!Array.isArray(reviews) || reviews.length > candidates.size)) invalidReview();
+      const explicit = new Map();
+      for (const review of reviews || []) {
+        if (!review || typeof review !== 'object' || Array.isArray(review) || Object.keys(review).some(key => !['ideaId', 'falsificationCondition'].includes(key)) || !candidates.has(review.ideaId) || explicit.has(review.ideaId) || typeof review.falsificationCondition !== 'string' || review.falsificationCondition.length > 2000) invalidReview();
+        explicit.set(review.ideaId, review.falsificationCondition.trim());
+      }
+      const history = [...(previous.reviewHistory || [])];
+      const selected = new Set(ideaIds);
+      const now = new Date().toISOString();
+      const nextIdeas = ideas.map(idea => {
+        let humanReview = idea.humanReview;
+        const condition = explicit.get(String(idea.id));
+        if (condition !== undefined && condition !== humanReview?.falsificationCondition) {
+          humanReview = { falsificationCondition: condition, actor: 'human', at: now, workflowVersion: workflow.version };
+          const { humanReview: priorReview, ...candidate } = idea;
+          history.push({ ideaId: String(idea.id), ...humanReview, candidate: clone(candidate) });
+        }
+        return { ...idea, ...(humanReview ? { humanReview } : {}), selected: selected.has(String(idea.id)) };
+      });
+      return applyStageUpdate(workflow, {
+        ...options, stageId: 'ideation', data: {
+          ideas: nextIdeas, reviewHistory: history,
+          task: createStageTask({ stage: 'ideation', input: { candidateIds: [...candidates.keys()], reviews: reviews || [] }, output: { selectedIdeaIds: ideaIds },
+            validation: { ok: selected.size > 0, errors: selected.size ? [] : [{ code: 'NO_IDEAS_SELECTED', path: 'ideaIds', message: 'Select an innovation candidate before approval.' }], warnings: [] }, adapters: ['human-decision'] })
+        }
+      });
+    }
+  });
+}
+
+export function saveResearchDirection(projectId, { direction, ...options } = {}) {
+  assertPlainObject(direction);
+  const condition = direction.falsificationCondition;
+  if (condition !== undefined && (typeof condition !== 'string' || condition.length > 2000)) {
+    throw new ResearchWorkflowError(400, 'INVALID_FALSIFICATION_CONDITION', 'falsificationCondition must be a string of at most 2000 characters.');
+  }
+  const data = {
+    topic: direction.question || '', researchQuestion: direction.question || '',
+    seedKeywords: direction.keywords || [], scope: direction.scope || '', notes: direction.notes || '',
+    ...(condition !== undefined ? { falsificationCondition: condition.trim() } : {})
+  };
+  return mutateWorkflow(projectId, {
+    command: 'save-direction', ...options, payload: { direction, note: options.note },
+    mutate: (workflow) => applyStageUpdate(workflow, {
+      ...options, stageId: 'direction', data: {
+        ...data,
+        task: createStageTask({ stage: 'direction', input: { direction }, output: data,
+          validation: { ok: Boolean(data.researchQuestion.trim()), errors: data.researchQuestion.trim() ? [] : [{ code: 'MISSING_RESEARCH_QUESTION', path: 'researchQuestion', message: 'A research question is required.' }], warnings: [] }, adapters: ['human-input'] })
+      }
+    })
   });
 }
 

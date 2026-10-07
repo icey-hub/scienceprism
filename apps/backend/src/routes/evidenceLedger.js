@@ -18,7 +18,7 @@ function bodyOf(req) {
 }
 
 function actorFromRequest(req, body = {}) {
-  return body.actor || req.headers?.['x-scienceprism-actor'] || req.headers?.['x-openprism-actor'] || req.collabAuth?.sub || 'human';
+  return body.actor || req.headers?.['x-scienceprism-actor'] || req.headers?.['x-openprism-actor'] || req.collabAuth?.sub || (Object.hasOwn(body, 'citations') ? 'unknown' : 'human');
 }
 
 function sendError(req, reply, error) {

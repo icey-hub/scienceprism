@@ -55,6 +55,11 @@ export function DirectionStage({
             <input value={value.scope} placeholder="任务、领域、时间范围或排除项" onChange={(event) => onChange({ ...value, scope: event.target.value })} />
           </label>
           <label className="research-field research-field-wide">
+            <span>可证伪条件 <small>可选</small></span>
+            <textarea aria-describedby="direction-falsification-help" value={value.falsificationCondition || ''} rows={3} maxLength={2000} disabled={busy} placeholder="例如：在固定数据集和基线下，所提方法未降低事实错误率，则不支持该假设。" onChange={(event) => onChange({ ...value, falsificationCondition: event.target.value })} />
+            <small id="direction-falsification-help">写明什么可观察结果会否定研究假设。保存后可修改或清空；填写条件不代表假设已获验证。</small>
+          </label>
+          <label className="research-field research-field-wide">
             <span>给 AI 的工作备注 <small>可选</small></span>
             <textarea value={value.notes} rows={3} placeholder="保留哪些前提？更重视哪类证据？" onChange={(event) => onChange({ ...value, notes: event.target.value })} />
           </label>

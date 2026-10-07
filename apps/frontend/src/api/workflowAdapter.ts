@@ -1,3 +1,5 @@
+export { workflowSession, WorkflowRequestError } from './workflowTransport';
+
 export {
   approveResearchWorkflow,
   createResearchWorkflow,

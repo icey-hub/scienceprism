@@ -1,7 +1,9 @@
-import type { MethodDraft } from '../researchStages';
+import type { MethodDraft, ReplicationResultSummary as ReplicationResult } from '../researchStages';
+import { ReplicationResultSummary } from './ReplicationResultSummary';
 
 export interface MethodStageProps {
   value: MethodDraft;
+  replicationResult?: ReplicationResult;
   candidates?: readonly { id: string; name: string; description: string; baselines: string[]; metrics: string[]; implementationRisks: string[] }[];
   selectedIdeaCount: number;
   busy?: boolean;
@@ -14,9 +16,10 @@ function toLines(value: string) {
   return value.split('\n').map((item) => item.trim()).filter(Boolean);
 }
 
-export function MethodStage({ value, candidates = [], selectedIdeaCount, busy = false, onChange, onGenerate, onSave }: MethodStageProps) {
+export function MethodStage({ value, replicationResult, candidates = [], selectedIdeaCount, busy = false, onChange, onGenerate, onSave }: MethodStageProps) {
   return (
     <div className="research-page-stack">
+      <ReplicationResultSummary value={replicationResult} heading="复现结果如何约束方法设计" />
       <section className="research-panel">
         <div className="research-panel-heading">
           <div>

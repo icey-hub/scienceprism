@@ -29,6 +29,7 @@ export class CollabProvider {
   private doc: Y.Doc;
   private awareness: Awareness;
   private ws: WebSocket | null = null;
+  private reconnectTimer: number | null = null;
   private shouldReconnect = false;
   private reconnectAttempts = 0;
   private onStatus?: (status: CollabStatus) => void;
@@ -57,13 +58,12 @@ export class CollabProvider {
 
   disconnect() {
     this.shouldReconnect = false;
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.detachDocListeners();
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.close();
-    } else if (this.ws) {
-      this.ws.close();
-    }
+    const ws = this.ws;
     this.ws = null;
+    ws?.close();
     this.onStatus?.('disconnected');
   }
 
@@ -126,6 +126,7 @@ export class CollabProvider {
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
+      if (!this.shouldReconnect || this.ws !== ws) return;
       this.reconnectAttempts = 0;
       this.onStatus?.('connected');
       const syncEncoder = encoding.createEncoder();
@@ -146,20 +147,26 @@ export class CollabProvider {
       this.handleMessage(ws, new Uint8Array(event.data));
     };
     ws.onerror = () => {
-      this.onError?.('WebSocket error');
+      if (this.ws === ws) this.onError?.('WebSocket error');
     };
     ws.onclose = () => {
+      if (this.ws !== ws) return;
+      this.ws = null;
       this.onStatus?.('disconnected');
       if (this.shouldReconnect) {
         const retryDelay = Math.min(10_000, 800 * Math.pow(2, this.reconnectAttempts));
         this.reconnectAttempts += 1;
-        window.setTimeout(() => this.openWebSocket(), retryDelay);
+        this.reconnectTimer = window.setTimeout(() => {
+          this.reconnectTimer = null;
+          if (this.shouldReconnect) this.openWebSocket();
+        }, retryDelay);
       }
     };
     this.ws = ws;
   }
 
   private handleMessage(ws: WebSocket, data: Uint8Array) {
+    if (!this.shouldReconnect || this.ws !== ws) return;
     const decoder = decoding.createDecoder(data);
     const messageType = decoding.readVarUint(decoder);
     if (messageType === MESSAGE_SYNC) {

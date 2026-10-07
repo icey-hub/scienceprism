@@ -67,8 +67,10 @@ const LEGACY_COLLAB_SERVER_KEY = 'openprism-collab-server';
 
 function getLangHeader() {
   if (typeof window === 'undefined') return 'zh-CN';
-  const stored = window.localStorage.getItem(LANG_KEY) || window.localStorage.getItem(LEGACY_LANG_KEY);
-  return stored === 'en-US' ? 'en-US' : 'zh-CN';
+  try {
+    const stored = window.localStorage.getItem(LANG_KEY) || window.localStorage.getItem(LEGACY_LANG_KEY);
+    return stored === 'en-US' ? 'en-US' : 'zh-CN';
+  } catch { return 'zh-CN'; }
 }
 
 export function setCollabToken(token: string) {
@@ -89,16 +91,23 @@ export function getCollabToken() {
   return window.sessionStorage.getItem(COLLAB_TOKEN_KEY) || window.sessionStorage.getItem(LEGACY_COLLAB_TOKEN_KEY) || '';
 }
 
+let collabServerFallback = '';
+
 export function setCollabServer(server: string) {
   if (typeof window === 'undefined') return;
   if (!server) return;
-  window.localStorage.setItem(COLLAB_SERVER_KEY, server);
-  window.localStorage.removeItem(LEGACY_COLLAB_SERVER_KEY);
+  collabServerFallback = server;
+  try {
+    window.localStorage.setItem(COLLAB_SERVER_KEY, server);
+    window.localStorage.removeItem(LEGACY_COLLAB_SERVER_KEY);
+  } catch { /* Keep the current connection usable when persistence fails. */ }
 }
 
 export function getCollabServer() {
   if (typeof window === 'undefined') return '';
-  return window.localStorage.getItem(COLLAB_SERVER_KEY) || window.localStorage.getItem(LEGACY_COLLAB_SERVER_KEY) || '';
+  if (collabServerFallback) return collabServerFallback;
+  try { return window.localStorage.getItem(COLLAB_SERVER_KEY) || window.localStorage.getItem(LEGACY_COLLAB_SERVER_KEY) || ''; }
+  catch { return ''; }
 }
 
 function getAuthHeader(): Record<string, string> {
@@ -193,15 +202,20 @@ export function getProjectTree(id: string) {
   return request<{ items: FileItem[]; fileOrder?: FileOrderMap }>(`/api/projects/${id}/tree`);
 }
 
-export function getFile(id: string, filePath: string) {
-  const qs = new URLSearchParams({ path: filePath }).toString();
-  return request<{ content: string }>(`/api/projects/${id}/file?${qs}`);
+export interface FileVersion {
+  exists: boolean;
+  sha256: string | null;
 }
 
-export function writeFile(id: string, filePath: string, content: string) {
-  return request<{ ok: boolean }>(`/api/projects/${id}/file`, {
+export function getFile(id: string, filePath: string) {
+  const qs = new URLSearchParams({ path: filePath }).toString();
+  return request<{ content: string; version: FileVersion }>(`/api/projects/${id}/file?${qs}`);
+}
+
+export function writeFile(id: string, filePath: string, content: string, expectedVersion?: FileVersion) {
+  return request<{ ok: boolean; version: FileVersion }>(`/api/projects/${id}/file`, {
     method: 'PUT',
-    body: JSON.stringify({ path: filePath, content })
+    body: JSON.stringify({ path: filePath, content, expectedVersion })
   });
 }
 
@@ -357,6 +371,15 @@ export function getAgentRoles(stage?: HarnessResearchStageId) {
   }>(`/api/agent/roles${stage ? `?stage=${encodeURIComponent(stage)}` : ''}`);
 }
 
+export interface HarnessPatch {
+  path: string;
+  diff?: string;
+  content?: string;
+  original?: string;
+  deleted?: boolean;
+  baseVersion?: FileVersion | null;
+}
+
 export interface HarnessRun {
   id: string;
   projectId: string;
@@ -375,7 +398,14 @@ export interface HarnessRun {
   capabilities?: { granted?: string[]; denied?: string[]; constraints?: Record<string, unknown> };
   limits?: { timeoutMs?: number; maxTokens?: number; maxConcurrent?: number; retryLimit?: number };
   events?: { type?: string; name?: string; capability?: string; text?: string; at?: string }[];
-  patches?: { path: string; diff: string; content: string; deleted?: boolean }[];
+  patches?: HarnessPatch[];
+  request?: Partial<AssistantRunInput> & { source?: string };
+  documentVersions?: (FileVersion & { path: string })[];
+  appliedPatches?: string[];
+  patchDecisions?: Record<string, { status: string; at?: string }>;
+  application?: { status?: string; error?: { message?: string } };
+  constraintProposal?: { id: string };
+  constraintProposalError?: { code: string; message: string };
   tokenUsage?: Record<string, unknown> | null;
   humanDecision?: { status: string; actor?: string; note?: string; at?: string };
   outputValidation?: { ok?: boolean; warnings?: string[]; errors?: string[] } | null;
@@ -431,25 +461,124 @@ export function replayHarnessRun(projectId: string, runId: string) {
   });
 }
 
-export function decideHarnessRun(projectId: string, runId: string, decision: 'accept' | 'reject', note = '') {
+export function decideHarnessRun(projectId: string, runId: string, decision: 'accept' | 'reject', note = '', paths?: string[]) {
   return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/decision`, {
     method: 'POST',
-    body: JSON.stringify({ decision, note })
+    body: JSON.stringify({ decision, note, paths })
   });
+}
+
+export interface AssistantSkill {
+  name: string;
+  description: string;
+  stages: string[];
+  source: 'built-in' | 'project';
+  relativePath: string;
+  available: boolean;
+  reason?: string | null;
+  shadows?: 'built-in';
+}
+
+export function getAssistantSkills(projectId: string) {
+  return request<{ ok: boolean; skills: AssistantSkill[] }>(`/api/projects/${projectId}/assistant-skills`);
+}
+
+export interface AssistantRunInput {
+  requestId: string;
+  skillNames?: string[];
+  permission: 'read' | 'edit';
+  task: string;
+  prompt: string;
+  activePath?: string;
+  selection?: string;
+  compileLog?: string;
+  history?: { role: 'user' | 'assistant'; content: string }[];
+  documentVersions?: (FileVersion & { path: string })[];
+  llmConfig?: Partial<LLMConfig>;
+}
+
+export function startAssistantRun(projectId: string, input: AssistantRunInput) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/assistant-runs`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function applyHarnessRunPatches(projectId: string, runId: string, paths: string[]) {
+  return request<{ ok: boolean; run: HarnessRun; applied: string[]; alreadyApplied: string[] }>(
+    `/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/apply`,
+    { method: 'POST', body: JSON.stringify({ paths }) }
+  );
+}
+
+export interface CompileInputSnapshot {
+  runId: string;
+  mainFile: string;
+  engine: string;
+  files: { path: string; bytes: number; sha256: string }[];
+  hash: string;
 }
 
 export function compileProject(payload: {
   projectId: string;
   mainFile: string;
   engine: 'pdflatex' | 'xelatex' | 'lualatex' | 'latexmk' | 'tectonic';
-}) {
-  return request<{ ok: boolean; pdf?: string; log?: string; status?: number; engine?: string; error?: string }>(
+}, signal?: AbortSignal) {
+  return request<{ ok: boolean; cancelled?: boolean; code?: string; taskId?: string; pdf?: string; log?: string; status?: number; engine?: string; error?: string; inputSnapshot?: CompileInputSnapshot }>(
     `/api/compile`,
     {
       method: 'POST',
+      signal,
       body: JSON.stringify(payload)
     }
   );
+}
+
+export interface PaperImportPreviewItem {
+  index: number;
+  expectedRevision: string | null;
+  candidate: Partial<PaperLibraryRecord> & { canonicalKey?: string; citationKey?: string };
+  duplicates: { scope: 'project' | 'batch'; paperId?: string; index?: number }[];
+  conflicts: { scope: string; field: string; existing: unknown; incoming: unknown }[];
+  warnings: string[];
+  requiresDecision: boolean;
+  checks: { fields: { status: string; issues: string[] }; source: { status: string; reason: string } };
+}
+
+export interface PaperImportPreview {
+  format: string;
+  originalText: string;
+  inputDigest: string;
+  receivedAt: string;
+  count: number;
+  writesPerformed: boolean;
+  items: PaperImportPreviewItem[];
+}
+
+export interface PaperSourceLookup {
+  provider: 'doi' | 'arxiv' | string;
+  identifier: string;
+  requestedVersion?: string | null;
+  externalVersion?: string | null;
+  retrievedAt: string;
+  candidate: Partial<PaperLibraryRecord> & { title?: string; authors?: string[]; year?: number | null; venue?: string; url?: string; abstract?: string };
+  record: unknown;
+  checks: { fields: { status: string; issues: string[] }; source: { status: string; scope?: string; scientificStatus?: string } };
+  matches: { paperId: string; revision: string; conflicts: { field: string; local: unknown; external: unknown }[] }[];
+  previewToken: string;
+  expiresAt: string;
+  allowedFields: string[];
+  writesPerformed: false;
+}
+
+export interface PaperSourceReview {
+  id: string;
+  provider: string;
+  identifier: string;
+  retrievedAt: string;
+  externalVersion?: string | null;
+  record: unknown;
+  checks: PaperSourceLookup['checks'];
+  decision: { action: string; fields: string[]; actor: string; at: string; scope: string };
 }
 
 export interface PaperLibraryRecord {
@@ -464,7 +593,8 @@ export interface PaperLibraryRecord {
   venue?: string;
   year?: number | null;
   source?: { provider?: string | null; url?: string | null; path?: string | null };
-  sourceRecords?: { provider?: string; id?: string; retrievedAt?: string }[];
+  sourceRecords?: { provider?: string; id?: string; retrievedAt?: string; externalVersion?: string | null }[];
+  sourceReviews?: PaperSourceReview[];
   evidenceId?: string | null;
   tags: string[];
   favorite: boolean;
@@ -494,30 +624,59 @@ export interface ProjectTask {
   updatedAt: string;
 }
 
+export interface ReplicationRunPlan {
+  execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
+  parameters?: Record<string, unknown>;
+  seed?: string;
+  resources?: { timeoutMs?: number; maxOutputBytes?: number; maxArtifactBytes?: number };
+  artifacts?: { path: string; kind?: string; name?: string }[];
+}
+
+export interface ReplicationProvenance {
+  sourceStage: 'replication';
+  projectId: string;
+  workflowId: string;
+  workflowVersion: number;
+  stageStatus: string;
+  plan: {
+    repository: string;
+    codeVersion?: string;
+    environment: string;
+    dataset: string;
+    datasetVersion: string;
+    expectedMetrics?: string;
+    gaps?: string;
+    note: string;
+  };
+}
+
 export interface ExperimentRun {
   id: string;
   projectId: string;
   planId?: string | null;
   status: 'awaiting_approval' | 'approved' | 'running' | 'completed' | 'failed' | 'cancelled' | 'rejected' | string;
   phase?: string;
-  manifest: {
-    code: { version: string; snapshotHash: string };
-    dataset: { id: string; version: string };
-    environment: { node: string; platform: string; arch: string; runner: string };
-    command: { adapter: string; entrypoint?: string; args: string[] };
-    parameters: Record<string, unknown>;
+  // Older persisted Runs may omit manifest sections or result arrays. Consumers
+  // must keep those records readable and show an explicit "not recorded" value.
+  manifest?: {
+    code?: { version?: string; snapshotHash?: string };
+    dataset?: { id?: string; version?: string };
+    environment?: { node?: string; platform?: string; arch?: string; runner?: string; recorded?: string };
+    command?: { adapter?: string; entrypoint?: string; args?: string[] };
+    parameters?: Record<string, unknown>;
     seed?: string | null;
-    successCriteria: string[];
+    successCriteria?: string[];
+    replication?: ReplicationProvenance;
   };
   approval?: { decision: string; actor: string; note?: string; at: string } | null;
   execution?: { startedAt?: string; finishedAt?: string; exitCode?: number | null; signal?: string | null; error?: { code?: string; message?: string } | null } | null;
   logs?: { stdout?: string; stderr?: string };
-  metrics: { name: string; value?: unknown; unit?: string | null; uncertainty?: unknown }[];
-  artifacts: { id: string; name: string; kind: string; path: string; sha256: string; bytes: number }[];
+  metrics?: { name: string; value?: unknown; unit?: string | null; uncertainty?: unknown }[];
+  artifacts?: { id: string; name: string; kind: string; path: string; sha256: string; bytes: number }[];
   evidence?: { runId?: string | null; artifactIds?: string[] };
   error?: { code?: string; message?: string; retryable?: boolean } | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface ProjectDashboard {
@@ -559,6 +718,30 @@ export function initializeProject(projectId: string, payload: {
 export function listProjectPapers(projectId: string, query: Record<string, string> = {}) {
   const qs = new URLSearchParams(query).toString();
   return request<{ ok: boolean; papers: PaperLibraryRecord[] }>(`/api/projects/${projectId}/papers${qs ? `?${qs}` : ''}`);
+}
+
+export function lookupProjectPaperSource(projectId: string, input: { doi: string } | { arxivId: string }) {
+  return request<{ ok: boolean; lookup: PaperSourceLookup }>(`/api/projects/${projectId}/papers/source-lookup`, {
+    method: 'POST', body: JSON.stringify(input)
+  });
+}
+
+export function confirmProjectPaperSource(projectId: string, payload: { previewToken: string; action: 'create' | 'keep' | 'merge'; paperId?: string; fields?: string[] }) {
+  return request<{ ok: boolean; result: { paper?: PaperLibraryRecord; skipped?: boolean; writesPerformed: boolean } }>(`/api/projects/${projectId}/papers/source-confirm`, {
+    method: 'POST', body: JSON.stringify(payload)
+  });
+}
+
+export function previewProjectPaperImport(projectId: string, text: string) {
+  return request<{ ok: boolean; preview: PaperImportPreview }>(`/api/projects/${projectId}/papers/import-preview`, {
+    method: 'POST', body: JSON.stringify({ format: 'bibtex', text })
+  });
+}
+
+export function confirmProjectPaperImport(projectId: string, payload: { text: string; inputDigest: string; index: number; expectedRevision: string | null; action: 'create' | 'keep' | 'merge'; fields: string[] }) {
+  return request<{ ok: boolean; result: { paper: PaperLibraryRecord; duplicate: boolean; skipped?: boolean } }>(`/api/projects/${projectId}/papers/import-confirm`, {
+    method: 'POST', body: JSON.stringify(payload)
+  });
 }
 
 export function importProjectPaper(projectId: string, paper: Partial<PaperLibraryRecord> & { title: string }) {
@@ -605,6 +788,13 @@ export function createExperimentRun(projectId: string, plan: Record<string, unkn
   return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs`, {
     method: 'POST',
     body: JSON.stringify({ plan })
+  });
+}
+
+export function createReplicationExperimentRun(projectId: string, expectedVersion: number, plan: ReplicationRunPlan) {
+  return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs`, {
+    method: 'POST',
+    body: JSON.stringify({ sourceStage: 'replication', expectedVersion, plan })
   });
 }
 
@@ -851,12 +1041,63 @@ export interface EvidenceRecord {
   sha256?: string | null;
 }
 
+export type EvidenceCitationInput = Pick<EvidenceCitation, 'evidenceId' | 'sourceVersion' | 'excerpt' | 'section' | 'page' | 'locator'>;
+
+export interface EvidenceLedgerSnapshot {
+  version: number;
+  entries: Array<EvidenceRecord & { updatedAt: string; citations?: EvidenceCitation[] }>;
+}
+
+export function getEvidenceLedgerSnapshot(projectId: string) {
+  return request<{ ok: boolean; ledger: EvidenceLedgerSnapshot }>(`/api/projects/${encodeURIComponent(projectId)}/evidence`);
+}
+
+export function saveClaimCitations(projectId: string, claimId: string, citations: EvidenceCitationInput[], expectedVersion: number) {
+  return request<{ ok: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/evidence/${encodeURIComponent(claimId)}`, {
+    method: 'PUT', body: JSON.stringify({ citations, expectedVersion, actor: 'human' })
+  });
+}
+
+export interface ManualEvidenceSourceInput {
+  title: string;
+  summary: string;
+  url: string;
+  path: string;
+  locator: string;
+  version: string;
+}
+
+export function saveManualEvidenceSource(projectId: string, id: string, input: ManualEvidenceSourceInput, expectedVersion: number) {
+  return request<{ ok: boolean; result: { entry: EvidenceRecord; ledgerVersion: number } }>(`/api/projects/${encodeURIComponent(projectId)}/evidence`, {
+    method: 'POST', body: JSON.stringify({
+      id, title: input.title, summary: input.summary, version: input.version.trim() || null,
+      source: { url: input.url.trim() || null, path: input.path.trim() || null, locator: input.locator.trim() || null, provider: '人工补录' },
+      kind: 'human-note', verificationStatus: 'unverified', actor: 'human', expectedVersion
+    })
+  });
+}
+
+export interface EvidenceCitation {
+  evidenceId: string;
+  sourceVersion: string;
+  excerpt: string;
+  section: string;
+  page: string;
+  locator: string;
+  materialFingerprint: string;
+  sourceSnapshot: EvidenceRecord['source'];
+  actor: 'human';
+  recordedAt: string;
+}
+
 export interface ClaimEvidenceRow {
   id: string;
   text: string;
   status: 'supported' | 'unsupported' | 'needs-verification' | string;
   evidenceIds: string[];
   evidence: EvidenceRecord[];
+  citations?: EvidenceCitation[];
+  contradictingEvidenceIds?: string[];
   missingEvidenceIds: string[];
   unverifiedEvidenceIds: string[];
   staleEvidenceIds: string[];

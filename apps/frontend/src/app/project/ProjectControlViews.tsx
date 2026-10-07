@@ -13,6 +13,8 @@ import { getEvidenceClaimMatrix, getEvidenceGraph, type ClaimEvidenceMatrix } fr
 import type { ProjectDashboard } from '../../api/projectAdapter';
 import { getConstraintPolicy, setConstraintEnabled, type ConstraintPolicy } from '../../api/constraintAdapter';
 import { DecisionStatus } from '../components/DecisionStatus';
+import { ClaimMaterials } from './ClaimMaterials';
+import { ClaimCitationEditor } from './ClaimCitationEditor';
 import { EmptyState, ErrorState, LoadingState, ProgressBar } from '../components/AsyncState';
 
 type ActionState = { id: string; action: string } | null;
@@ -198,6 +200,6 @@ export function EvidenceView({ projectId }: { projectId: string }) {
   return <section className="hub-panel control-panel evidence-view">
     <div className="hub-section-heading"><div><span className="hub-kicker">EVIDENCE LEDGER</span><h3>证据链视图</h3></div><span className={`hub-quality-badge ${matrix.ok ? 'pass' : 'warning'}`}>{matrix.ok ? '引用完整' : '需要核验'}</span></div>
     <div className="evidence-stat-grid"><div><strong>{matrix.totalClaims}</strong><span>论文主张</span></div><div><strong>{matrix.supportedClaims}</strong><span>已支持</span></div><div><strong>{matrix.needsVerificationClaims}</strong><span>待核验</span></div><div><strong>{graph.nodes.length}</strong><span>证据节点</span></div><div><strong>{graph.edges.length}</strong><span>关系</span></div></div>
-    <div className="evidence-claim-list">{matrix.rows.length ? matrix.rows.map((row) => <article className="evidence-claim-row" key={row.id}><div><strong>{row.text}</strong><small>{row.evidenceIds.length ? `Evidence：${row.evidenceIds.join('、')}` : '尚未关联 Evidence'}</small></div><DecisionStatus status={row.status === 'supported' ? 'accepted' : row.status === 'needs-verification' ? 'awaiting_approval' : 'rejected'} /></article>) : <EmptyState title="暂无论文主张" detail="写作交接生成主张后会在这里建立关联。" />}</div>
+    <div className="evidence-claim-list">{matrix.rows.length ? matrix.rows.map((row) => <article className="evidence-claim-row" key={row.id}><div><strong>{row.text}</strong><small>{row.evidenceIds.length ? `Evidence：${row.evidenceIds.join('、')}` : '尚未关联 Evidence'}</small></div><DecisionStatus status={row.status === 'supported' ? 'accepted' : row.status === 'needs-verification' ? 'awaiting_approval' : 'rejected'} /><ClaimMaterials projectId={projectId} claim={row} /><ClaimCitationEditor key={`${projectId}:${row.id}`} projectId={projectId} claimId={row.id} onSaved={() => void load()} /></article>) : <EmptyState title="暂无论文主张" detail="写作交接生成主张后会在这里建立关联。" />}</div>
   </section>;
 }

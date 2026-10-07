@@ -29,6 +29,7 @@ export interface ResearchStageLayoutProps {
   onBackToEditor: () => void;
   onRefresh?: () => void;
   onApprove?: () => void;
+  onReject?: () => void;
   onPrevious?: () => void;
   onNext?: () => void;
 }
@@ -48,6 +49,7 @@ export function ResearchStageLayout({
   onBackToEditor,
   onRefresh,
   onApprove,
+  onReject,
   onPrevious,
   onNext
 }: ResearchStageLayoutProps) {
@@ -59,6 +61,32 @@ export function ResearchStageLayout({
       ? '未配置'
       : '检查中';
 
+  const roleSummary = roleSummaries && roleSummaries.length > 0 ? (
+    <section className="research-role-summary" aria-label="本阶段运行角色">
+      <span className="research-overline">RUNNING ROLE</span>
+      {roleSummaries.map((role) => (
+        <div className="research-role-summary-item" key={role.id}>
+          <strong>{role.id}</strong>
+          <dl>
+            <div>
+              <dt>权限</dt>
+              <dd>{role.authority}</dd>
+            </div>
+            <div>
+              <dt>能力上限</dt>
+              <dd>{role.capabilities.length ? role.capabilities.join(', ') : '无'}</dd>
+            </div>
+            <div>
+              <dt>角色关联 Skill</dt>
+              <dd>{role.skills.length ? role.skills.join(', ') : '未预设'}</dd>
+            </div>
+          </dl>
+        </div>
+      ))}
+      <p className="research-role-summary-note">此处列出角色能力上限和关联 Skill；实际启用以本次选择或阶段绑定为准，并受项目权限限制。选择 Skill 不增加能力，审批仍由人工完成。</p>
+    </section>
+  ) : null;
+
   const stageMain = (
     <main className="research-stage-main">
       <header className="research-stage-heading">
@@ -69,10 +97,19 @@ export function ResearchStageLayout({
         </div>
         <span className={`research-status-badge is-${status}`}>{STAGE_STATUS_LABELS[status]}</span>
       </header>
-      <div className="research-stage-content">{children}</div>
+      <div className="research-stage-content">
+        {children}
+        {embedded && roleSummary && (
+          <details className="research-maintenance">
+            <summary>本阶段角色与权限</summary>
+            {roleSummary}
+          </details>
+        )}
+      </div>
       <footer className="research-stage-footer">
         <button className="research-button research-button-quiet" disabled={!onPrevious || busy} onClick={onPrevious} type="button">上一阶段</button>
         <div>
+          {onReject && <button className="research-button research-button-quiet" disabled={busy || status === 'locked'} onClick={onReject} type="button">拒绝并修订</button>}
           {onApprove && <button className="research-button research-button-primary" disabled={busy || status === 'locked'} onClick={onApprove} type="button">人工确认</button>}
           <button className="research-button research-button-quiet" disabled={!onNext || busy} onClick={onNext} type="button">下一阶段</button>
         </div>
@@ -112,31 +149,7 @@ export function ResearchStageLayout({
           </div>
           <ResearchStageNavigation activeStage={stage} stageStatuses={stageStatuses} onNavigate={onNavigate} />
           <p className="research-human-note"><b>H</b> 每个阶段都需要人工确认，Skill 不能越过审批。</p>
-          {roleSummaries && roleSummaries.length > 0 && (
-            <section className="research-role-summary" aria-label="本阶段运行角色">
-              <span className="research-overline">RUNNING ROLE</span>
-              {roleSummaries.map((role) => (
-                <div className="research-role-summary-item" key={role.id}>
-                  <strong>{role.id}</strong>
-                  <dl>
-                    <div>
-                      <dt>权限</dt>
-                      <dd>{role.authority}</dd>
-                    </div>
-                    <div>
-                      <dt>能力</dt>
-                      <dd>{role.capabilities.length ? role.capabilities.join(', ') : '无'}</dd>
-                    </div>
-                    <div>
-                      <dt>可用 Skill</dt>
-                      <dd>{role.skills.length ? role.skills.join(', ') : '无'}</dd>
-                    </div>
-                  </dl>
-                </div>
-              ))}
-              <p className="research-role-summary-note">角色只能收窄权限，不能扩大；审批仍由人工完成。</p>
-            </section>
-          )}
+          {roleSummary}
         </aside>
 
         {stageMain}

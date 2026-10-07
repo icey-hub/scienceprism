@@ -40,6 +40,49 @@ test('paper library deduplicates source records and keeps reading state', async 
   assert.equal(updated.paper.favorite, true);
   assert.equal(updated.paper.evidenceId, first.paper.evidenceId);
   assert.ok((await getTaskSummary(projectId)).completed >= 2);
+  const sourceRecords = updated.paper.sourceRecords;
+  assert.ok(sourceRecords.some((record) => record.id === '2401.00001v1'));
+  assert.ok(sourceRecords.some((record) => record.id === '2401.00001v2'));
+  const { getEvidence } = await import('../src/services/evidenceLedger/index.js');
+  const paperEvidence = await getEvidence(projectId, updated.paper.evidenceId);
+  assert.equal(paperEvidence.verificationStatus, 'pending');
+  assert.equal(paperEvidence.metadata.paperId, first.paper.id);
+});
+
+test('legacy checked metadata does not scientifically confirm paper Evidence', async () => {
+  const projectId = 'library-source-check';
+  await createProject(projectId);
+  const imported = await importPaper(projectId, { title: 'Field check only', authors: ['A Researcher'], url: 'https://example.test/paper', source: 'fixture' });
+  assert.equal(imported.paper.sourceCheck.status, 'checked');
+  const checked = await updatePaper(projectId, imported.paper.id, { runSourceCheck: true });
+  assert.equal(checked.paper.sourceCheck.status, 'checked');
+  const { getEvidence } = await import('../src/services/evidenceLedger/index.js');
+  assert.equal((await getEvidence(projectId, checked.paper.evidenceId)).verificationStatus, 'pending');
+  const reimported = await importPaper(projectId, JSON.parse(JSON.stringify(checked.paper)));
+  assert.equal(reimported.duplicate, true);
+  assert.equal(reimported.paper.id, checked.paper.id);
+  assert.equal(reimported.paper.evidenceId, checked.paper.evidenceId);
+  assert.equal(reimported.paper.bibtex, checked.paper.bibtex);
+});
+
+test('duplicate imports preserve human metadata omitted by the source', async () => {
+  const projectId = 'library-human-metadata';
+  await createProject(projectId);
+  const source = { title: 'Traceable paper', authors: ['A Researcher'], arxivId: '2401.01234v1', source: 'arxiv' };
+  const first = await importPaper(projectId, source);
+  const edited = await updatePaper(projectId, first.paper.id, {
+    notes: 'Human note', annotations: [{ id: 'annotation-stable', text: 'Keep quote', page: 3 }],
+    tags: ['review'], favorite: true, readingStatus: 'reading', bibtex: '@article{humanKey}'
+  });
+  const merged = await importPaper(projectId, { ...source, arxivId: '2401.01234v2' });
+  assert.equal(merged.duplicate, true);
+  for (const key of ['id', 'evidenceId', 'notes', 'annotations', 'tags', 'favorite', 'readingStatus', 'bibtex', 'createdAt', 'importedAt']) {
+    assert.deepEqual(merged.paper[key], edited.paper[key], key);
+  }
+  const cleared = await importPaper(projectId, { ...source, notes: '', annotations: [], favorite: false });
+  assert.equal(cleared.paper.notes, '');
+  assert.deepEqual(cleared.paper.annotations, []);
+  assert.equal(cleared.paper.favorite, false);
 });
 
 test('project initialization creates the first stage and dashboard projection', async () => {

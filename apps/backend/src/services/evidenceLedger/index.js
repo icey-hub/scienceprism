@@ -4,6 +4,8 @@ import { EvidenceLedgerError } from './errors.js';
 import {
   CONFIRMED_EVIDENCE_STATUSES,
   evidenceLedgerSchema,
+  evidenceCitationInputSchema,
+  evidenceMaterialFingerprint,
   evidenceVersion,
   isConfirmedEvidence,
   normalizeEvidenceRecord,
@@ -66,7 +68,23 @@ export async function upsertEvidence(projectId, input, { actor = 'human', expect
     ensureExpectedVersion(ledger, expectedVersion);
     const existingIndex = input.id ? ledger.entries.findIndex((item) => item.id === String(input.id)) : -1;
     const existing = existingIndex >= 0 ? ledger.entries[existingIndex] : undefined;
-    const entry = normalizeEvidenceRecord({ ...input, id: input.id || `evidence-${randomUUID()}` }, { existing, now: now() });
+    const { actor: requestActor, expectedVersion: requestVersion, ...record } = input;
+    if (Object.hasOwn(record, 'citations')) {
+      if (actor !== 'human') throw new EvidenceLedgerError(403, 'HUMAN_CITATION_REQUIRED', 'Citation transcription requires a human actor.');
+      if (!Number.isInteger(expectedVersion)) throw new EvidenceLedgerError(400, 'CITATION_VERSION_REQUIRED', 'Read the current ledger version before recording citations.');
+      if ((record.kind || existing?.kind) !== 'paper-claim') throw new EvidenceLedgerError(400, 'INVALID_CITATIONS', 'Only paper claims may record citations.');
+      const parsed = evidenceCitationInputSchema.array().max(100).safeParse(record.citations);
+      if (!parsed.success || parsed.data.some((citation) => ![citation.excerpt, citation.section, citation.page, citation.locator].some(Boolean))) {
+        throw new EvidenceLedgerError(400, 'INVALID_CITATIONS', 'Citations require valid source references and a transcribed excerpt or location.');
+      }
+      record.citations = parsed.data.map((citation) => {
+        const source = ledger.entries.find((entry) => entry.id === citation.evidenceId && entry.id !== record.id);
+        if (!source) throw new EvidenceLedgerError(400, 'CITATION_SOURCE_NOT_FOUND', 'Citation source was not found in this project.');
+        if (evidenceVersion(source) !== citation.sourceVersion) throw new EvidenceLedgerError(409, 'CITATION_SOURCE_CHANGED', 'Citation source version changed; read it again.');
+        return { ...citation, materialFingerprint: evidenceMaterialFingerprint(source), sourceSnapshot: sourceForEvidence(source), actor: 'human', recordedAt: now() };
+      });
+    }
+    const entry = normalizeEvidenceRecord({ ...record, id: input.id || `evidence-${randomUUID()}` }, { existing, now: now() });
     if (existingIndex >= 0) ledger.entries[existingIndex] = entry;
     else ledger.entries.unshift(entry);
     if (ledger.entries.length > MAX_ENTRIES) ledger.entries.length = MAX_ENTRIES;
@@ -116,6 +134,7 @@ function claimFromEntry(entry) {
     text: entry.summary || entry.title,
     evidenceIds: entry.metadata?.evidenceIds || Object.keys(entry.evidenceVersions || {}),
     evidenceVersions: entry.evidenceVersions || {},
+    citations: entry.citations || [],
     source: 'ledger',
     verificationStatus: entry.verificationStatus,
     confidence: entry.metadata?.confidence ?? null
@@ -156,21 +175,32 @@ function claimRows(ledger, workflow, suppliedClaims) {
   return [...byId.values()];
 }
 
-function evaluateClaim(claim, entriesById) {
-  const evidenceIds = [...new Set((claim.evidenceIds || []).map(String).filter(Boolean))];
+function evaluateClaim(claim, entriesById, relations = []) {
+  const citations = claim.citations || [];
+  const contradictingEvidenceIds = [...new Set(relations.filter((relation) => relation.type === 'contradicts' && (relation.fromId === claim.id || relation.toId === claim.id)).map((relation) => relation.fromId === claim.id ? relation.toId : relation.fromId))];
+  const evidenceIds = [...new Set([...(claim.evidenceIds || []), ...citations.map((citation) => citation.evidenceId), ...contradictingEvidenceIds].map(String).filter(Boolean))];
   const evidence = evidenceIds.map((id) => entriesById.get(id)).filter(Boolean);
   const missingEvidenceIds = evidenceIds.filter((id) => !entriesById.has(id));
   const unverifiedEvidenceIds = evidence.filter((entry) => !isConfirmedEvidence(entry)).map((entry) => entry.id);
-  const staleEvidenceIds = evidence.filter((entry) => claim.evidenceVersions?.[entry.id] && claim.evidenceVersions[entry.id] !== evidenceVersion(entry)).map((entry) => entry.id);
-  const status = !evidenceIds.length || missingEvidenceIds.length ? 'unsupported' : staleEvidenceIds.length || unverifiedEvidenceIds.length ? 'needs-verification' : 'supported';
+  const staleEvidenceIds = evidence.filter((entry) => {
+    const bound = citations.filter((citation) => citation.evidenceId === entry.id);
+    // A recorded material snapshot supersedes legacy version-only bindings.
+    // Its fingerprint includes external version/hash, but not tag-update timestamps.
+    return bound.length
+      ? bound.some((citation) => citation.materialFingerprint !== evidenceMaterialFingerprint(entry))
+      : claim.evidenceVersions?.[entry.id] && claim.evidenceVersions[entry.id] !== evidenceVersion(entry);
+  }).map((entry) => entry.id);
+  const status = !evidenceIds.length || missingEvidenceIds.length ? 'unsupported' : staleEvidenceIds.length || unverifiedEvidenceIds.length || contradictingEvidenceIds.length ? 'needs-verification' : 'supported';
   return {
     id: claim.id,
     text: claim.text,
     confidence: claim.confidence,
     source: claim.source,
+    citations,
     evidenceIds,
     evidence: evidence.map((entry) => ({ id: entry.id, kind: entry.kind, title: entry.title, summary: entry.summary, verificationStatus: entry.verificationStatus, source: sourceForEvidence(entry), version: evidenceVersion(entry), sha256: entry.sha256 })),
     missingEvidenceIds,
+    contradictingEvidenceIds,
     unverifiedEvidenceIds,
     staleEvidenceIds,
     status
@@ -179,7 +209,7 @@ function evaluateClaim(claim, entriesById) {
 
 export function checkClaimEvidence(ledger, claims = []) {
   const entriesById = new Map((ledger?.entries || []).map((entry) => [entry.id, entry]));
-  const rows = claims.map((claim) => evaluateClaim(claim, entriesById));
+  const rows = claims.map((claim) => evaluateClaim(claim, entriesById, ledger?.relations));
   const unsupported = rows.filter((row) => row.status === 'unsupported');
   const needsVerification = rows.filter((row) => row.status === 'needs-verification');
   return {
@@ -267,8 +297,8 @@ export async function validateStageEvidence(projectId, stage, output) {
     .map((row) => ({
       path: row.id.startsWith('evidence-reference-') ? row.id : `claims.${row.id}.evidenceIds`,
       code: row.status === 'unsupported' ? 'UNSUPPORTED_CLAIM' : 'EVIDENCE_REQUIRES_VERIFICATION',
-      message: row.status === 'unsupported' ? 'Paper Claim has no complete Evidence chain.' : 'Paper Claim references missing, unverified, or stale Evidence.',
-      details: { missingEvidenceIds: row.missingEvidenceIds, unverifiedEvidenceIds: row.unverifiedEvidenceIds, staleEvidenceIds: row.staleEvidenceIds }
+      message: row.status === 'unsupported' ? 'Paper Claim has no complete Evidence chain.' : 'Paper Claim references unverified, stale, or contradicting Evidence.',
+      details: { missingEvidenceIds: row.missingEvidenceIds, unverifiedEvidenceIds: row.unverifiedEvidenceIds, staleEvidenceIds: row.staleEvidenceIds, contradictingEvidenceIds: row.contradictingEvidenceIds }
     }));
   return { ok: errors.length === 0, errors, warnings: [], matrix };
 }

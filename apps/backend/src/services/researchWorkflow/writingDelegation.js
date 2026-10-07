@@ -21,6 +21,7 @@ function reviewPrompt(task, input, humanInstructions, skills = []) {
     ideas: input.ideas,
     method: input.method,
     experiment: input.experiment,
+    replicationRun: input.replicationRun,
     evidenceLedger: input.evidenceLedger
   }).slice(0, 18000);
   return [
@@ -28,6 +29,8 @@ function reviewPrompt(task, input, humanInstructions, skills = []) {
     task.instruction,
     skills.length ? `Enabled review Skill:\n${researchSkillPrompt('writing', skills)}` : '',
     'Write a concise review with specific evidence IDs where possible. Treat every model judgment as an unverified review opinion. Do not approve a stage, modify files, or claim to have verified a source or result.',
+    input.replicationRun?.status !== 'completed' ? 'The selected replication Run is not completed and cannot support a successful finding; keep any conclusion explicitly provisional.' : '',
+    input.replicationRun && !input.replicationRun.supportsSuccessfulFinding ? 'The replication Run completed or produced records, but its Evidence is pending or unverified. Treat metrics and artifacts as review material only until a human confirms the Evidence.' : '',
     'The research materials below are a summary. Before claiming a detail is absent from the project or a control was not run, inspect relevant readable project files when available. If you cannot inspect them, say only that the detail is not shown in this summary. Distinguish a planned method from the executed protocol.',
     `Research materials: ${materials}`,
     humanInstructions ? `Researcher instructions: ${String(humanInstructions).slice(0, 2000)}` : ''

@@ -1,4 +1,7 @@
 import type { WritingEvidenceSummary } from '../researchStages';
+import { ReplicationResultSummary } from './ReplicationResultSummary';
+import { ClaimMaterials } from '../../project/ClaimMaterials';
+import { ClaimCitationEditor } from '../../project/ClaimCitationEditor';
 
 export interface WritingDelegation {
   mode: 'multi-agent';
@@ -14,6 +17,9 @@ function usageLabel(usage?: Record<string, unknown> | null) {
 }
 
 export interface WritingStageProps {
+  projectId: string;
+  onCitationsSaved: () => void;
+  citationRefreshError?: string;
   value: WritingEvidenceSummary;
   busy?: boolean;
   agentMode: 'single-agent' | 'multi-agent';
@@ -24,9 +30,10 @@ export interface WritingStageProps {
   onOpenEditor: () => void;
 }
 
-export function WritingStage({ value, busy = false, agentMode, delegation, onAgentModeChange, onOutlineChange, onPrepareWriting, onOpenEditor }: WritingStageProps) {
+export function WritingStage({ projectId, onCitationsSaved, citationRefreshError = '', value, busy = false, agentMode, delegation, onAgentModeChange, onOutlineChange, onPrepareWriting, onOpenEditor }: WritingStageProps) {
   return (
     <div className="research-page-stack">
+      <ReplicationResultSummary value={value.replicationRun} heading="写作中可引用的复现记录" />
       <section className="research-panel research-writing-summary">
         <div>
           <span className="research-overline">EVIDENCE HANDOFF</span>
@@ -63,6 +70,7 @@ export function WritingStage({ value, busy = false, agentMode, delegation, onAge
       </section>}
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">CLAIM EVIDENCE MATRIX</span><h3>主张与证据完整性</h3></div><span className={`research-status-note${value.claimMatrix?.ok ? ' is-ready' : ''}`}>{value.claimMatrix?.totalClaims ? (value.claimMatrix.ok ? '引用完整' : '需要核验') : '尚未生成'}</span></div>
+        {citationRefreshError && <div className="research-callout research-callout-warning" role="alert"><p>{citationRefreshError}</p><button type="button" className="research-button research-button-quiet" onClick={onCitationsSaved}>重新读取证据矩阵</button></div>}
         {value.claimMatrix?.totalClaims ? <>
           <div className="research-summary-grid research-summary-grid-compact">
             <div><strong>{value.claimMatrix.supportedClaims}</strong><span>已支持主张</span></div>
@@ -75,7 +83,9 @@ export function WritingStage({ value, busy = false, agentMode, delegation, onAge
               <span className={`research-status-note${claim.status === 'supported' ? ' is-ready' : ''}`}>{claim.status === 'supported' ? '已支持' : claim.status === 'unsupported' ? '无支持' : '待验证'}</span>
               {claim.missingEvidenceIds.length > 0 && <small>缺失：{claim.missingEvidenceIds.join('、')}</small>}
               {claim.unverifiedEvidenceIds.length > 0 && <small>待核验：{claim.unverifiedEvidenceIds.join('、')}</small>}
-              {claim.staleEvidenceIds.length > 0 && <small>版本变化：{claim.staleEvidenceIds.join('、')}</small>}
+              {claim.staleEvidenceIds.length > 0 && <small>材料或版本变化：{claim.staleEvidenceIds.join('、')}</small>}
+              <ClaimMaterials projectId={projectId} claim={claim} />
+              <ClaimCitationEditor key={`${projectId}:${claim.id}`} projectId={projectId} claimId={claim.id} onSaved={onCitationsSaved} />
             </div>)}
           </div>
         </> : <p className="research-empty-state">还没有可检查的论文主张。生成写作 Brief 后，主张必须关联 Evidence 才能进入已支持状态。</p>}

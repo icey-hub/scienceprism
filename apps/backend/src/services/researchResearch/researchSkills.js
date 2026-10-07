@@ -1,25 +1,25 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { REPO_ROOT } from '../../config/constants.js';
-import { getProjectRoot } from '../projectService.js';
 import { getResearchSkillBindings } from '../researchWorkflow/index.js';
-import { assertProjectPath } from '../harnessRuntime/capabilities.js';
-
-export const RESEARCH_SKILLS_ROOT = path.join(REPO_ROOT, '.dsh', 'skills');
-
-export const RESEARCH_SKILL_STAGES = Object.freeze([
-  'direction',
-  'search',
-  'selection',
-  'replication',
-  'ideation',
-  'method',
-  'experiment',
-  'writing'
-]);
-
+import { SKILLS_ROOT, RESEARCH_SKILL_STAGES, RESEARCH_SKILL_STAGE_ALIASES, listSkillCatalog, readEnabledSkillDocument } from '../skillCatalog.js';
+export { RESEARCH_SKILL_STAGES, RESEARCH_SKILL_STAGE_ALIASES } from '../skillCatalog.js';
+export const RESEARCH_SKILLS_ROOT = SKILLS_ROOT;
 const STAGE_SET = new Set(RESEARCH_SKILL_STAGES);
-const SKILL_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const normalizeStage = (stage) => {
+  const value = String(stage || '').trim();
+  return RESEARCH_SKILL_STAGE_ALIASES[value] || value;
+};
+const uniqueStrings = (values) => Array.isArray(values) ? [...new Set(values.filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean))] : [];
+
+export async function listResearchSkills(options = {}) {
+  const { skills } = await listSkillCatalog(options);
+  const stage = normalizeStage(options.stage);
+  return skills.filter((skill) => skill.available && skill.stages.length && (!stage || skill.stages.includes(stage)))
+    .map(({ name, description, stages, source, relativePath }) => ({ name, description, stages, source, relativePath }));
+}
+
+// Compatibility entry point for existing research adapters.
+export const readEnabledResearchSkillDocument = readEnabledSkillDocument;
 
 // Re-exported so existing importers keep one obvious place to read it; the fact
 // itself lives in the workflow module because the role registry needs it too.
@@ -31,192 +31,6 @@ export const DEFAULT_RESEARCH_SKILL_BINDINGS = Object.freeze({
   method: Object.freeze(['paper-card', 'dataset-audit', 'statistics-audit', 'experiment-design-audit']),
   writing: Object.freeze(['dataset-audit', 'statistics-audit', 'research-writing', 'claim-evidence-audit', 'figure-table-plan', 'paper-figure-style', 'ccf-paper-storyline', 'ccf-paper-review'])
 });
-
-export const RESEARCH_SKILL_STAGE_ALIASES = Object.freeze({
-  search_strategy: 'search',
-  reproduction_plan: 'replication',
-  innovation: 'ideation',
-  innovation_ideas: 'ideation',
-  method_proposals: 'method',
-  experiment_plan: 'experiment',
-  experiment_results: 'experiment',
-  writing_brief: 'writing'
-});
-
-function normalizeStage(stage) {
-  const raw = stage === undefined || stage === null ? '' : String(stage).trim();
-  return RESEARCH_SKILL_STAGE_ALIASES[raw] || raw;
-}
-
-function uniqueStrings(values) {
-  if (!Array.isArray(values)) return [];
-  return [...new Set(values
-    .filter((value) => typeof value === 'string')
-    .map((value) => value.trim())
-    .filter(Boolean))];
-}
-
-function unquote(value) {
-  const text = String(value || '').trim();
-  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
-    return text.slice(1, -1).trim();
-  }
-  return text;
-}
-
-function parseInlineList(value) {
-  const text = String(value || '').trim();
-  if (!text.startsWith('[') || !text.endsWith(']')) return [];
-  return uniqueStrings(text.slice(1, -1).split(',').map(unquote));
-}
-
-/**
- * The Harness skill metadata is deliberately kept to a small YAML subset.
- * It is sufficient for discovery and avoids treating arbitrary skill content
- * as executable configuration in the SciencePrism server.
- */
-/** A YAML block scalar header: `>-`, `>`, `|-`, `|`, optionally with a chomp digit. */
-const BLOCK_SCALAR_HEADER = /^[>|][-+]?\d*$/;
-
-/**
- * Reads a YAML block scalar body.
- *
- * This parser was line-based and read only single-line values, so a skill that
- * wrote its description the standard way — `description: >-` with the text
- * indented below — had its description parsed as the literal string ">-". The
- * description is what `researchSkillPrompt` hands the model, so the skill
- * silently reached every run with no usable description at all.
- */
-function readBlockScalar(frontmatter, headerIndex) {
-  const headerIndent = frontmatter[headerIndex].match(/^(\s*)/)?.[1].length || 0;
-  const isLiteral = frontmatter[headerIndex].trim().startsWith('|');
-  const collected = [];
-  let blockIndent = null;
-  let cursor = headerIndex + 1;
-
-  for (; cursor < frontmatter.length; cursor += 1) {
-    const line = frontmatter[cursor];
-    if (!line.trim()) {
-      collected.push('');
-      continue;
-    }
-    const indent = line.match(/^(\s*)/)?.[1].length || 0;
-    if (indent <= headerIndent) break;
-    if (blockIndent === null) blockIndent = indent;
-    collected.push(line.slice(blockIndent));
-  }
-
-  const joined = isLiteral ? collected.join('\n') : collected.join(' ').replace(/[ \t]+/g, ' ');
-  return { value: joined.trim(), nextIndex: cursor - 1 };
-}
-
-function parseSkillFrontmatter(content) {
-  const lines = String(content || '').replace(/^\uFEFF/, '').split(/\r?\n/);
-  if (lines[0]?.trim() !== '---') return null;
-  const closingIndex = lines.slice(1).findIndex((line) => line.trim() === '---');
-  if (closingIndex < 0) return null;
-  const frontmatter = lines.slice(1, closingIndex + 1);
-  let name = '';
-  let description = '';
-  let stages = [];
-
-  for (let index = 0; index < frontmatter.length; index += 1) {
-    const line = frontmatter[index];
-    const nameMatch = line.match(/^name:\s*(.+?)\s*$/);
-    if (nameMatch) {
-      name = unquote(nameMatch[1]);
-      continue;
-    }
-    const descriptionMatch = line.match(/^description:\s*(.*?)\s*$/);
-    if (descriptionMatch) {
-      if (BLOCK_SCALAR_HEADER.test(descriptionMatch[1])) {
-        const block = readBlockScalar(frontmatter, index);
-        description = block.value;
-        index = block.nextIndex;
-      } else {
-        description = unquote(descriptionMatch[1]);
-      }
-      continue;
-    }
-    const stagesMatch = line.match(/^\s*stages:\s*(.*?)\s*$/);
-    if (!stagesMatch) continue;
-
-    if (stagesMatch[1]) {
-      stages = parseInlineList(stagesMatch[1]);
-      continue;
-    }
-    const indentation = line.match(/^(\s*)/)?.[1].length || 0;
-    const values = [];
-    for (let next = index + 1; next < frontmatter.length; next += 1) {
-      const entry = frontmatter[next];
-      const entryIndentation = entry.match(/^(\s*)/)?.[1].length || 0;
-      const itemMatch = entry.match(/^\s*-\s*(.+?)\s*$/);
-      if (itemMatch && entryIndentation > indentation) {
-        values.push(unquote(itemMatch[1]));
-        continue;
-      }
-      if (entry.trim() && entryIndentation <= indentation) break;
-    }
-    stages = uniqueStrings(values);
-  }
-
-  const normalizedStages = uniqueStrings(stages.map(normalizeStage)).filter((stage) => STAGE_SET.has(stage));
-  if (!SKILL_NAME_PATTERN.test(name) || !description || !normalizedStages.length) return null;
-  return { name, description, stages: normalizedStages };
-}
-
-async function readSkillDirectory(root, source) {
-  let entries;
-  try {
-    entries = await fs.readdir(root, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === 'ENOENT') return [];
-    throw error;
-  }
-
-  const skills = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !SKILL_NAME_PATTERN.test(entry.name)) continue;
-    const relativePath = path.posix.join('.dsh', 'skills', entry.name, 'SKILL.md');
-    const skillPath = path.join(root, entry.name, 'SKILL.md');
-    let metadata;
-    try {
-      metadata = parseSkillFrontmatter(await fs.readFile(skillPath, 'utf8'));
-    } catch (error) {
-      if (error?.code === 'ENOENT') continue;
-      throw error;
-    }
-    // The directory and frontmatter name must agree so a path cannot pretend
-    // to be a different Skill in the catalog or binding map.
-    if (!metadata || metadata.name !== entry.name) continue;
-    skills.push({ ...metadata, source, relativePath });
-  }
-  return skills.sort((left, right) => left.name.localeCompare(right.name));
-}
-
-async function resolveProjectRoot({ projectId, projectRoot } = {}) {
-  if (projectRoot) return projectRoot;
-  if (!projectId) return null;
-  return getProjectRoot(projectId);
-}
-
-/**
- * Read built-in and project-local Skill metadata. Project-local definitions
- * replace built-ins with the same name, matching Harness workspace behavior.
- */
-export async function listResearchSkills({ projectId, projectRoot, stage } = {}) {
-  const root = await resolveProjectRoot({ projectId, projectRoot });
-  const [bundledSkills, projectSkills] = await Promise.all([
-    readSkillDirectory(RESEARCH_SKILLS_ROOT, 'built-in'),
-    root ? readSkillDirectory(path.join(root, '.dsh', 'skills'), 'project') : Promise.resolve([])
-  ]);
-  const byName = new Map(bundledSkills.map((skill) => [skill.name, skill]));
-  for (const skill of projectSkills) byName.set(skill.name, skill);
-  const normalizedStage = normalizeStage(stage);
-  return [...byName.values()]
-    .filter((skill) => !normalizedStage || skill.stages.includes(normalizedStage))
-    .sort((left, right) => left.name.localeCompare(right.name));
-}
 
 function hasExplicitStageBinding(bindings, stage) {
   return bindings && typeof bindings === 'object' && Object.prototype.hasOwnProperty.call(bindings, stage);
@@ -258,37 +72,6 @@ export async function getResearchStageSkills(projectId, stage) {
   return catalog.filter((skill) => activeNames.has(skill.name));
 }
 
-/**
- * Read one selected Skill document for the Legacy adapter. The DeepSeek SDK
- * reads its isolated workspace copy; Legacy reads the original project and
- * otherwise sees only metadata, so it needs an explicit read-only tool.
- */
-export async function readEnabledResearchSkillDocument({ projectId, enabledSkillNames = [], name, file = 'SKILL.md', capabilityPolicy } = {}) {
-  if (!projectId || !selectedSkillNames(enabledSkillNames).has(name)) throw new Error('Research skill is not enabled for this Run.');
-  const catalog = await listResearchSkills({ projectId });
-  const skill = catalog.find((entry) => entry.name === name);
-  if (!skill) throw new Error('Research skill is unavailable.');
-  const relativeFile = String(file || 'SKILL.md').replace(/\\/g, '/');
-  if (!relativeFile.endsWith('.md') || path.posix.isAbsolute(relativeFile) || relativeFile.split('/').some((part) => !part || part === '.' || part === '..')) {
-    throw new Error('Research skill file must stay inside its Skill folder.');
-  }
-  const projectRoot = skill.source === 'project' ? await getProjectRoot(projectId) : null;
-  if (projectRoot && capabilityPolicy) {
-    assertProjectPath(path.posix.join('.dsh', 'skills', name, relativeFile), capabilityPolicy, { operation: 'read' });
-  }
-  const skillRoot = path.join(projectRoot || RESEARCH_SKILLS_ROOT, ...(projectRoot ? ['.dsh', 'skills', name] : [name]));
-  const rootReal = await fs.realpath(skillRoot);
-  if (projectRoot && !rootReal.startsWith(`${await fs.realpath(projectRoot)}${path.sep}`)) {
-    throw new Error('Research skill folder escapes the project.');
-  }
-  const fileReal = await fs.realpath(path.join(skillRoot, relativeFile));
-  if (!fileReal.startsWith(`${rootReal}${path.sep}`)) throw new Error('Research skill file escapes its Skill folder.');
-  const stat = await fs.stat(fileReal);
-  if (!stat.isFile() || stat.size > 128_000) throw new Error('Research skill file is unavailable or too large.');
-  const content = await fs.readFile(fileReal, 'utf8');
-  return content.length > 40_000 ? `${content.slice(0, 40_000)}\n\n[Skill document truncated after 40,000 characters]` : content;
-}
-
 export function validateResearchSkillBindings(bindings, catalog = []) {
   if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)) {
     throw new Error('bindings must be an object keyed by research stage.');
@@ -325,7 +108,8 @@ function selectedSkillNames(enabledSkillNames) {
 export async function copyBundledResearchSkills(workspaceRoot, { enabledSkillNames = [] } = {}) {
   const selectedNames = selectedSkillNames(enabledSkillNames);
   if (!selectedNames.size) return [];
-  const bundledSkills = await readSkillDirectory(RESEARCH_SKILLS_ROOT, 'built-in');
+  const { skills } = await listSkillCatalog();
+  const bundledSkills = skills.filter((skill) => skill.available);
   const targetRoot = path.join(workspaceRoot, '.dsh', 'skills');
   await fs.mkdir(targetRoot, { recursive: true });
   const injected = [];

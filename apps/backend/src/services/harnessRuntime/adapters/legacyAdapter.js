@@ -15,7 +15,8 @@ export const legacyHarnessAdapter = Object.freeze({
       // handed only to the DeepSeek SDK, so a legacy Run was effectively
       // unbounded on tokens.
       limits,
-      signal
+      signal,
+      emit
     });
     if (!result.ok) {
       throw new HarnessRuntimeError(502, 'LEGACY_AGENT_ERROR', result.reply || 'Legacy Agent failed.', undefined, { retryable: true });

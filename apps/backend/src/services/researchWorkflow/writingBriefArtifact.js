@@ -13,7 +13,7 @@ function bullet(value) {
 }
 
 /** Persist a reviewable editor artifact without mutating the manuscript. */
-export async function writeWritingBriefArtifact(projectId, brief, { generatedAt = new Date().toISOString(), delegation = null } = {}) {
+export async function writeWritingBriefArtifact(projectId, brief, { generatedAt = new Date().toISOString(), delegation = null, replicationRun = null } = {}) {
   const root = await getProjectRoot(projectId);
   const outputPath = path.join(root, WRITING_BRIEF_PATH);
   const claims = Array.isArray(brief?.claims) ? brief.claims : [];
@@ -27,6 +27,18 @@ export async function writeWritingBriefArtifact(projectId, brief, { generatedAt 
       '## Review Run Provenance',
       `- Coordinator Run: \`${asText(delegation.parentRunId)}\``,
       ...(delegation.children || []).map((child) => `- ${asText(child.label)}: \`${asText(child.runId)}\` (review opinion, not verified Evidence)`),
+      ''
+    ] : []),
+    ...(replicationRun ? [
+      '## Replication Run Provenance',
+      `- Run ID: \`${asText(replicationRun.id)}\``,
+      `- Status: \`${asText(replicationRun.status)}\``,
+      `- Evidence: \`${asText(replicationRun.evidenceId)}\` (${asText(replicationRun.evidenceStatus) || 'unknown'})`,
+      `- Supports successful finding: ${replicationRun.supportsSuccessfulFinding ? 'yes' : 'no'}`,
+      `- Provenance: ${asText(replicationRun.provenance?.repository) || 'unrecorded'}; code ${asText(replicationRun.codeVersion) || 'unrecorded'}; dataset ${asText(replicationRun.dataset?.name || replicationRun.dataset?.id) || 'unrecorded'}`,
+      ...(replicationRun.metrics || []).map((metric) => `- Metric ${asText(metric.name)}: ${metric.value === undefined || metric.value === null ? 'unreported' : asText(metric.value)}${metric.uncertainty === undefined || metric.uncertainty === null ? '' : ` ± ${asText(metric.uncertainty)}`}`),
+      ...(replicationRun.artifacts || []).map((artifact) => `- Artifact \`${asText(artifact.id)}\`: ${asText(artifact.path) || asText(artifact.name)} (${asText(artifact.evidenceStatus) || 'unknown'} Evidence)`),
+      `- Verification limit: ${asText(replicationRun.verificationNote) || 'Human verification is required before treating replication findings as successful.'}`,
       ''
     ] : []),
     '## Outline',

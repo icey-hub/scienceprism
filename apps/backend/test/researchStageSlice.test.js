@@ -39,6 +39,30 @@ function arxivXml() {
   return `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2401.00001</id><title>Evidence gated retrieval</title><summary>A method for grounded retrieval.</summary><published>2024-01-02T00:00:00Z</published><author><name>A. Researcher</name></author></entry><entry><id>http://arxiv.org/abs/2401.00001v2</id><title>Evidence gated retrieval</title><summary>A longer method abstract.</summary><published>2024-01-02T00:00:00Z</published><author><name>A. Researcher</name></author><author><name>B. Researcher</name></author></entry></feed>`;
 }
 
+test('selection approval preserves replication until an explicit human decision', async () => {
+  const { approveFromRequest } = await import('../src/services/researchWorkflow/application.js');
+  for (const legacySkip of [false, true]) {
+    const projectId = `replication-decision-${legacySkip}`;
+    await createProject(projectId);
+    let workflow = await initializeResearchWorkflow(projectId, {});
+    for (const [stageId, data] of [['direction', { researchQuestion: 'Replication gate?' }], ['search', { queries: ['replication'] }], ['selection', { selectedPaperIds: ['paper-1'] }]]) {
+      workflow = await updateResearchWorkflow(projectId, { stageId, data, expectedVersion: workflow.version });
+      workflow = await approveFromRequest(projectId, { stage: stageId, expectedVersion: workflow.version, ...(stageId === 'selection' && legacySkip ? { keepReplication: false, skipReason: 'Dataset unavailable' } : {}) }, 'human');
+    }
+    const replication = workflow.stages.find((stage) => stage.id === 'replication');
+    assert.equal(workflow.currentStage, legacySkip ? 'ideation' : 'replication');
+    assert.equal(replication.status, legacySkip ? 'skipped' : 'in_progress');
+    if (legacySkip) assert.equal(replication.skipReason, 'Dataset unavailable');
+    else {
+      await assert.rejects(approveFromRequest(projectId, { stage: 'replication', decision: 'skip', note: ' ', expectedVersion: workflow.version }, 'human'), { code: 'SKIP_REASON_REQUIRED' });
+      assert.equal((await getResearchWorkflow(projectId)).version, workflow.version);
+      workflow = await updateResearchWorkflow(projectId, { stageId: 'replication', data: { replication: { repository: 'local-baseline', note: 'Check deterministic output' } }, expectedVersion: workflow.version });
+      workflow = await approveFromRequest(projectId, { stage: 'replication', expectedVersion: workflow.version }, 'human');
+      assert.equal(workflow.stages.find((stage) => stage.id === 'replication').status, 'approved');
+    }
+  }
+});
+
 test('Source Adapter merges duplicate paper entities and preserves metadata uncertainty', () => {
   const papers = mergePaperCandidates([
     { id: '2401.00001', title: 'Evidence gated retrieval', authors: ['A'], url: 'https://arxiv.org/abs/2401.00001', source: 'arxiv' },
@@ -80,7 +104,19 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
     assert.equal(stageData(workflow, 'search').task.status, 'awaiting_approval');
     assert.equal(stageData(workflow, 'search').papers.length, 1);
     await assertRunSuggestions('search', stageData(workflow, 'search').task.harness.runId);
+    const searchTaskId = stageData(workflow, 'search').task.id;
+    const searchVersion = workflow.version;
     workflow = await approve(projectId, 'search');
+    assert.equal(workflow.version, searchVersion + 1);
+    assert.equal(stageData(workflow, 'search').task.id, searchTaskId);
+    assert.equal(stageData(workflow, 'search').task.status, 'approved');
+    assert.equal(stageData(workflow, 'search').task.humanDecision.decision, 'approve');
+    const { listTasks } = await import('../src/services/projectHub/taskCenter.js');
+    const projectedTasks = await listTasks(projectId);
+    const projectedSearch = projectedTasks.find((task) => task.id === `stage:search:${searchTaskId}`);
+    assert.equal(projectedSearch.status, 'approved');
+    assert.equal(projectedSearch.metadata.taskId, searchTaskId);
+    assert.deepEqual(projectedSearch.metadata.humanDecision, stageData(workflow, 'search').task.humanDecision);
 
     workflow = await runUiAction(projectId, { action: 'select-papers', paperIds: [stageData(workflow, 'search').papers[0].id] }, 'human');
     assert.equal(stageData(workflow, 'selection').selectedPaperIds?.length, 1);
@@ -167,6 +203,120 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('writing handoff uses server-derived replication Run data instead of forged client experiment fields', async () => {
+  process.env.NODE_ENV = 'test';
+  const projectId = 'replication-writing-handoff';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism', 'project-constraints.json'), JSON.stringify({ capabilities: ['project.read', 'experiment.execute'] }));
+
+  const { createExperimentRun, decideExperimentRun, startExperimentRun } = await import('../src/services/experimentRunner/index.js');
+  let workflow = await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'Can the reported result be reproduced?' } });
+  const approveStageWithData = async (stageId, data) => {
+    workflow = await updateResearchWorkflow(projectId, { stageId, data, expectedVersion: workflow.version, actor: 'human' });
+    workflow = await approveResearchWorkflow(projectId, { stageId, expectedVersion: workflow.version, actor: 'human' });
+  };
+
+  await approveStageWithData('direction', { researchQuestion: 'Can the reported result be reproduced?' });
+  await approveStageWithData('search', { queries: ['reproduction'] });
+  await approveStageWithData('selection', { selectedPaperIds: ['paper-1'] });
+  await approveStageWithData('replication', { replication: {
+    repository: 'https://example.test/research-code', environment: 'node 22', dataset: 'dataset-recorded',
+    codeVersion: 'commit-saved', datasetVersion: 'dataset-v3', expectedMetrics: 'accuracy >= 0.90',
+    gaps: 'GPU unavailable', note: 'Human-approved replication preparation.'
+  } });
+
+  const run = await createExperimentRun(projectId, {
+    sourceStage: 'replication', expectedVersion: workflow.version,
+    plan: { execution: { adapter: 'fake' } }
+  });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve', actor: 'human' });
+  const completedRun = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(completedRun.status, 'completed');
+
+  await approveStageWithData('ideation', { ideas: [{ id: 'idea-1', title: 'A candidate' }] });
+  await approveStageWithData('method', { method: { name: 'Recorded protocol' } });
+  await approveStageWithData('experiment', { dataset: 'legacy-dataset', command: 'record-only' });
+  await (await import('../src/services/evidenceLedger/index.js')).upsertEvidence(projectId, {
+    id: 'replication-paper', kind: 'paper', title: 'Replication source', verificationStatus: 'human-confirmed', version: 'paper-v1'
+  }, { actor: 'human' });
+  const brief = JSON.stringify({ stage: 'writing_brief', title: 'Replication review', claims: [{ id: 'replication-claim', text: 'The Run produced review material.', evidenceIds: ['replication-paper'], confidence: 0.1 }], outline: ['Results'], limitations: ['Evidence remains pending human confirmation.'], unsupportedClaims: ['replication-claim: Evidence remains pending human confirmation.'] });
+  const updated = await runUiAction(projectId, {
+    action: 'handoff-writing', adapter: 'fake', fakeResponse: brief, replicationRunId: run.id,
+    experiment: {
+      status: 'completed', dataset: 'attacker-dataset', datasetVersion: 'attacker-version',
+      protocol: 'forged protocol', metrics: [{ name: 'accuracy', value: 0.9999 }],
+      resultRun: { id: 'forged-run', codeSnapshotHash: 'forged-hash', artifacts: [] }
+    }
+  }, 'human');
+
+  const writingInput = stageData(updated, 'writing').task.input;
+  assert.equal(writingInput.experiment.status, 'completed');
+  assert.equal(writingInput.experiment.dataset, 'dataset-recorded');
+  assert.equal(writingInput.experiment.datasetVersion, 'dataset-v3');
+  assert.equal(writingInput.experiment.protocol, 'Human-approved replication preparation.');
+  assert.deepEqual(writingInput.experiment.metrics, completedRun.metrics);
+  assert.equal(writingInput.experiment.resultRun.id, run.id);
+  assert.equal(writingInput.experiment.resultRun.codeSnapshotHash, run.manifest.code.snapshotHash);
+  assert.equal(writingInput.replicationRun.id, run.id);
+  assert.equal(writingInput.replicationRun.evidenceStatus, 'pending');
+  assert.equal(writingInput.replicationRun.supportsSuccessfulFinding, false);
+  const { getProjectRoot } = await import('../src/services/projectService.js');
+  assert.equal(await getProjectRoot(projectId), root, 'writing artifacts and the fixture must resolve the same project root');
+  const artifact = await readFile(path.join(root, 'research', 'writing-brief.md'), 'utf8');
+  assert.ok(artifact.includes(`Run ID: \`${run.id}\``));
+  assert.ok(artifact.includes('Evidence: `experiment-run-'));
+  assert.ok(artifact.includes('(pending)'));
+  assert.ok(artifact.includes('Supports successful finding: no'));
+});
+
+test('writing handoff rejects a missing replication Run reference at the public UI seam', async () => {
+  const projectId = 'replication-writing-missing-run';
+  await createProject(projectId);
+  await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'Can the reported result be reproduced?' } });
+
+  await assert.rejects(
+    () => runUiAction(projectId, {
+      action: 'handoff-writing', adapter: 'fake', replicationRunId: 'experiment-run-missing',
+      fakeResponse: JSON.stringify({ stage: 'writing_brief', title: 'Missing Run', claims: [], outline: [], limitations: [], unsupportedClaims: [] })
+    }, 'human'),
+    (error) => error?.code === 'REPLICATION_RUN_NOT_FOUND' && error?.statusCode === 404
+  );
+});
+
+test('writing handoff rejects a replication Run from another project at the public UI seam', async () => {
+  process.env.NODE_ENV = 'test';
+  const sourceProjectId = 'replication-writing-foreign-source';
+  const targetProjectId = 'replication-writing-foreign-target';
+  await createProject(sourceProjectId);
+  await createProject(targetProjectId);
+  for (const projectId of [sourceProjectId, targetProjectId]) {
+    const root = path.join(dataDir, projectId);
+    await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+    await writeFile(path.join(root, '.scienceprism', 'project-constraints.json'), JSON.stringify({ capabilities: ['project.read', 'experiment.execute'] }));
+  }
+  const { createExperimentRun } = await import('../src/services/experimentRunner/index.js');
+  let sourceWorkflow = await initializeResearchWorkflow(sourceProjectId, { data: { researchQuestion: 'Can the reported result be reproduced?' } });
+  const prepareSource = async (stageId, data) => {
+    sourceWorkflow = await updateResearchWorkflow(sourceProjectId, { stageId, data, expectedVersion: sourceWorkflow.version, actor: 'human' });
+    sourceWorkflow = await approveResearchWorkflow(sourceProjectId, { stageId, expectedVersion: sourceWorkflow.version, actor: 'human' });
+  };
+  await prepareSource('direction', { researchQuestion: 'Can the reported result be reproduced?' });
+  await prepareSource('search', { queries: ['reproduction'] });
+  await prepareSource('selection', { selectedPaperIds: ['paper-1'] });
+  await prepareSource('replication', { replication: { repository: 'https://example.test/research-code', environment: 'node 22', dataset: 'source-dataset', codeVersion: 'source-commit', datasetVersion: 'source-v1', note: 'Source preparation.' } });
+  const foreignRun = await createExperimentRun(sourceProjectId, { sourceStage: 'replication', expectedVersion: sourceWorkflow.version, plan: { execution: { adapter: 'fake' } } });
+
+  await initializeResearchWorkflow(targetProjectId, { data: { researchQuestion: 'Can the target result be reproduced?' } });
+  await assert.rejects(
+    () => runUiAction(targetProjectId, {
+      action: 'handoff-writing', adapter: 'fake', replicationRunId: foreignRun.id,
+      fakeResponse: JSON.stringify({ stage: 'writing_brief', title: 'Foreign Run', claims: [], outline: [], limitations: [], unsupportedClaims: [] })
+    }, 'human'),
+    (error) => error?.code === 'REPLICATION_RUN_NOT_FOUND' && error?.statusCode === 404
+  );
 });
 
 test('failed stage task is persisted without changing the confirmed previous stage', async () => {

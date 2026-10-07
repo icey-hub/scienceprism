@@ -2,7 +2,7 @@ import { promises as fs, createWriteStream } from 'fs';
 import { pipeline, Transform } from 'stream';
 import { promisify } from 'util';
 import { Readable } from 'stream';
-import { XMLParser } from 'fast-xml-parser';
+import { queryArxiv } from './researchSources/arxivClient.js';
 
 const pipelineAsync = promisify(pipeline);
 
@@ -16,19 +16,12 @@ export function extractArxivId(input) {
   return id;
 }
 
-export async function fetchArxivEntry(arxivId) {
-  const url = `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'scienceprism/1.0' },
-    signal: AbortSignal.timeout(30_000)
+export async function fetchArxivEntry(arxivId, { signal } = {}) {
+  const entries = await queryArxiv({ id_list: arxivId }, { signal }).catch((error) => {
+    if (signal?.aborted) throw signal.reason;
+    throw error;
   });
-  if (!res.ok) {
-    throw new Error(`arXiv API failed: ${res.status}`);
-  }
-  const xml = await res.text();
-  const parser = new XMLParser({ ignoreAttributes: false });
-  const data = parser.parse(xml);
-  const entry = Array.isArray(data?.feed?.entry) ? data.feed.entry[0] : data?.feed?.entry;
+  const entry = entries[0];
   if (!entry) return null;
   const authors = Array.isArray(entry.author) ? entry.author : [entry.author].filter(Boolean);
   const authorNames = authors.map((a) => a?.name).filter(Boolean);

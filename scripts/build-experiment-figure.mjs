@@ -8,11 +8,10 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { runHeadlessChrome } from './lib/headless-chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = process.env.SCIENCEPRISM_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const DATA_DIR = process.env.SCIENCEPRISM_FIGURE_DATA || path.join(ROOT, 'aidoc');
 const OUT_DIR = process.env.SCIENCEPRISM_FIGURE_OUT || DATA_DIR;
 const data = JSON.parse(await fs.readFile(path.join(DATA_DIR, 'experiment-evidence-gate.json'), 'utf8'));
@@ -174,18 +173,13 @@ await fs.mkdir(OUT_DIR, { recursive: true });
 const svgPath = path.join(OUT_DIR, 'experiment-results.svg');
 const pdfPath = path.join(OUT_DIR, 'experiment-results.pdf');
 await fs.writeFile(svgPath, svg, 'utf8');
-const scratch = path.join(ROOT, '.cache', 'experiment-figure');
-await fs.mkdir(scratch, { recursive: true });
+const cacheRoot = path.join(ROOT, '.cache');
+await fs.mkdir(cacheRoot, { recursive: true });
+const scratch = await fs.mkdtemp(path.join(cacheRoot, 'experiment-figure-'));
 const htmlPath = path.join(scratch, 'figure.html');
 await fs.writeFile(htmlPath, `<!doctype html><meta charset="utf-8"><style>@page{size:${W}px ${H}px;margin:0}html,body{margin:0;padding:0}svg{display:block}</style><body>${svg}</body>`, 'utf8');
 try {
-  await new Promise((resolve, reject) => {
-    const child = spawn(CHROME, ['--headless', '--disable-gpu', '--no-sandbox', '--no-pdf-header-footer', `--print-to-pdf=${pdfPath}`, `file://${htmlPath}`], { stdio: ['ignore', 'ignore', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('close', (code, signal) => code === 0 ? resolve() : reject(new Error(`Chrome PDF render failed (${code ?? signal}): ${stderr}`)));
-  });
+  await runHeadlessChrome(['--no-pdf-header-footer', `--print-to-pdf=${pdfPath}`, `file://${htmlPath}`]);
 } finally {
   await fs.rm(scratch, { recursive: true, force: true });
 }

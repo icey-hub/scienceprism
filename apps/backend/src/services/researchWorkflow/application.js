@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import { getEnv } from '../../config/constants.js';
 import { applyQualityGate, listResearchSkills, resolveResearchSkillBindings, runResearchStage, validateResearchSkillBindings, normalizeQualityPolicy } from '../researchResearch/index.js';
-import { mergePaperCandidates, prioritizePaperCandidates, validatePaperMetadata } from '../researchResearch/paperCandidates.js';
+import { mergePaperCandidates, prioritizePaperCandidates } from '../researchResearch/paperCandidates.js';
 import { listResearchSourceAdapters, searchResearchSources } from '../researchSources/index.js';
 import { getEvidenceLedger, upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
+import { getExperimentRun, replicationRunSummary } from '../experimentRunner/index.js';
 import { createStageTask } from './stageTask.js';
 import { writeWritingBriefArtifact } from './writingBriefArtifact.js';
 import { runWritingDelegation } from './writingDelegation.js';
@@ -20,7 +21,7 @@ import {
 import { getStageData } from './queries.js';
 import { toFrontendWorkflow, UI_TO_STAGE } from './projection.js';
 import { ResearchWorkflowError, sanitizeHumanInstructions } from './errors.js';
-import { updateResearchHumanInstructions } from './commands.js';
+import { saveResearchDirection, selectResearchIdeas, selectResearchPapers, updateResearchHumanInstructions } from './commands.js';
 import { RESEARCH_WORKFLOW_STAGES } from './stageContracts.js';
 
 const ACTION_STAGES = { search: 'search', 'select-papers': 'selection', 'generate-ideas': 'ideation', 'select-ideas': 'ideation', 'generate-method': 'method', 'save-method': 'method', 'run-experiment': 'experiment', 'handoff-writing': 'writing' };
@@ -86,36 +87,50 @@ function taskValidation(validation, warnings = []) {
   };
 }
 
-function paperEvidenceId(paper) {
-  const identity = paper?.doi || paper?.url || paper?.id || paper?.title || 'paper';
-  return `paper-${crypto.createHash('sha1').update(String(identity)).digest('hex').slice(0, 20)}`;
+function hasOwn(value, key) {
+  return value !== null && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key);
 }
 
-async function confirmPaperEvidence(projectId, paper, actor) {
-  const evidenceId = paperEvidenceId(paper);
-  const version = paper.metadataUpdatedAt || paper.retrievedAt || 'retrieved';
-  await upsertEvidence(projectId, {
-    id: evidenceId,
-    kind: 'paper',
-    title: paper.title || 'Untitled paper',
-    summary: paper.abstract || 'Paper metadata was selected by a human and requires source-level review.',
-    sourceUrl: paper.url || null,
-    acquiredAt: paper.retrievedAt || new Date().toISOString(),
-    verificationStatus: 'human-confirmed',
-    version,
-    metadata: {
-      paperId: paper.id,
-      doi: paper.doi,
-      authors: paper.authors,
-      year: paper.year,
-      venue: paper.venue,
-      publicationType: paper.publicationType,
-      source: paper.source,
-      sourceRecords: paper.sourceRecords || [],
-      metadataValidation: validatePaperMetadata(paper)
+async function readReplicationHandoff(projectId, replicationRunId) {
+  if (replicationRunId === undefined || replicationRunId === null || replicationRunId === '') return null;
+  if (typeof replicationRunId !== 'string' || !replicationRunId.trim()) throw new ResearchWorkflowError(400, 'INVALID_REPLICATION_RUN_ID', 'replicationRunId must be a non-empty Run ID.');
+  let run;
+  try {
+    run = await getExperimentRun(projectId, replicationRunId.trim());
+  } catch (error) {
+    if (error?.code === 'EXPERIMENT_RUN_NOT_FOUND') throw new ResearchWorkflowError(404, 'REPLICATION_RUN_NOT_FOUND', 'The requested replication Run does not belong to this project or does not exist.');
+    throw error;
+  }
+  if (!run.manifest?.replication || run.manifest.replication.projectId !== projectId || run.manifest.replication.sourceStage !== 'replication') {
+    throw new ResearchWorkflowError(409, 'REPLICATION_RUN_PROVENANCE_INVALID', 'The selected Run is not a replication Run for this project.');
+  }
+  const summary = replicationRunSummary(run, (await getEvidenceLedger(projectId)).entries);
+  if (!summary) throw new ResearchWorkflowError(409, 'REPLICATION_RUN_PROVENANCE_INVALID', 'The selected Run has no server-recorded replication provenance.');
+  return summary;
+}
+
+function handoffExperiment(workflow, body, replicationRun = null) {
+  const saved = stageData(workflow, 'experiment');
+  const client = body.experiment && typeof body.experiment === 'object' && !Array.isArray(body.experiment) ? body.experiment : {};
+  // Keep the legacy ordinary-experiment handoff contract. Replication results
+  // use the separate server-derived replicationRun field below, so client
+  // metrics and provenance cannot override that authoritative context.
+  if (!replicationRun) return hasOwn(body, 'experiment') ? client : saved;
+  return {
+    ...saved,
+    status: replicationRun.status,
+    dataset: replicationRun.dataset?.id || saved.dataset || '',
+    datasetVersion: replicationRun.dataset?.version || saved.datasetVersion || '',
+    protocol: replicationRun.provenance?.plan?.note || saved.protocol || '',
+    metrics: replicationRun.metrics,
+    resultRun: {
+      id: replicationRun.id,
+      status: replicationRun.status,
+      codeSnapshotHash: replicationRun.codeSnapshotHash,
+      dataset: replicationRun.dataset,
+      artifacts: replicationRun.artifacts
     }
-  }, { actor });
-  return evidenceId;
+  };
 }
 
 async function updateStage(projectId, stageId, data, body, actor) {
@@ -160,16 +175,7 @@ export async function runUiAction(projectId, body, actor) {
     return updateStage(projectId, 'search', { query, queries, sources: effectiveSources, requestedSources, unregisteredSources, papers: rawPapers, evaluations: gated.results, policy: body.policy || {}, lastRunAt: new Date().toISOString(), qualitySummary: gated.summary, sourceFailures, aiSearchStrategy: strategy.ok ? strategy.output : { ok: false, validation: strategy.validation }, task }, body, actor);
   }
   if (action === 'select-papers') {
-    const evaluations = stageData(workflow, 'search').evaluations || [];
-    const requested = Array.isArray(body.paperIds) ? body.paperIds.map(String) : [];
-    const accepted = new Set(evaluations.filter((item) => item.decision === 'accept').map((item) => String(item.id)));
-    const blocked = requested.filter((id) => !accepted.has(id));
-    if (blocked.length) throw new ResearchWorkflowError(409, 'QUALITY_GATE', 'Only papers accepted by the server-side quality gate can be selected.', { blockedPaperIds: blocked });
-    const selectedPapers = evaluations.filter((item) => requested.includes(String(item.id))).map((item) => item.candidate);
-    const evidenceIds = [];
-    for (const paper of selectedPapers) evidenceIds.push(await confirmPaperEvidence(projectId, paper, actor));
-    const task = createStageTask({ stage: 'selection', input: { requestedPaperIds: requested, qualityPolicy: stageData(workflow, 'search').policy || {} }, output: { selectedPaperIds: requested, evidenceIds }, validation: { ok: true, errors: [], warnings: [] }, adapters: ['quality-gate', 'evidence-ledger'] });
-    return updateStage(projectId, 'selection', { selectedPaperIds: requested, selectedPapers: selectedPapers.map((paper, index) => ({ ...paper, evidenceId: evidenceIds[index] })), evidenceIds, policy: stageData(workflow, 'search').policy || {}, task }, body, actor);
+    return selectResearchPapers(projectId, { ...workflowOptions(body, actor), paperIds: body.paperIds, reviews: body.reviews });
   }
   if (action === 'generate-ideas') {
     const selectedIds = Array.isArray(body.paperIds) ? body.paperIds : [...selectedPaperIdsFrom(workflow)];
@@ -181,13 +187,10 @@ export async function runUiAction(projectId, body, actor) {
     // or provenance behind it.
     const ideas = harness.ok && harness.output?.ideas ? harness.output.ideas : [];
     const task = createStageTask({ stage: 'ideation', input: { paperIds: selectedIds, direction: body.direction || stageData(workflow, 'direction') }, output: harness.ok ? harness.output : { ideas }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'evidence-ledger'] });
-    return updateStage(projectId, 'ideation', { ideas, innovationPoints: ideas, harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
+    return updateStage(projectId, 'ideation', { ideas, innovationPoints: ideas, humanDirection: harness.ok ? harness.output?.humanDirection || '' : '', comparison: harness.ok ? harness.output?.comparison || [] : [], caveats: harness.ok ? harness.output?.caveats || [] : [], harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
   }
   if (action === 'select-ideas') {
-    const ideas = stageData(workflow, 'ideation').ideas || [];
-    const ids = new Set((Array.isArray(body.ideaIds) ? body.ideaIds : []).map(String));
-    const nextIdeas = ideas.map((idea) => ({ ...idea, selected: ids.has(String(idea.id)) }));
-    return updateStage(projectId, 'ideation', { ideas: nextIdeas, task: createStageTask({ stage: 'ideation', input: { candidateIds: ideas.map((idea) => idea.id) }, output: { selectedIdeaIds: [...ids] }, validation: { ok: true, errors: [], warnings: [] }, adapters: ['human-decision'] }) }, body, actor);
+    return selectResearchIdeas(projectId, { ...workflowOptions(body, actor), ideaIds: body.ideaIds, reviews: body.reviews });
   }
   if (action === 'generate-method') {
     const ideas = stageData(workflow, 'ideation').ideas || [];
@@ -212,6 +215,7 @@ export async function runUiAction(projectId, body, actor) {
     const selectedStage = stageData(workflow, 'selection');
     const selectedPapers = selectedStage.selectedPapers || [];
     const ideas = (stageData(workflow, 'ideation').ideas || []).filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
+    const replicationRun = await readReplicationHandoff(projectId, body.replicationRunId);
     // The Evidence Ledger belongs in the writing input.
     //
     // It was missing, so the stage could only see the papers the selection stage
@@ -238,7 +242,8 @@ export async function runUiAction(projectId, body, actor) {
       papers: selectedPapers,
       ideas,
       method: body.method || stageData(workflow, 'method').method || {},
-      experiment: body.experiment || stageData(workflow, 'experiment'),
+      experiment: handoffExperiment(workflow, body, replicationRun),
+      ...(replicationRun ? { replicationRun } : {}),
       evidenceLedger: citableEvidence
     };
     const harness = body.agentMode === 'multi-agent'
@@ -259,12 +264,12 @@ export async function runUiAction(projectId, body, actor) {
         try { await linkEvidence(projectId, { type: 'supports', fromId: evidenceId, toId: claimId, actor }, { actor }); } catch { /* the claim check remains authoritative */ }
       }
     }
-    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation });
+    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation, replicationRun });
     // A completed workflow is immutable, but researchers may need to refresh
     // its derived writing brief after new Evidence is verified. Save the new
     // artifact without reopening or rewriting the completed stage history.
     if (completedWorkflow) return workflow;
-    return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment }, task }, body, actor);
+    return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, replicationRun, evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment, ...(replicationRun ? { replicationRun } : {}) }, task }, body, actor);
   }
   throw new ResearchWorkflowError(400, 'UNKNOWN_ACTION', `Unknown research workflow action: ${action}`);
 }
@@ -274,11 +279,7 @@ export async function updateFromRequest(projectId, body, actor) {
     return updateResearchHumanInstructions(projectId, { ...workflowOptions(body, actor), stageId: uiStageId(body.stageId || body.stage), humanInstructions: body.humanInstructions });
   }
   if (body.direction) {
-    const direction = { topic: body.direction.question || '', researchQuestion: body.direction.question || '', seedKeywords: body.direction.keywords || [], scope: body.direction.scope || '', notes: body.direction.notes || '' };
-    return updateStage(projectId, 'direction', {
-      ...direction,
-      task: createStageTask({ stage: 'direction', input: { direction: body.direction }, output: direction, validation: { ok: Boolean(direction.researchQuestion.trim()), errors: direction.researchQuestion.trim() ? [] : [{ code: 'MISSING_RESEARCH_QUESTION', path: 'researchQuestion', message: 'A research question is required.' }], warnings: [] }, adapters: ['human-input'] })
-    }, body, actor);
+    return saveResearchDirection(projectId, { ...workflowOptions(body, actor), direction: body.direction });
   }
   const stageId = uiStageId(body.stageId || body.stage);
   const data = body.data !== undefined ? body.data : body.patch;
@@ -292,8 +293,10 @@ export async function updateFromRequest(projectId, body, actor) {
 export async function approveFromRequest(projectId, body, actor) {
   const stageId = uiStageId(body.stageId || body.stage);
   const workflow = await approveResearchWorkflow(projectId, { ...workflowOptions(body, actor), stageId, decision: body.decision || 'approve' });
-  if (stageId === 'selection' && workflow.currentStage === 'replication' && !body.keepReplication) {
-    return approveResearchWorkflow(projectId, { actor, stageId: 'replication', decision: 'skip', note: '研究工作台默认跳过可选复现阶段。', expectedVersion: workflow.version, idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:skip-replication` : undefined });
+  // Skipping optional replication requires an explicit legacy opt-out. New
+  // clients leave the stage active so a researcher can approve or skip it.
+  if (stageId === 'selection' && workflow.currentStage === 'replication' && body.keepReplication === false) {
+    return approveResearchWorkflow(projectId, { actor, stageId: 'replication', decision: 'skip', note: body.skipReason || '人工确认跳过论文复现。', expectedVersion: workflow.version, idempotencyKey: body.idempotencyKey ? `${body.idempotencyKey}:skip-replication` : undefined });
   }
   return workflow;
 }

@@ -8,6 +8,9 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { ensureDir, readJson, writeJson } from '../../utils/fsUtils.js';
 import { COLLAB_FLUSH_DEBOUNCE_MS } from '../../config/constants.js';
+import { withHarnessRunLock } from '../harnessRuntime/repository.js';
+import { HarnessRuntimeError } from '../harnessRuntime/errors.js';
+import { fileVersion, sameVersion } from '../harnessRuntime/fileVersions.js';
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -44,18 +47,49 @@ function broadcast(doc, payload, origin) {
 }
 
 async function flushDoc(doc) {
-  const text = doc.text.toString();
-  await ensureDir(path.dirname(doc.absPath));
-  await fs.writeFile(doc.absPath, text, 'utf8');
-  if (doc.metaPath) {
+  return withHarnessRunLock(doc.key.split(':')[0], async () => {
+    const text = doc.text.toString();
+    let current = { exists: false, sha256: null };
     try {
-      const meta = await readJson(doc.metaPath);
-      const next = { ...meta, updatedAt: new Date().toISOString() };
-      await writeJson(doc.metaPath, next);
-    } catch {
-      // ignore
+      current = fileVersion(await fs.readFile(doc.absPath, 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
     }
+    if (!sameVersion(current, doc.persistedVersion)) {
+      throw new HarnessRuntimeError(409, 'DOCUMENT_VERSION_CONFLICT', 'The saved file changed while collaboration was open.', {
+        path: doc.key.split(':').slice(1).join(':'),
+        expected: doc.persistedVersion,
+        actual: current
+      });
+    }
+    await ensureDir(path.dirname(doc.absPath));
+    await fs.writeFile(doc.absPath, text, 'utf8');
+    doc.persistedVersion = fileVersion(text);
+    if (doc.metaPath) {
+      try {
+        const meta = await readJson(doc.metaPath);
+        await writeJson(doc.metaPath, { ...meta, updatedAt: new Date().toISOString() });
+      } catch { /* Metadata must not hide a successful document save. */ }
+    }
+  });
+}
+
+// These synchronous helpers are called while holding the project write lock.
+export function collabFileMatches(key, version, { deleted = false } = {}) {
+  const doc = docs.get(key);
+  return !doc || (!deleted && sameVersion(fileVersion(doc.text.toString()), version));
+}
+
+export function syncCollabFile(key, content, { deleted = false } = {}) {
+  const doc = docs.get(key);
+  if (!doc) return;
+  if (doc.text.toString() !== content) {
+    doc.ydoc.transact(() => {
+      doc.text.delete(0, doc.text.length);
+      doc.text.insert(0, content);
+    }, 'server-file-application');
   }
+  doc.persistedVersion = fileVersion(deleted ? null : content);
 }
 
 function scheduleFlush(doc) {
@@ -98,10 +132,13 @@ export async function getOrCreateDoc({ key, absPath, metaPath }) {
   const awareness = new Awareness(ydoc);
   const text = ydoc.getText('content');
   let content = '';
+  let persistedVersion;
   try {
     content = await fs.readFile(absPath, 'utf8');
-  } catch {
-    content = '';
+    persistedVersion = fileVersion(content);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    persistedVersion = fileVersion(null);
   }
   if (text.length === 0 && content) {
     text.insert(0, content);
@@ -110,6 +147,7 @@ export async function getOrCreateDoc({ key, absPath, metaPath }) {
     key,
     absPath,
     metaPath,
+    persistedVersion,
     ydoc,
     awareness,
     text,
@@ -123,7 +161,7 @@ export async function getOrCreateDoc({ key, absPath, metaPath }) {
   return doc;
 }
 
-export function setupConnection(doc, socket) {
+export function setupConnection(doc, socket, pendingMessages = []) {
   const conn = { socket, awarenessClientIds: new Set() };
   doc.conns.add(conn);
   if (doc.cleanupTimer) {
@@ -147,7 +185,7 @@ export function setupConnection(doc, socket) {
     sendMessage(conn, encoding.toUint8Array(awarenessEncoder));
   }
 
-  socket.on('message', (data) => {
+  const handleMessage = (data) => {
     const buffer = data instanceof Buffer ? data : Buffer.from(data);
     const decoder = decoding.createDecoder(buffer);
     const messageType = decoding.readVarUint(decoder);
@@ -166,7 +204,9 @@ export function setupConnection(doc, socket) {
       clients.forEach((id) => conn.awarenessClientIds.add(id));
       awarenessProtocol.applyAwarenessUpdate(doc.awareness, update, conn);
     }
-  });
+  };
+  socket.on('message', handleMessage);
+  for (const data of pendingMessages) handleMessage(data);
 
   socket.on('close', () => {
     doc.conns.delete(conn);

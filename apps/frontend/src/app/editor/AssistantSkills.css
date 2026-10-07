@@ -1,0 +1,37 @@
+.assistant-skills {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assistant-skills summary {
+  cursor: pointer;
+}
+
+.assistant-skill-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.assistant-skill-item {
+  border-top: 1px solid var(--border);
+  padding-block: 0.5rem;
+}
+
+.assistant-skills label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.assistant-skills input[type='checkbox'] {
+  flex: none;
+  width: auto;
+}
+
+.chat-controls:has(.assistant-skills) {
+  max-height: 70vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}

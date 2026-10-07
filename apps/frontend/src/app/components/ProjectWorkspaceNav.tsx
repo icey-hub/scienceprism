@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { isResearchStageId } from '../research/researchStages';
 
-const lastResearchStage = new Map<string, string>();
+import { rememberResearchStage, researchHref } from '../research/researchLocation';
 
 export type ProjectWorkspaceSection = 'overview' | 'research' | 'library' | 'writing' | 'activity' | 'settings';
 
@@ -17,9 +17,9 @@ const ITEMS = [
   { id: 'settings', label: '设置', icon: Settings2, path: 'settings' }
 ] as const;
 
-function itemHref(projectId: string, path: (typeof ITEMS)[number]['path']) {
+function itemHref(projectId: string, path: (typeof ITEMS)[number]['path'], stage?: string) {
   if (!path) return `/project/${projectId}`;
-  if (path === 'research') return `/editor/${projectId}/research/${lastResearchStage.get(projectId) || 'direction'}`;
+  if (path === 'research') return researchHref(projectId, stage);
   if (path === 'writing') return `/editor/${projectId}`;
   return `/project/${projectId}/${path}`;
 }
@@ -36,7 +36,7 @@ export function ProjectWorkspaceNav({
   const { t } = useTranslation();
   const { stage } = useParams();
   useEffect(() => {
-    if (isResearchStageId(stage)) lastResearchStage.set(projectId, stage);
+    if (isResearchStageId(stage)) rememberResearchStage(projectId, stage);
   }, [projectId, stage]);
   return (
     <aside className="project-workspace-nav">
@@ -50,7 +50,7 @@ export function ProjectWorkspaceNav({
       <nav className="project-hub-tabs" aria-label="项目视图">
         {ITEMS.map((item) => {
           const Icon = item.icon;
-          return <Link key={item.id} aria-current={active === item.id ? 'page' : undefined} className={`${active === item.id ? 'is-active' : ''} ${item.id === 'overview' ? 'workspace-secondary-start' : ''}`} to={itemHref(projectId, item.path)}><Icon size={18} />{t(item.label)}</Link>;
+          return <Link key={item.id} aria-current={active === item.id ? 'page' : undefined} className={`${active === item.id ? 'is-active' : ''} ${item.id === 'overview' ? 'workspace-secondary-start' : ''}`} to={itemHref(projectId, item.path, stage)}><Icon size={18} />{t(item.label)}</Link>;
         })}
       </nav>
     </aside>

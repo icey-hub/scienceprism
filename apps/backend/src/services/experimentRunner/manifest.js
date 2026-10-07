@@ -114,8 +114,21 @@ async function fileHashIfPresent(root, relativePath) {
   try { return (await hashFile(root, relativePath)).sha256 || null; } catch (error) { if (error?.code === 'ENOENT') return null; throw error; }
 }
 
-export async function buildExperimentManifest(projectId, runId, input = {}, projectRoot) {
-  const source = plainObject(input.plan) ? input.plan : plainObject(input.experiment) ? input.experiment : input;
+export async function buildExperimentManifest(projectId, runId, input = {}, projectRoot, { replicationContext = null } = {}) {
+  const inputPlan = plainObject(input.plan) ? input.plan : {};
+  const source = replicationContext
+    ? {
+      execution: inputPlan.execution,
+      parameters: inputPlan.parameters,
+      seed: inputPlan.seed,
+      resources: inputPlan.resources,
+      artifacts: inputPlan.artifacts,
+      dataset: { id: replicationContext.plan.dataset, version: replicationContext.plan.datasetVersion },
+      protocol: replicationContext.plan.note,
+      codeVersion: replicationContext.plan.codeVersion,
+      successCriteria: replicationContext.plan.expectedMetrics ? [replicationContext.plan.expectedMetrics] : []
+    }
+    : plainObject(input.plan) ? input.plan : plainObject(input.experiment) ? input.experiment : input;
   const datasetValue = plainObject(source.dataset) ? source.dataset : { id: source.dataset || source.datasetId, version: source.datasetVersion || source.version };
   const datasetId = text(datasetValue.id);
   const datasetVersion = text(datasetValue.version);
@@ -141,14 +154,21 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
     id: runId,
     projectId,
     planId: text(source.planId) || null,
-    code: { version: codeVersion, snapshotHash: snapshot.hash, files: snapshot.files, paths: snapshot.paths },
+    code: {
+      version: codeVersion,
+      snapshotHash: snapshot.hash,
+      files: snapshot.files,
+      paths: snapshot.paths,
+      ...(replicationContext ? { repository: text(replicationContext.plan.repository) } : {})
+    },
     dataset: { id: datasetId, version: datasetVersion, evidenceId: text(datasetValue.evidenceId) || null },
     environment: {
       node: process.version,
       platform: process.platform,
       arch: process.arch,
       runner: `scienceprism-experiment-runner/${RUNNER_VERSION}`,
-      packageLockSha256: await fileHashIfPresent(projectRoot, 'package-lock.json')
+      packageLockSha256: await fileHashIfPresent(projectRoot, 'package-lock.json'),
+      ...(replicationContext ? { recorded: text(replicationContext.plan.environment) } : {})
     },
     command: { adapter: execution.adapter, ...(execution.entrypoint ? { entrypoint: execution.entrypoint } : {}), args: execution.args },
     commandNote: text(source.command),
@@ -165,6 +185,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
     resources,
     successCriteria,
     artifacts: normalizeArtifacts(source.artifacts || source.artifactPaths),
+    ...(replicationContext ? { replication: replicationContext } : {}),
     createdAt: now()
   };
 }
@@ -182,7 +203,8 @@ export function manifestSummary(manifest) {
     seed: manifest.seed,
     resources: manifest.resources,
     successCriteria: manifest.successCriteria,
-    artifacts: manifest.artifacts
+    artifacts: manifest.artifacts,
+    ...(manifest.replication ? { replication: manifest.replication } : {})
   };
 }
 

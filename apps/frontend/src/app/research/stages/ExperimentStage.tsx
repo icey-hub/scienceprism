@@ -17,7 +17,7 @@ export interface ExperimentStageProps {
 
 export function ExperimentStage({ value, busy = false, onChange, onSavePlan, onSubmitForRun, run, onCreateRun, onApproveRun, onStartRun, onCancelRun, onOpenDatasetAudit }: ExperimentStageProps) {
   const execution = value.execution || { adapter: 'node' as const, entrypoint: '', args: [] };
-  const metrics = run?.metrics.length ? run.metrics : value.metrics;
+  const metrics = run?.metrics?.length ? run.metrics : value.metrics;
   return (
     <div className="research-page-stack">
       <section className="research-panel">
@@ -51,14 +51,14 @@ export function ExperimentStage({ value, busy = false, onChange, onSavePlan, onS
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">RUN MANIFEST</span><h3>受控运行</h3></div><span className="research-status-note">{run?.status || '尚未创建'}</span></div>
         {!run ? <div className="research-empty-inline">保存并确认实验计划后，可以创建一次待审批的受控运行。</div> : <>
-          <dl className="research-run-summary"><div><dt>代码版本</dt><dd>{run.manifest.code.version}</dd></div><div><dt>数据版本</dt><dd>{run.manifest.dataset.version}</dd></div><div><dt>种子</dt><dd>{run.manifest.seed || '未设置'}</dd></div><div><dt>入口</dt><dd>{run.manifest.command.entrypoint || '受控测试适配器'}</dd></div></dl>
+          <dl className="research-run-summary"><div><dt>代码版本</dt><dd>{run.manifest?.code?.version || '未记录'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>种子</dt><dd>{run.manifest?.seed || '未设置'}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控测试适配器'}</dd></div></dl>
           {run.error?.message && <div className="research-callout research-callout-warning"><strong>运行失败</strong><p>{run.error.message}</p></div>}
           <div className="research-inline-actions">
             {run.status === 'awaiting_approval' && onApproveRun && <button className="research-button research-button-primary" disabled={busy} onClick={onApproveRun} type="button">批准运行</button>}
             {run.status === 'approved' && onStartRun && <button className="research-button research-button-primary" disabled={busy} onClick={onStartRun} type="button">启动运行</button>}
             {['awaiting_approval', 'approved', 'running'].includes(run.status) && onCancelRun && <button className="research-button research-button-quiet" disabled={busy} onClick={onCancelRun} type="button">取消运行</button>}
           </div>
-          {run.artifacts.length > 0 && <div className="research-artifact-list"><strong>已归档产物</strong>{run.artifacts.map((artifact) => <span key={artifact.id}>{artifact.kind} · {artifact.name} · {artifact.sha256.slice(0, 12)}</span>)}</div>}
+          {Boolean(run.artifacts?.length) && <div className="research-artifact-list"><strong>已归档产物</strong>{(run.artifacts || []).map((artifact) => <span key={artifact.id}>{artifact.kind} · {artifact.name} · {artifact.sha256.slice(0, 12)}</span>)}</div>}
         </>}
         {(!run || ['completed', 'failed', 'cancelled', 'rejected'].includes(run.status)) && onCreateRun && <div className="research-panel-footer"><button className="research-button research-button-quiet" disabled={busy || !execution.entrypoint.trim() || !value.datasetVersion.trim()} onClick={onCreateRun} type="button">{run ? '创建新的 Run' : '创建待审批 Run'}</button></div>}
       </section>

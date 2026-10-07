@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 export const EVIDENCE_KINDS = Object.freeze([
@@ -53,6 +55,22 @@ const sourceSchema = z.object({
   locator: nullableText
 }).passthrough().default({});
 
+export const evidenceCitationInputSchema = z.object({
+  evidenceId: id,
+  sourceVersion: z.string().trim().min(1).max(500),
+  excerpt: z.string().trim().max(4000).default(''),
+  section: z.string().trim().max(500).default(''),
+  page: z.string().trim().max(100).default(''),
+  locator: z.string().trim().max(500).default('')
+}).strict();
+
+export const evidenceCitationSchema = evidenceCitationInputSchema.extend({
+  materialFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceSnapshot: sourceSchema,
+  actor: z.literal('human'),
+  recordedAt: z.string().trim().min(1)
+}).strict();
+
 export const evidenceRecordSchema = z.object({
   id,
   kind: z.enum(EVIDENCE_KINDS),
@@ -70,6 +88,7 @@ export const evidenceRecordSchema = z.object({
   tags: z.array(z.string().trim().min(1)).default([]),
   metadata: z.record(z.string(), z.unknown()).default({}),
   evidenceVersions: z.record(z.string(), z.string()).default({}),
+  citations: z.array(evidenceCitationSchema).max(100).default([]),
   createdAt: z.string().trim().min(1),
   updatedAt: z.string().trim().min(1)
 }).strict();
@@ -116,12 +135,39 @@ export function sourceForEvidence(value) {
   };
 }
 
+const MATERIAL_FIELDS = Object.freeze(['kind', 'title', 'summary', 'source', 'sourceUrl', 'sourcePath', 'acquiredAt', 'version', 'sha256', 'location', 'metadata', 'evidenceVersions', 'citations']);
+
+function materialSnapshot(value) {
+  return Object.fromEntries(MATERIAL_FIELDS.map((field) => [field, value?.[field] ?? null]));
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  return value;
+}
+
+export function evidenceMaterialFingerprint(value) {
+  return createHash('sha256').update(JSON.stringify(canonical(materialSnapshot(value)))).digest('hex');
+}
+
 export function normalizeEvidenceRecord(value, { now = new Date().toISOString(), existing } = {}) {
   const input = value && typeof value === 'object' ? value : {};
   const previous = existing && typeof existing === 'object' ? existing : {};
   const merged = { ...previous, ...input };
-  const source = sourceForEvidence({ ...merged, source: input.source || previous.source });
-  const knownFields = new Set(['id', 'kind', 'title', 'summary', 'source', 'sourceUrl', 'sourcePath', 'acquiredAt', 'verifiedAt', 'verificationStatus', 'version', 'sha256', 'location', 'tags', 'metadata', 'evidenceVersions', 'createdAt', 'updatedAt']);
+  const sourcePatch = input.source && typeof input.source === 'object' ? input.source : {};
+  const source = sourceForEvidence({ ...merged, source: { ...sourceForEvidence(previous), ...sourcePatch } });
+  if (typeof input.source === 'string') Object.assign(source, sourceForEvidence({ source: input.source }));
+  for (const key of ['url', 'path', 'provider', 'locator']) {
+    if (Object.hasOwn(sourcePatch, key)) source[key] = sourcePatch[key];
+  }
+  for (const [alias, key] of [['sourceUrl', 'url'], ['sourcePath', 'path'], ['location', 'locator']]) {
+    if (Object.hasOwn(input, alias)) source[key] = input[alias];
+  }
+  for (const key of Object.keys(source)) {
+    if (typeof source[key] === 'string') source[key] = source[key].trim() || null;
+  }
+  const knownFields = new Set(['id', 'kind', 'title', 'summary', 'source', 'sourceUrl', 'sourcePath', 'acquiredAt', 'verifiedAt', 'verificationStatus', 'version', 'sha256', 'location', 'tags', 'metadata', 'evidenceVersions', 'citations', 'createdAt', 'updatedAt']);
   const migratedMetadata = Object.fromEntries(Object.entries(merged).filter(([key]) => !knownFields.has(key)));
   const normalizedKind = EVIDENCE_KINDS.includes(merged.kind) ? merged.kind : 'human-note';
   const normalized = {
@@ -137,16 +183,20 @@ export function normalizeEvidenceRecord(value, { now = new Date().toISOString(),
     verificationStatus: merged.verificationStatus || merged.status || 'unverified',
     version: merged.version ?? null,
     sha256: merged.sha256 ?? null,
-    location: merged.location ?? source.locator ?? null,
+    location: source.locator ?? null,
     tags: [...new Set([...(Array.isArray(previous.tags) ? previous.tags : []), ...(Array.isArray(input.tags) ? input.tags : [])].map(String).map((item) => item.trim()).filter(Boolean))],
     metadata: { ...(previous.metadata || {}), ...(input.metadata || {}), ...migratedMetadata },
     evidenceVersions: { ...(previous.evidenceVersions || {}), ...(input.evidenceVersions || {}) },
+    citations: merged.citations ?? [],
     createdAt: previous.createdAt || input.createdAt || now,
     updatedAt: now
   };
-  if (normalized.verificationStatus === 'verified' || normalized.verificationStatus === 'human-confirmed' || normalized.verificationStatus === 'approved') {
-    normalized.verifiedAt = normalized.verifiedAt || now;
+  // Confirmation belongs to the reviewed material, not just its external version label.
+  if (existing && isConfirmedEvidence(previous) && !isDeepStrictEqual(materialSnapshot(previous), materialSnapshot(normalized))) {
+    if (isConfirmedEvidence(normalized)) normalized.verificationStatus = 'pending';
+    normalized.verifiedAt = null;
   }
+  if (isConfirmedEvidence(normalized)) normalized.verifiedAt = normalized.verifiedAt || now;
   return evidenceRecordSchema.parse(normalized);
 }
 

@@ -1,4 +1,18 @@
 import type { Diagnostic } from '@codemirror/lint';
+import type { CompileInputSnapshot } from '../../api/client';
+
+/** Candidate text becomes diagnostic input only after matching the server's bytes. */
+export async function matchesCompileInput(snapshot: CompileInputSnapshot | undefined, file: string, source: string) {
+  const entry = snapshot?.files.find((item) => item.path === file);
+  if (!entry || !globalThis.crypto?.subtle) return false;
+  const bytes = new TextEncoder().encode(source);
+  if (bytes.byteLength !== entry.bytes) return false;
+  try {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return hash === entry.sha256;
+  } catch { return false; }
+}
 
 export interface CompileError {
   message: string;
@@ -6,25 +20,17 @@ export interface CompileError {
   file?: string;
 }
 
-export function parseCompileErrors(log: string, mainFile: string): CompileError[] {
-  const lines = log.split('\n');
+export function parseCompileErrors(log: string, _mainFile: string): CompileError[] {
   const errors: CompileError[] = [];
-  let currentFile = mainFile;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i].trim();
+  for (const raw of log.split('\n')) {
+    const line = raw.trim();
     const location = /^(?:error:\s*)?(.+?\.tex):(\d+):\s*(.+)$/.exec(line);
     if (location && !/\bwarning\b/i.test(line) && !/^note:/i.test(line)) {
-      currentFile = location[1];
-      errors.push({ file: currentFile, line: Number(location[2]), message: location[3] });
+      const lineNo = Number(location[2]);
+      errors.push({ file: location[1], line: Number.isSafeInteger(lineNo) && lineNo > 0 ? lineNo : undefined, message: location[3] });
     } else if (line.startsWith('!')) {
-      const message = line.replace(/^!+\s*/, '');
-      let lineNo: number | undefined;
-      for (const next of lines.slice(i + 1, i + 8)) {
-        if (next.trim().startsWith('!')) break;
-        const match = /^\s*l\.(\d+)\b/.exec(next);
-        if (match) { lineNo = Number(match[1]); break; }
-      }
-      errors.push({ file: currentFile, line: lineNo, message });
+      // Traditional TeX logs do not establish file identity via l.N or the main file.
+      errors.push({ message: line.replace(/^!+\s*/, '') });
     }
   }
   return errors.filter((error, index) => errors.findIndex((other) =>
@@ -34,10 +40,10 @@ export function parseCompileErrors(log: string, mainFile: string): CompileError[
 }
 
 export function resolveCompileFile(file: string, paths: string[]) {
+  if (!file || file.includes('\0') || file.includes('://') || file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) || file.startsWith('\\\\')) return undefined;
   const normalized = file.replace(/\\/g, '/').replace(/^(?:\.\/)+/, '');
-  if (paths.includes(normalized)) return normalized;
-  const matches = paths.filter((path) => normalized.endsWith(`/${path}`) || path.endsWith(`/${normalized}`));
-  return matches.length === 1 ? matches[0] : undefined;
+  if (!normalized || normalized.split('/').includes('..') || normalized.split('/').includes('.')) return undefined;
+  return paths.includes(normalized) ? normalized : undefined;
 }
 
 export function compileDiagnostics(errors: CompileError[], file: string, source: string): Diagnostic[] {
@@ -45,7 +51,7 @@ export function compileDiagnostics(errors: CompileError[], file: string, source:
   const offsets = [0];
   for (let i = 0; i < lines.length - 1; i += 1) offsets.push(offsets[i] + lines[i].length + 1);
   return errors.flatMap((error) => {
-    if (error.file !== file || !error.line || error.line > lines.length) return [];
+    if (error.file !== file || !error.line || !Number.isSafeInteger(error.line) || error.line < 1 || error.line > lines.length) return [];
     const from = offsets[error.line - 1];
     return [{ from, to: from + lines[error.line - 1].length, severity: 'error', message: error.message }];
   });

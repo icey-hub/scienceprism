@@ -1,34 +1,28 @@
+import { createRunExecutor, summarizeEvent } from './execution.js';
+import { collectFiles, collectPatches, copyWorkspace } from './workspace.js';
 import { promises as fs } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createTwoFilesPatch } from 'diff';
 import { getEnv } from '../../config/constants.js';
 import { PROJECT_CONSTRAINT_LIMITS } from '../../config/projectConstraintDefaults.js';
-import { safeJoin } from '../../utils/pathUtils.js';
 import {
   applyProjectConstraintPolicy,
   assertProjectPath,
-  capabilityForToolName,
   DEFAULT_PROJECT_CAPABILITIES,
-  isPathAllowed,
-  isSensitivePath,
   resolveCapabilityPolicy
 } from './capabilities.js';
-import { asRuntimeError, HarnessRuntimeError } from './errors.js';
+import { HarnessRuntimeError } from './errors.js';
 import { clone, readHarnessRuns, resolveHarnessProjectRoot, withHarnessRunLock, writeHarnessRuns } from './repository.js';
 import { deepseekHarnessAdapter } from './adapters/deepseekAdapter.js';
 import { legacyHarnessAdapter } from './adapters/legacyAdapter.js';
 import { fakeHarnessAdapter } from './adapters/fakeAdapter.js';
-import { copyBundledResearchSkills, isBundledSkillPath, restrictWorkspaceResearchSkills } from '../researchResearch/researchSkills.js';
 import { buildContextPack, contextManifest } from './contextPackager.js';
 import { assertProjectFeatureEnabled } from '../featureFlags.js';
 import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
-import { assertApprovedConstraint } from '../constraintRegistry/proposals.js';
+import { applyPatchTransaction, selectPatchPaths } from './patchApplication.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
+import { readFileState, sameVersion } from './fileVersions.js';
 
-const MAX_PATCH_FILE_BYTES = 1024 * 1024;
-const MAX_EVENTS = 1000;
 const MAX_RECENT_RUNS = 100;
 
 /**
@@ -40,10 +34,6 @@ const MAX_RECENT_RUNS = 100;
  * the run centre, or make decideHarnessRun refuse a Run that had already ended.
  */
 export const TERMINAL_HARNESS_RUN_STATUSES = Object.freeze(['completed', 'failed', 'cancelled']);
-// Sensitive directories are owned by capabilities.js, and every call site below
-// already checks isSensitivePath. This used to carry a second copy of the same
-// six names, which could only drift out of step with the real filter.
-const IGNORED_FILES = new Set(['project.json', '.compile']);
 const adapters = new Map([
   ['deepseek', deepseekHarnessAdapter],
   ['legacy', legacyHarnessAdapter],
@@ -51,13 +41,16 @@ const adapters = new Map([
 ]);
 const activeRuns = new Map();
 const pendingRequests = new Map();
+const runtimeInstanceId = randomUUID();
+const executeRun = createRunExecutor({
+  getRun: getHarnessRun,
+  updateRun,
+  adapterFor: (id) => adapters.get(id),
+  forgetRequest: (id) => pendingRequests.delete(id)
+});
 
 function now() {
   return new Date().toISOString();
-}
-
-function toPosix(relativePath) {
-  return relativePath.split(path.sep).join('/');
 }
 
 function normalizeAdapter(value) {
@@ -81,92 +74,7 @@ function sanitizeRequest(request = {}) {
   return safe;
 }
 
-function summarizeEvent(event = {}) {
-  const source = event?.params?.event || event;
-  const data = source?.data || event?.params || {};
-  return {
-    type: source?.type || event?.method || 'unknown',
-    name: data?.name,
-    callId: data?.callId,
-    tool: data?.tool,
-    capability: capabilityForToolName(data?.name || data?.tool),
-    usage: data?.usage || data?.tokenUsage,
-    text: source?.type === 'assistant/message'
-      ? source.data?.message?.content?.filter((block) => block?.type === 'text').map((block) => block.text).join('')
-      : undefined,
-    at: now()
-  };
-}
-
-async function collectFiles(root, relative = '') {
-  const current = path.join(root, relative);
-  const entries = await fs.readdir(current, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    if (IGNORED_FILES.has(entry.name) || isSensitivePath(entry.name)) continue;
-    const child = path.join(relative, entry.name);
-    if (entry.isDirectory()) files.push(...await collectFiles(root, child));
-    else if (entry.isFile()) files.push(toPosix(child));
-  }
-  return files;
-}
-
-function normalizedAllowedPaths(policy) {
-  return (policy?.allowedPaths || []).map((value) => String(value || '').replace(/\\/g, '/'))
-    .map((value) => path.posix.normalize(value))
-    .filter((value) => value && value !== '.' && value !== '..' && !value.startsWith('../') && !value.startsWith('/') && !isSensitivePath(value));
-}
-
-async function copyWorkspace(sourceRoot, targetRoot, policy = {}) {
-  const allowedPaths = normalizedAllowedPaths(policy);
-  const hasPathScope = Array.isArray(policy?.allowedPaths) && policy.allowedPaths.length > 0;
-  await fs.mkdir(targetRoot, { recursive: true });
-  await fs.cp(sourceRoot, targetRoot, {
-    recursive: true,
-    filter(source) {
-      const relative = toPosix(path.relative(sourceRoot, source));
-      if (!relative) return true;
-      const name = path.basename(source);
-      if (IGNORED_FILES.has(name) || isSensitivePath(relative)) return false;
-      if (!hasPathScope) return true;
-      return isPathAllowed(relative, policy) || allowedPaths.some((allowedPath) => allowedPath.startsWith(`${relative}/`));
-    }
-  });
-}
-
-async function readTextFile(root, relativePath) {
-  const absolute = safeJoin(root, relativePath);
-  const stat = await fs.stat(absolute);
-  if (!stat.isFile() || stat.size > MAX_PATCH_FILE_BYTES) return null;
-  return fs.readFile(absolute, 'utf8');
-}
-
-async function collectPatches(originalRoot, workspaceRoot, policy, excludedPaths = []) {
-  const originalFiles = await collectFiles(originalRoot);
-  const workspaceFiles = await collectFiles(workspaceRoot);
-  const originalSet = new Set(originalFiles);
-  const workspaceSet = new Set(workspaceFiles);
-  const allPaths = [...new Set([...originalFiles, ...workspaceFiles])].sort();
-  const patches = [];
-
-  for (const relativePath of allPaths) {
-    if (isBundledSkillPath(relativePath, excludedPaths)) continue;
-    if (!isPathAllowed(relativePath, policy, { operation: 'patch' })) continue;
-    const original = originalSet.has(relativePath) ? await readTextFile(originalRoot, relativePath) : '';
-    const proposed = workspaceSet.has(relativePath) ? await readTextFile(workspaceRoot, relativePath) : '';
-    if (original === null || proposed === null || original === proposed) continue;
-    patches.push({
-      path: relativePath,
-      original,
-      content: proposed,
-      deleted: !workspaceSet.has(relativePath),
-      diff: createTwoFilesPatch(relativePath, relativePath, original, proposed, 'current', 'proposed')
-    });
-  }
-  return patches;
-}
-
-async function readProjectConstraints(projectRoot) {
+export async function readProjectConstraints(projectRoot) {
   for (const relativePath of ['.scienceprism/project-constraints.json', '.scienceprism/harness-constraints.json']) {
     try {
       const value = JSON.parse(await fs.readFile(path.join(projectRoot, relativePath), 'utf8'));
@@ -199,7 +107,23 @@ function buildLimits(request, policy, budgetEnabled = true) {
 
 async function getRunDocument(projectId) {
   const root = await resolveHarnessProjectRoot(projectId);
-  return { root, document: await readHarnessRuns(root, projectId) };
+  const document = await withHarnessRunLock(projectId, async () => {
+    const stored = await readHarnessRuns(root, projectId);
+    let recovered = false;
+    for (const run of stored.runs) {
+      if ((run.status === 'running' && !activeRuns.has(run.id)) ||
+          (run.status === 'created' && run.request?.source === 'editor' && run.runtimeInstanceId !== runtimeInstanceId)) {
+        run.status = 'failed';
+        run.finishedAt = now();
+        run.updatedAt = run.finishedAt;
+        run.error = { code: 'HARNESS_INTERRUPTED', message: 'The server restarted before this task finished. Retry with the current document.', retryable: true };
+        recovered = true;
+      }
+    }
+    if (recovered) await writeHarnessRuns(root, stored);
+    return stored;
+  });
+  return { root, document };
 }
 
 async function updateRun(projectId, runId, updater) {
@@ -239,202 +163,32 @@ function mergeRequest(run, overrides = {}) {
   };
 }
 
-function patchListFromResult(result, policy) {
-  const patches = Array.isArray(result?.patches) ? result.patches : [];
-  return patches.filter((patch) => patch && typeof patch.path === 'string' && isPathAllowed(patch.path, policy, { operation: 'patch' }))
-    .map((patch) => ({ ...patch, path: patch.path.replace(/\\/g, '/') }));
+function normalizeDocumentVersions(request = {}) {
+  const values = Array.isArray(request.documentVersions)
+    ? request.documentVersions
+    : request.document && typeof request.document === 'object' ? [request.document] : [];
+  return values.map((item) => ({
+    path: String(item?.path || item?.filePath || '').replace(/\\/g, '/'),
+    exists: item?.exists !== false,
+    sha256: item?.sha256 || item?.hash || null
+  }));
 }
 
-function timeoutPromise(ms, controller) {
-  let timer;
-  const promise = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new HarnessRuntimeError(504, 'HARNESS_TIMEOUT', `Harness Run exceeded its ${ms}ms timeout.`, { timeoutMs: ms }, { retryable: true });
-      controller.timeoutError = error;
-      controller.abort(error);
-      reject(error);
-    }, ms);
-  });
-  promise.cancel = () => clearTimeout(timer);
-  return promise;
-}
-
-async function runWithTimeout(task, timeoutMs, controller) {
-  const timeout = timeoutPromise(timeoutMs, controller);
-  const aborted = new Promise((_, reject) => {
-    const abort = () => reject(controller.signal.reason || new Error('Harness Run aborted.'));
-    if (controller.signal.aborted) abort();
-    else controller.signal.addEventListener('abort', abort, { once: true });
-  });
-  try {
-    return await Promise.race([task, timeout, aborted]);
-  } finally {
-    timeout.cancel();
-  }
-}
-
-async function persistEvents(projectId, runId, events) {
-  if (!events.length) return;
-  await updateRun(projectId, runId, (run) => {
-    run.events = [...(run.events || []), ...events].slice(-MAX_EVENTS);
-    run.updatedAt = now();
-    return run;
-  });
-}
-
-async function executeRun(projectId, runId, request, control) {
-  const run = await getHarnessRun(projectId, runId);
-  const adapter = adapters.get(run.adapter);
-  if (!adapter) throw new HarnessRuntimeError(500, 'HARNESS_ADAPTER_NOT_FOUND', `Unknown Harness Adapter: ${run.adapter}.`);
-  if (run.capabilities.denied?.length) {
-    throw new HarnessRuntimeError(403, 'CAPABILITY_DENIED', 'Requested Harness capabilities were not granted by the Project Constraints.', { denied: run.capabilities.denied });
-  }
-  const projectRoot = await resolveHarnessProjectRoot(projectId);
-  const runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
-  const workspace = path.join(runRoot, 'workspace');
-  const dshHome = path.join(runRoot, 'dsh-home');
-  let excludedSkillPaths = [];
-  let eventWrite = Promise.resolve();
-  const emit = (event) => {
-    const summary = summarizeEvent(event);
-    eventWrite = eventWrite.then(() => persistEvents(projectId, runId, [summary])).catch(() => {});
-    const capability = summary.capability;
-    const toolName = summary.name || summary.tool;
-    if (toolName && !capability && !control.violation) {
-      control.violation = new HarnessRuntimeError(403, 'TOOL_CAPABILITY_UNKNOWN', `Harness tool is not mapped to an allowed capability: ${toolName}.`, { tool: toolName });
-      control.controller.abort(control.violation);
-      return;
+async function assertDocumentVersions(root, versions, policy) {
+  for (const expected of versions) {
+    if (!expected.path || (expected.exists ? !/^[a-f0-9]{64}$/.test(expected.sha256) : expected.sha256 !== null)) {
+      throw new HarnessRuntimeError(400, 'INVALID_DOCUMENT_VERSION', 'Each document version requires a relative path and SHA-256 hash.', { path: expected.path });
     }
-    if (capability && !run.capabilities.granted.includes(capability) && !control.violation) {
-      control.violation = new HarnessRuntimeError(403, 'CAPABILITY_DENIED', `Harness tool capability denied: ${capability}.`, { capability, tool: summary.name || summary.tool });
-      control.controller.abort(control.violation);
-    }
-  };
-
-  try {
-    if (run.adapter === 'deepseek') {
-      const unenforceable = run.capabilities.granted.filter((capability) => ['research.search', 'experiment.execute'].includes(capability));
-      if (unenforceable.length) {
-        throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The DeepSeek Harness SDK has no pre-tool policy hook for network or command execution. Use the legacy Adapter for these capabilities.', { capabilities: unenforceable });
-      }
-    }
-    await copyWorkspace(projectRoot, workspace, run.capabilities);
-    if (Array.isArray(request.researchSkills)) {
-      const removedSkillPaths = await restrictWorkspaceResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
-      const bundledSkillPaths = await copyBundledResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
-      excludedSkillPaths = [...removedSkillPaths, ...bundledSkillPaths];
-    }
-    const task = adapter.run({
-      request: { ...request, contextPack: run.contextPack },
-      projectRoot,
-      workspace,
-      dshHome,
-      capabilities: run.capabilities.granted,
-      capabilityPolicy: run.capabilities,
-      // Every adapter receives the Run's limits, not only the DeepSeek SDK.
-      limits: run.limits,
-      signal: control.controller.signal,
-      emit
-    });
-    const result = await runWithTimeout(task, run.limits.timeoutMs, control.controller);
-    await eventWrite;
-    const workspacePatches = run.adapter === 'deepseek'
-      ? await collectPatches(projectRoot, workspace, run.capabilities, excludedSkillPaths)
-      : [];
-    const patches = [...patchListFromResult(result, run.capabilities), ...workspacePatches]
-      .filter((patch, index, values) => values.findIndex((item) => item.path === patch.path) === index);
-    const updated = await updateRun(projectId, runId, (current) => {
-      current.status = 'completed';
-      current.finishedAt = now();
-      current.updatedAt = current.finishedAt;
-      current.reply = result?.finalResponse || result?.reply || '';
-      current.sessionId = result?.sessionId;
-      current.patches = patches;
-      current.humanDecision = patches.length ? { status: 'pending' } : { status: 'none' };
-      current.output = result?.output;
-      current.tokenUsage = result?.usage || result?.tokenUsage || current.events.map((event) => event.usage).find(Boolean) || null;
-      current.adapterResult = { ok: result?.ok !== false, fallback: current.fallback || false };
-      return current;
-    });
-    pendingRequests.delete(runId);
-    return updated;
-  } catch (error) {
-    await eventWrite;
-    const runtimeError = control.violation || control.timeoutError || asRuntimeError(error);
-    if (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED') {
-      return updateRun(projectId, runId, (current) => {
-        current.status = 'cancelled';
-        current.finishedAt = now();
-        current.updatedAt = current.finishedAt;
-        current.error = { code: 'HARNESS_CANCELLED', message: 'Harness Run was cancelled.', retryable: false };
-        return current;
+    const relativePath = assertProjectPath(expected.path, policy, { operation: 'read' });
+    const current = await readFileState(root, relativePath);
+    const expectedVersion = { exists: expected.exists, sha256: expected.exists ? expected.sha256.toLowerCase() : null };
+    if (!sameVersion(current, expectedVersion)) {
+      throw new HarnessRuntimeError(409, 'DOCUMENT_VERSION_CONFLICT', 'The saved document changed before this Run started.', {
+        path: relativePath,
+        expected: expectedVersion,
+        actual: { exists: current.exists, sha256: current.sha256 }
       });
     }
-    if (control.pauseRequested || control.controller.signal.reason?.code === 'HARNESS_PAUSED') {
-      return updateRun(projectId, runId, (current) => {
-        current.status = 'paused';
-        current.updatedAt = now();
-        current.error = { code: 'HARNESS_PAUSED', message: 'Harness Run was paused and can be resumed.', retryable: true };
-        return current;
-      });
-    }
-
-    if (run.adapter === 'deepseek' && run.fallback && runtimeError.retryable && !runtimeError.code?.includes('CAPABILITY') && !runtimeError.code?.includes('PATH')) {
-      const fallbackAdapter = adapters.get('legacy');
-      try {
-        emit({ type: 'runtime/fallback', data: { from: 'deepseek', to: 'legacy', error: runtimeError.message } });
-        const fallbackResult = await runWithTimeout(fallbackAdapter.run({
-          request: { ...request, contextPack: run.contextPack },
-          projectRoot,
-          workspace,
-          dshHome,
-          capabilities: run.capabilities.granted,
-          capabilityPolicy: run.capabilities,
-          signal: control.controller.signal,
-          emit
-        }), run.limits.timeoutMs, control.controller);
-        await eventWrite;
-        const patches = patchListFromResult(fallbackResult, run.capabilities);
-        const updated = await updateRun(projectId, runId, (current) => {
-          current.status = 'completed';
-          current.finishedAt = now();
-          current.updatedAt = current.finishedAt;
-          current.adapter = 'legacy';
-          current.adapterHistory = [...(current.adapterHistory || []), { adapter: 'deepseek', error: runtimeError.message, at: now() }];
-          current.reply = fallbackResult?.finalResponse || fallbackResult?.reply || '';
-          current.sessionId = fallbackResult?.sessionId;
-          current.patches = patches;
-          current.humanDecision = patches.length ? { status: 'pending' } : { status: 'none' };
-          current.fallback = true;
-          current.error = { code: runtimeError.code, message: runtimeError.message, retryable: runtimeError.retryable };
-          current.adapterResult = { ok: true, fallback: true };
-          return current;
-        });
-        pendingRequests.delete(runId);
-        return updated;
-      } catch (fallbackError) {
-        const fallbackRuntimeError = asRuntimeError(fallbackError, 'FALLBACK_FAILED');
-        return updateRun(projectId, runId, (current) => {
-          current.status = 'failed';
-          current.finishedAt = now();
-          current.updatedAt = current.finishedAt;
-          current.error = { code: fallbackRuntimeError.code, message: fallbackRuntimeError.message, retryable: fallbackRuntimeError.retryable };
-          current.harnessError = runtimeError.message;
-          return current;
-        });
-      }
-    }
-
-    return updateRun(projectId, runId, (current) => {
-      current.status = 'failed';
-      current.finishedAt = now();
-      current.updatedAt = current.finishedAt;
-      current.error = { code: runtimeError.code, message: runtimeError.message, retryable: runtimeError.retryable };
-      return current;
-    });
-  } finally {
-    pendingRequests.delete(runId);
-    await fs.rm(runRoot, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -484,6 +238,8 @@ export async function createHarnessRun(projectId, request = {}) {
         roleAuthority: role.authority
       }
     : capabilities;
+  const documentVersions = normalizeDocumentVersions(request);
+  await assertDocumentVersions(projectRoot, documentVersions, effectiveCapabilities);
   const contextPack = await buildContextPack({
     projectId,
     projectRoot,
@@ -491,9 +247,16 @@ export async function createHarnessRun(projectId, request = {}) {
     policy: effectiveCapabilities,
     constraints
   });
+  for (const expected of documentVersions) {
+    const packed = contextPack.files.find((file) => file.path === expected.path);
+    if (packed && packed.sha256 !== expected.sha256) {
+      throw new HarnessRuntimeError(409, 'DOCUMENT_VERSION_CONFLICT', 'The document changed while context was being captured.', { path: expected.path });
+    }
+  }
   const createdAt = now();
   const run = {
     schemaVersion: 1,
+    runtimeInstanceId,
     id: randomUUID(),
     projectId,
     stage: request.stage || null,
@@ -515,6 +278,7 @@ export async function createHarnessRun(projectId, request = {}) {
     model: request.llmConfig?.model || getEnv('HARNESS_MODEL') || process.env.DEEPSEEK_MODEL || (adapter === 'deepseek' ? 'deepseek-flash' : null),
     skills: Array.isArray(request.researchSkills) ? request.researchSkills : [],
     contextHash: contextPack.contextHash,
+    documentVersions,
     contextManifest: contextManifest(contextPack),
     contextPack,
     capabilities: effectiveCapabilities,
@@ -535,10 +299,14 @@ export async function createHarnessRun(projectId, request = {}) {
     }
     const allRuns = [run, ...document.runs];
     const olderRuns = allRuns.slice(MAX_RECENT_RUNS);
-    document.runs = [...allRuns.slice(0, MAX_RECENT_RUNS), ...olderRuns.filter((old) => !TERMINAL_HARNESS_RUN_STATUSES.includes(old.status))];
+    // Editor history includes replies, request ids and undecided proposals. A
+    // summary archive cannot restore those, so keep editor Runs in full.
+    const archivable = olderRuns.filter((old) => old.request?.source !== 'editor' && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
+    const archivedIds = new Set(archivable.map((old) => old.id));
+    document.runs = allRuns.filter((old) => !archivedIds.has(old.id));
     document.archivedRuns = [
       ...(document.archivedRuns || []),
-      ...olderRuns.filter((old) => TERMINAL_HARNESS_RUN_STATUSES.includes(old.status)).map((old) => ({
+      ...archivable.map((old) => ({
         id: old.id,
         projectId: old.projectId,
         parentRunId: old.parentRunId || null,
@@ -566,12 +334,15 @@ export async function getHarnessRun(projectId, runId) {
   return clone(run);
 }
 
-export async function listHarnessRuns(projectId, { status, stage, parentRunId, limit = 50 } = {}) {
+export async function listHarnessRuns(projectId, { status, stage, parentRunId, source, requestId, limit = 50 } = {}) {
   const { document } = await getRunDocument(projectId);
   const max = numberOr(limit, 50, { min: 1, max: 100 });
-  return (parentRunId ? [...document.runs, ...(document.archivedRuns || [])] : document.runs)
+  const includeArchived = Boolean(parentRunId || source || requestId);
+  return (includeArchived ? [...document.runs, ...(document.archivedRuns || [])] : document.runs)
     .filter((run) => (!status || run.status === status) && (!stage || run.stage === stage))
     .filter((run) => (!parentRunId || run.parentRunId === parentRunId))
+    .filter((run) => (!source || run.request?.source === source))
+    .filter((run) => (!requestId || run.request?.requestId === requestId))
     .slice(0, max)
     .map(clone);
 }
@@ -673,13 +444,21 @@ export async function replayHarnessRun(projectId, runId, { request = {}, start =
   return start ? startHarnessRun(projectId, run.id, { wait: true, request }) : run;
 }
 
-export async function decideHarnessRun(projectId, runId, { decision, actor = 'human', note = '' } = {}) {
+export async function decideHarnessRun(projectId, runId, { decision, actor = 'human', note = '', paths } = {}) {
   if (!['accept', 'reject'].includes(decision)) throw new HarnessRuntimeError(400, 'INVALID_HUMAN_DECISION', 'decision must be accept or reject.');
   return updateRun(projectId, runId, (run) => {
     if (!TERMINAL_HARNESS_RUN_STATUSES.includes(run.status)) {
       throw new HarnessRuntimeError(409, 'HARNESS_RUN_NOT_DECIDABLE', 'Only a finished Harness Run can receive a human decision.');
     }
-    run.humanDecision = { status: decision === 'accept' ? 'accepted' : 'rejected', actor: String(actor), note: String(note || ''), at: now() };
+    const selected = selectPatchPaths(run, paths);
+    const record = { status: decision === 'accept' ? 'accepted' : 'rejected', actor: String(actor), note: String(note || ''), at: now() };
+    run.patchDecisions = { ...(run.patchDecisions || {}) };
+    for (const filePath of selected) {
+      if (!(run.appliedPatches || []).includes(filePath)) run.patchDecisions[filePath] = record;
+    }
+    const statuses = (run.patches || []).map((patch) => run.patchDecisions[patch.path]?.status || 'pending');
+    run.humanDecision = { ...record, status: !statuses.length || statuses.every((status) => status === record.status) ? record.status : 'partial' };
+    run.events = [...(run.events || []), { type: 'patches.decided', at: record.at, details: { ...record, paths: [...selected] } }];
     run.updatedAt = now();
     return run;
   });
@@ -696,65 +475,16 @@ export async function decideHarnessRun(projectId, runId, { decision, actor = 'hu
  * twice, and the Run records exactly what was written.
  */
 export async function applyHarnessRunPatches(projectId, runId, { actor = 'human', paths } = {}) {
-  const { root } = await getRunDocument(projectId);
-  const constraints = await readProjectConstraints(root);
-  const policy = applyProjectConstraintPolicy(
-    resolveCapabilityPolicy({ configured: constraints.capabilities || DEFAULT_PROJECT_CAPABILITIES }),
-    constraints
-  );
-  const requested = Array.isArray(paths) ? new Set(paths.map(String)) : null;
-
+  const root = await resolveHarnessProjectRoot(projectId);
   return withHarnessRunLock(projectId, async () => {
     const document = await readHarnessRuns(root, projectId);
     const index = document.runs.findIndex((run) => run.id === runId);
     if (index < 0) throw new HarnessRuntimeError(404, 'HARNESS_RUN_NOT_FOUND', 'Harness Run not found.', { runId });
-    const run = clone(document.runs[index]);
-
-    if (run.humanDecision?.status !== 'accepted') {
-      throw new HarnessRuntimeError(
-        409,
-        'PATCH_APPLICATION_REQUIRES_ACCEPTANCE',
-        'A human must accept the Harness Run before its Patches can be applied.',
-        { runId, humanDecision: run.humanDecision?.status || 'none' }
-      );
-    }
-
-    const alreadyApplied = new Set(run.appliedPatches || []);
-    const planned = [];
-    for (const patch of run.patches || []) {
-      if (requested && !requested.has(patch.path)) continue;
-      if (alreadyApplied.has(patch.path)) continue;
-      // Re-checked here rather than trusted from Run creation: the policy may
-      // have narrowed since, and this is the write that matters.
-      const relativePath = assertProjectPath(patch.path, policy, { operation: 'patch' });
-      await assertApprovedConstraint(projectId, { kind: 'patch.forbid_path', path: relativePath });
-      if (!patch.deleted) await assertApprovedConstraint(projectId, { kind: 'patch.forbid_text', content: String(patch.content ?? '') });
-      planned.push({ patch, relativePath });
-    }
-
-    if (!planned.length) {
-      throw new HarnessRuntimeError(409, 'NO_PATCHES_TO_APPLY', 'The Run has no unapplied Patch matching the request.', { runId });
-    }
-
-    const applied = [];
-    for (const { patch, relativePath } of planned) {
-      const absolute = safeJoin(root, relativePath);
-      if (patch.deleted) {
-        await fs.rm(absolute, { force: true });
-      } else {
-        await fs.mkdir(path.dirname(absolute), { recursive: true });
-        await fs.writeFile(absolute, String(patch.content ?? ''), 'utf8');
-      }
-      applied.push(relativePath);
-    }
-
-    run.appliedPatches = [...alreadyApplied, ...applied];
-    run.patchApplication = { appliedAt: now(), actor: String(actor), paths: applied };
-    run.events = [...(run.events || []), { type: 'patches.applied', at: now(), details: { paths: applied, actor: String(actor) } }];
-    run.updatedAt = now();
-    document.runs[index] = run;
-    await writeHarnessRuns(root, document);
-    return { run: clone(run), applied };
+    const constraints = await readProjectConstraints(root);
+    const policy = applyProjectConstraintPolicy(
+      resolveCapabilityPolicy({ configured: constraints.capabilities || DEFAULT_PROJECT_CAPABILITIES }), constraints
+    );
+    return applyPatchTransaction({ projectId, root, document, index, policy, actor, paths });
   });
 }
 

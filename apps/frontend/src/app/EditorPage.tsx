@@ -1,39 +1,45 @@
+import { CollaborationPanel } from './editor/CollaborationPanel';
+import { VisionPanel } from './editor/VisionPanel';
+import { LiteratureSearchPanel } from './editor/LiteratureSearchPanel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, Dispatch, MouseEvent as ReactMouseEvent, SetStateAction, DragEvent } from 'react';
+import type { CSSProperties, MouseEvent as ReactMouseEvent, DragEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { basicSetup } from 'codemirror';
-import { latex } from '../latex/lang';
-import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state';
-import { Decoration, EditorView, DecorationSet, WidgetType, keymap, gutter, GutterMarker } from '@codemirror/view';
-import { search, searchKeymap } from '@codemirror/search';
-import { autocompletion, CompletionContext } from '@codemirror/autocomplete';
+import { Compartment } from '@codemirror/state';
+import { EditorView, keymap } from '@codemirror/view';
+import { searchKeymap } from '@codemirror/search';
 import { toggleComment } from '@codemirror/commands';
-import { lintGutter, setDiagnostics } from '@codemirror/lint';
-import { foldKeymap, foldService, indentOnInput } from '@codemirror/language';
-import { createFolder as createFolderApi, deleteFile, getAllFiles, getFile, getProjectTree, listProjects, renamePath, updateFileOrder, uploadFiles, writeFile } from '../api/projectAdapter';
-import { createCollabInvite, flushCollabFile, getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
-import { arxivBibtex, arxivSearch, callLLM, compileProject, generateGptImage, plotFromTable, runAgent, visionToLatex } from '../api/editorAdapter';
+import { setDiagnostics } from '@codemirror/lint';
+import { foldKeymap } from '@codemirror/language';
+import { createFolder as createFolderApi, deleteFile, getFile, getProjectTree, listProjects, renamePath, updateFileOrder, uploadFiles, writeFile } from '../api/projectAdapter';
+import { createCollabInvite, getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
+import { arxivBibtex, arxivSearch, callLLM, generateGptImage, plotFromTable, runAgent, visionToLatex } from '../api/editorAdapter';
 import type { ArxivPaper } from '../api/editorAdapter';
 import { createTwoFilesPatch } from 'diff';
-import type { CompileOutcome } from '../latex/engine';
-import * as Y from 'yjs';
-import { Awareness } from 'y-protocols/awareness';
-import { yCollab } from 'y-codemirror.next';
-import { CollabProvider } from '../collab/provider';
+import { useCompilation } from './editor/useCompilation';
+import { PlotPanel } from './editor/PlotPanel';
+import { useEditorSession } from './editor/useEditorSession';
+import { editorExtensions, setGhostEffect } from './editor/editorExtensions';
+import { useCollaborationSession } from './editor/useCollaborationSession';
 import ResearchWorkspacePage, { type ResearchWorkspaceState } from './ResearchWorkspacePage';
 import { ResearchStageNavigation } from './research/ResearchStageNavigation';
 import { getResearchStage, isResearchStageId, type ResearchStageId } from './research/researchStages';
 import { buildSplitDiff, SplitDiffView } from './editor/EditorDiff';
 import { PdfPreview } from './editor/PdfPreview';
 import { getLatexBodyInsertionRange } from './editor/latexSnippetInsertion';
-import { compileDiagnostics, parseCompileErrors, resolveCompileFile, type CompileError } from './editor/compileDiagnostics';
-import { ConstraintProposalPanel } from './editor/ConstraintProposalPanel';
-import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings, pickCollabColor } from './editor/editorSettings';
+import { compileDiagnostics, resolveCompileFile, type CompileError } from './editor/compileDiagnostics';
+import { AssistantPanel, type AssistantIntent } from './editor/AssistantPanel';
+import { useAssistantRun } from './editor/useAssistantRun';
+import { useChangeReview, type PendingChange } from './editor/useChangeReview';
+import { useDocumentDrafts } from './editor/useDocumentDrafts';
+import type { HarnessRun } from '../api/assistantAdapter';
+import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
 import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
+import { researchHref } from './research/researchLocation';
+import { rememberEditorFile, restoredEditorFile } from './editor/editorLocation';
 import {
   BarChart3,
   Bot,
@@ -54,11 +60,6 @@ import {
   X
 } from 'lucide-react';
 
-interface Message {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
 interface WebsearchItem {
   id: string;
   title: string;
@@ -66,14 +67,6 @@ interface WebsearchItem {
   url: string;
   bibtex: string;
   citeKey: string;
-}
-
-interface PendingChange {
-  filePath: string;
-  original: string;
-  proposed: string;
-  diff: string;
-  deleted?: boolean;
 }
 
 type InlineEdit =
@@ -108,176 +101,6 @@ function isTextPath(filePath: string) {
 
 function isInternalProjectPath(filePath: string) {
   return filePath === '.scienceprism' || filePath.startsWith('.scienceprism/') || filePath === '.openprism' || filePath.startsWith('.openprism/');
-}
-
-const SECTION_LEVELS: Record<string, number> = {
-  section: 1,
-  subsection: 2,
-  subsubsection: 3,
-  paragraph: 4,
-  subparagraph: 5
-};
-
-const SECTION_RE = /\\(section|subsection|subsubsection|paragraph|subparagraph)\*?\b/;
-const ENV_RE = /\\(begin|end)\{([^}]+)\}/g;
-const IF_START_RE = /\\if[a-zA-Z@]*\b/g;
-const IF_END_RE = /\\fi\b/g;
-const IF_START_TEST = /\\if[a-zA-Z@]*\b/;
-const GROUP_START_RE = /\\begingroup\b/g;
-const GROUP_END_RE = /\\endgroup\b/g;
-const GROUP_START_TEST = /\\begingroup\b/;
-
-function stripLatexComment(text: string) {
-  let result = '';
-  let escaped = false;
-  for (const ch of text) {
-    if (ch === '%' && !escaped) break;
-    result += ch;
-    if (ch === '\\' && !escaped) {
-      escaped = true;
-    } else {
-      escaped = false;
-    }
-  }
-  return result;
-}
-
-function findEnvFold(state: EditorState, startLineNumber: number, lineEnd: number, env: string) {
-  let depth = 1;
-  for (let lineNo = startLineNumber + 1; lineNo <= state.doc.lines; lineNo += 1) {
-    const line = state.doc.line(lineNo);
-    const clean = stripLatexComment(line.text);
-    let match: RegExpExecArray | null;
-    ENV_RE.lastIndex = 0;
-    while ((match = ENV_RE.exec(clean)) !== null) {
-      const kind = match[1];
-      const name = match[2];
-      if (name !== env) continue;
-      if (kind === 'begin') depth += 1;
-      if (kind === 'end') depth -= 1;
-      if (depth === 0) {
-        if (line.from > lineEnd) {
-          return { from: lineEnd, to: line.from };
-        }
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
-function findSectionFold(state: EditorState, startLineNumber: number, lineEnd: number, level: number) {
-  for (let lineNo = startLineNumber + 1; lineNo <= state.doc.lines; lineNo += 1) {
-    const line = state.doc.line(lineNo);
-    const clean = stripLatexComment(line.text);
-    const match = clean.match(SECTION_RE);
-    if (!match) continue;
-    const nextLevel = SECTION_LEVELS[match[1]] ?? 99;
-    if (nextLevel <= level) {
-      if (line.from > lineEnd) {
-        return { from: lineEnd, to: line.from };
-      }
-      return null;
-    }
-  }
-  if (state.doc.length > lineEnd) {
-    return { from: lineEnd, to: state.doc.length };
-  }
-  return null;
-}
-
-function countRegex(text: string, re: RegExp) {
-  let count = 0;
-  let match: RegExpExecArray | null;
-  re.lastIndex = 0;
-  while ((match = re.exec(text)) !== null) {
-    count += 1;
-  }
-  return count;
-}
-
-function countUnescapedToken(text: string, token: string) {
-  let count = 0;
-  for (let i = 0; i <= text.length - token.length; i += 1) {
-    if (text.slice(i, i + token.length) !== token) continue;
-    if (i > 0 && text[i - 1] === '\\') continue;
-    count += 1;
-    i += token.length - 1;
-  }
-  return count;
-}
-
-function findTokenFold(
-  state: EditorState,
-  startLineNumber: number,
-  lineEnd: number,
-  startRe: RegExp,
-  endRe: RegExp
-) {
-  let depth = 1;
-  for (let lineNo = startLineNumber + 1; lineNo <= state.doc.lines; lineNo += 1) {
-    const line = state.doc.line(lineNo);
-    const clean = stripLatexComment(line.text);
-    depth += countRegex(clean, startRe);
-    depth -= countRegex(clean, endRe);
-    if (depth <= 0) {
-      if (line.from > lineEnd) {
-        return { from: lineEnd, to: line.from };
-      }
-      return null;
-    }
-  }
-  return null;
-}
-
-function findDisplayMathFold(
-  state: EditorState,
-  startLineNumber: number,
-  lineEnd: number,
-  startToken: string,
-  endToken: string
-) {
-  for (let lineNo = startLineNumber + 1; lineNo <= state.doc.lines; lineNo += 1) {
-    const line = state.doc.line(lineNo);
-    const clean = stripLatexComment(line.text);
-    if (countUnescapedToken(clean, endToken) > 0) {
-      if (line.from > lineEnd) {
-        return { from: lineEnd, to: line.from };
-      }
-      return null;
-    }
-  }
-  return null;
-}
-
-function latexFoldService(state: EditorState, lineStart: number, lineEnd: number) {
-  const line = state.doc.lineAt(lineStart);
-  const clean = stripLatexComment(line.text);
-  if (!clean.trim()) return null;
-  const envMatch = clean.match(/\\begin\{([^}]+)\}/);
-  if (envMatch) {
-    return findEnvFold(state, line.number, lineEnd, envMatch[1]);
-  }
-  const sectionMatch = clean.match(SECTION_RE);
-  if (sectionMatch) {
-    const level = SECTION_LEVELS[sectionMatch[1]] ?? 99;
-    return findSectionFold(state, line.number, lineEnd, level);
-  }
-  if (GROUP_START_TEST.test(clean)) {
-    return findTokenFold(state, line.number, lineEnd, GROUP_START_RE, GROUP_END_RE);
-  }
-  if (IF_START_TEST.test(clean)) {
-    return findTokenFold(state, line.number, lineEnd, IF_START_RE, IF_END_RE);
-  }
-  const hasDisplayDollar = countUnescapedToken(clean, '$$') % 2 === 1;
-  if (hasDisplayDollar) {
-    return findDisplayMathFold(state, line.number, lineEnd, '$$', '$$');
-  }
-  const hasDisplayBracket = clean.includes('\\[');
-  if (hasDisplayBracket && !clean.includes('\\]')) {
-    return findDisplayMathFold(state, line.number, lineEnd, '\\[', '\\]');
-  }
-  return null;
 }
 
 function isFigureFile(path: string) {
@@ -552,213 +375,6 @@ function appendLog(setter: (val: string[] | ((prev: string[]) => string[])) => v
   setter((prev) => [...prev, line]);
 }
 
-function latexCompletionSource(context: CompletionContext) {
-  const before = context.matchBefore(/[\\/][A-Za-z]*$/);
-  if (!before) return null;
-  const prev = before.from > 0 ? context.state.doc.sliceString(before.from - 1, before.from) : ' ';
-  if (prev && !/[\s({\n]/.test(prev)) return null;
-  if (before.text.startsWith('/') && prev === ':') return null;
-  const options = [
-    { label: '\\section{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\section{}' },
-        selection: { anchor: from + '\\section{'.length }
-      });
-    }},
-    { label: '\\subsection{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\subsection{}' },
-        selection: { anchor: from + '\\subsection{'.length }
-      });
-    }},
-    { label: '\\subsubsection{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\subsubsection{}' },
-        selection: { anchor: from + '\\subsubsection{'.length }
-      });
-    }},
-    { label: '\\paragraph{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\paragraph{}' },
-        selection: { anchor: from + '\\paragraph{'.length }
-      });
-    }},
-    { label: '\\cite{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\cite{}' },
-        selection: { anchor: from + '\\cite{'.length }
-      });
-    }},
-    { label: '\\ref{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\ref{}' },
-        selection: { anchor: from + '\\ref{'.length }
-      });
-    }},
-    { label: '\\label{}', type: 'keyword', apply: (view: any, _completion: any, from: number, to: number) => {
-      view.dispatch({
-        changes: { from, to, insert: '\\label{}' },
-        selection: { anchor: from + '\\label{'.length }
-      });
-    }},
-    { label: '\\begin{itemize}', type: 'keyword', apply: '\\begin{itemize}\n\\item \n\\end{itemize}' },
-    { label: '\\begin{enumerate}', type: 'keyword', apply: '\\begin{enumerate}\n\\item \n\\end{enumerate}' },
-    { label: '\\begin{figure}', type: 'keyword', apply: '\\begin{figure}[t]\n\\centering\n\\includegraphics[width=0.9\\linewidth]{}\n\\caption{}\n\\label{}\n\\end{figure}' },
-    { label: '\\begin{table}', type: 'keyword', apply: '\\begin{table}[t]\n\\centering\n\\begin{tabular}{}\n\\end{tabular}\n\\caption{}\n\\label{}\n\\end{table}' }
-  ];
-  return {
-    from: before.from,
-    options,
-    validFor: /^[\\/][A-Za-z]*$/
-  };
-}
-
-const setGhostEffect = StateEffect.define<{ pos: number | null; text: string }>();
-
-class GhostWidget extends WidgetType {
-  constructor(private text: string) {
-    super();
-  }
-
-  toDOM() {
-    const span = document.createElement('span');
-    span.className = 'cm-ghost';
-    span.textContent = this.text;
-    return span;
-  }
-
-  ignoreEvent() {
-    return true;
-  }
-}
-
-const ghostField = StateField.define<DecorationSet>({
-  create() {
-    return Decoration.none;
-  },
-  update(deco, tr) {
-    let next = deco.map(tr.changes);
-    for (const effect of tr.effects) {
-      if (effect.is(setGhostEffect)) {
-        const { pos, text } = effect.value;
-        if (pos == null || !text) {
-          return Decoration.none;
-        }
-        const widget = Decoration.widget({
-          widget: new GhostWidget(text),
-          side: 1
-        });
-        return Decoration.set([widget.range(pos)]);
-      }
-    }
-    if (tr.docChanged || tr.selection) {
-      return Decoration.none;
-    }
-    return next;
-  },
-  provide: (field) => EditorView.decorations.from(field)
-});
-
-/* ── LaTeX environment scope colorization ── */
-const SCOPE_COLORS = [
-  'rgba(180, 74, 47, 0.5)',
-  'rgba(59, 130, 186, 0.5)',
-  'rgba(76, 159, 88, 0.5)',
-  'rgba(180, 137, 47, 0.5)',
-  'rgba(142, 68, 173, 0.5)',
-  'rgba(211, 84, 0, 0.5)',
-];
-
-function computeEnvDepths(doc: { lines: number; line: (n: number) => { text: string } }): number[] {
-  const depths: number[] = [];
-  let depth = 0;
-  for (let i = 1; i <= doc.lines; i++) {
-    const clean = stripLatexComment(doc.line(i).text);
-    ENV_RE.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    const events: { pos: number; delta: number }[] = [];
-    while ((match = ENV_RE.exec(clean)) !== null) {
-      events.push({ pos: match.index, delta: match[1] === 'begin' ? 1 : -1 });
-    }
-    events.sort((a, b) => a.pos - b.pos);
-    let lineDepth = depth;
-    for (const ev of events) {
-      if (ev.delta < 0) { depth--; lineDepth = Math.min(lineDepth, depth); }
-      else { depth++; }
-    }
-    depths.push(Math.max(0, lineDepth));
-  }
-  return depths;
-}
-
-const envDepthField = StateField.define<number[]>({
-  create(state) { return computeEnvDepths(state.doc); },
-  update(value, tr) {
-    if (tr.docChanged) return computeEnvDepths(tr.state.doc);
-    return value;
-  },
-});
-
-class ScopeMarker extends GutterMarker {
-  constructor(readonly depth: number) { super(); }
-  toDOM() {
-    const wrap = document.createElement('div');
-    wrap.className = 'cm-scope-marker';
-    for (let i = 0; i < this.depth; i++) {
-      const bar = document.createElement('span');
-      bar.className = 'cm-scope-bar';
-      bar.style.backgroundColor = SCOPE_COLORS[i % SCOPE_COLORS.length];
-      wrap.appendChild(bar);
-    }
-    return wrap;
-  }
-}
-
-const scopeGutter = gutter({
-  class: 'cm-scope-gutter',
-  lineMarker(view, line) {
-    const depths = view.state.field(envDepthField);
-    const lineNo = view.state.doc.lineAt(line.from).number;
-    const d = depths[lineNo - 1] || 0;
-    return d > 0 ? new ScopeMarker(d) : null;
-  },
-});
-
-const editorTheme = EditorView.theme(
-  {
-    '&': {
-      height: '100%',
-      background: 'transparent'
-    },
-    '.cm-scroller': {
-      fontFamily: '"JetBrains Mono", "SF Mono", "Menlo", monospace',
-      fontSize: 'var(--editor-font-size, 11px)',
-      lineHeight: '1.6'
-    },
-    '.cm-content': {
-      padding: '16px'
-    },
-    '.cm-gutters': {
-      background: 'transparent',
-      border: 'none',
-      color: 'rgba(122, 111, 103, 0.6)'
-    },
-    '.cm-lineNumbers .cm-gutterElement': {
-      padding: '0 8px 0 12px'
-    },
-    '.cm-activeLine': {
-      background: 'rgba(180, 74, 47, 0.08)'
-    },
-    '.cm-activeLineGutter': {
-      background: 'transparent'
-    },
-    '.cm-selectionBackground': {
-      background: 'rgba(180, 74, 47, 0.18)'
-    }
-  },
-  { dark: false }
-);
-
 function findLineOffset(text: string, line: number) {
   if (line <= 1) return 0;
   let offset = 0;
@@ -777,6 +393,12 @@ function replaceSelection(source: string, start: number, end: number, replacemen
 }
 
 export default function EditorPage() {
+  const { projectId = '' } = useParams<{ projectId: string }>();
+  return <ProjectEditorSession key={projectId} />;
+}
+
+// Project changes release editor history, tool results and in-flight UI state together.
+function ProjectEditorSession() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { projectId: routeProjectId, stage: researchStage } = useParams<{ projectId: string; stage?: string }>();
@@ -791,41 +413,25 @@ export default function EditorPage() {
   const [fileOrder, setFileOrder] = useState<Record<string, string[]>>({});
   const [activePath, setActivePath] = useState<string>('');
   const [files, setFiles] = useState<Record<string, string>>({});
-  const [editorValue, setEditorValue] = useState<string>('');
-  const [selectionRange, setSelectionRange] = useState<[number, number]>([0, 0]);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [inlineSuggestionText, setInlineSuggestionText] = useState('');
   const [suggestionPos, setSuggestionPos] = useState<{ left: number; top: number } | null>(null);
-  const [assistantMode, setAssistantMode] = useState<'chat' | 'agent'>('agent');
-  const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  const [constraintRefreshToken, setConstraintRefreshToken] = useState(0);
-  const [agentMessages, setAgentMessages] = useState<Message[]>([]);
-  const [prompt, setPrompt] = useState('');
-  const [task, setTask] = useState(DEFAULT_TASKS(t)[0].value);
-  const [mode, setMode] = useState<'direct' | 'tools'>('direct');
-  const [translateScope, setTranslateScope] = useState<'selection' | 'file' | 'project'>('selection');
-  const [translateTarget, setTranslateTarget] = useState('English');
-  const [taskDropdownOpen, setTaskDropdownOpen] = useState(false);
-  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
-  const [translateScopeDropdownOpen, setTranslateScopeDropdownOpen] = useState(false);
-  const [translateTargetDropdownOpen, setTranslateTargetDropdownOpen] = useState(false);
+  const assistant = useAssistantRun(projectId);
+  const changeReview = useChangeReview(projectId, assistant.runs, assistant.remember);
+  const drafts = useDocumentDrafts(projectId);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const openFileSequenceRef = useRef(0);
   const [rightViewDropdownOpen, setRightViewDropdownOpen] = useState(false);
   const [mainFileDropdownOpen, setMainFileDropdownOpen] = useState(false);
   const [engineDropdownOpen, setEngineDropdownOpen] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const [topBarDropdownRect, setTopBarDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [visionModeDropdownOpen, setVisionModeDropdownOpen] = useState(false);
-  const [bibTargetDropdownOpen, setBibTargetDropdownOpen] = useState(false);
-  const [citeTargetDropdownOpen, setCiteTargetDropdownOpen] = useState(false);
   const [wsBibDropdownOpen, setWsBibDropdownOpen] = useState(false);
   const [wsTexDropdownOpen, setWsTexDropdownOpen] = useState(false);
-  const [plotTypeDropdownOpen, setPlotTypeDropdownOpen] = useState(false);
   const [figureDropdownOpen, setFigureDropdownOpen] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
-  const [compileLog, setCompileLog] = useState('');
-  const [compiledSources, setCompiledSources] = useState<Record<string, string>>({});
-  const [compiledMainFile, setCompiledMainFile] = useState('main.tex');
-  const [pdfUrl, setPdfUrl] = useState('');
+  const pendingChanges = changeReview.pending;
+  const { compile: compileDocument, abandonWait, waitingAbandoned, compileLog, compiledSources, compiledMainFile, inputSnapshot, diagnosticsVerified, pdfUrl, engineName, isCompiling, compileErrors } = useCompilation(projectId);
   const [pdfScale, setPdfScale] = useState(1);
   const [pdfFitWidth, setPdfFitWidth] = useState(true);
   const [pdfFitScale, setPdfFitScale] = useState<number | null>(null);
@@ -833,8 +439,6 @@ export default function EditorPage() {
   const [pdfOutline, setPdfOutline] = useState<{ title: string; page?: number; level: number }[]>([]);
   const [pdfAnnotations, setPdfAnnotations] = useState<{ id: string; page: number; x: number; y: number; text: string }[]>([]);
   const [pdfAnnotateMode, setPdfAnnotateMode] = useState(false);
-  const [engineName, setEngineName] = useState<string>('');
-  const [isCompiling, setIsCompiling] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
@@ -908,25 +512,19 @@ export default function EditorPage() {
   const [reviewNotes, setReviewNotes] = useState<{ title: string; content: string }[]>([]);
   const [reviewReport, setReviewReport] = useState('');
   const [reviewReportBusy, setReviewReportBusy] = useState(false);
-  const [diagnoseBusy, setDiagnoseBusy] = useState(false);
+  const diagnoseBusy = assistant.busy;
   const [websearchSelectedAll, setWebsearchSelectedAll] = useState(false);
   const [collabEnabled, setCollabEnabled] = useState(() => Boolean(getCollabToken()));
-  const [collabStatus, setCollabStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [collabInviteBusy, setCollabInviteBusy] = useState(false);
   const [collabInviteLink, setCollabInviteLink] = useState('');
   const [collabServer, setCollabServerState] = useState(() => getCollabServer() || (typeof window === 'undefined' ? '' : window.location.origin));
   const [collabName, setCollabName] = useState(() => loadCollabName() || 'Guest');
   const [collabToken] = useState(() => getCollabToken());
-  const [collabPeers, setCollabPeers] = useState<{ id: number; name: string; color: string }[]>([]);
-  const editorHostRef = useRef<HTMLDivElement | null>(null);
   const editorAreaRef = useRef<HTMLDivElement | null>(null);
-  const cmViewRef = useRef<EditorView | null>(null);
   const activePathRef = useRef<string>('');
   const inlineSuggestionRef = useRef<string>('');
   const inlineAnchorRef = useRef<number | null>(null);
   const applyingSuggestionRef = useRef(false);
-  const suppressDirtyRef = useRef(false);
-  const typewriterTimerRef = useRef<number | null>(null);
   const requestSuggestionRef = useRef<() => void>(() => {});
   const acceptSuggestionRef = useRef<() => void>(() => {});
   const acceptChunkRef = useRef<() => void>(() => {});
@@ -939,10 +537,6 @@ export default function EditorPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
-  const collabProviderRef = useRef<CollabProvider | null>(null);
-  const collabDocRef = useRef<{ doc: Y.Doc; text: Y.Text; awareness: Awareness } | null>(null);
-  const collabActiveRef = useRef(false);
-  const collabColorRef = useRef<string>(pickCollabColor(collabName));
   const collabCompartment = useMemo(() => new Compartment(), []);
   const handleResearchStateChange = useCallback((next: ResearchWorkspaceState) => {
     setResearchWorkspaceState(next);
@@ -980,22 +574,7 @@ export default function EditorPage() {
     }
   }, [collabServer]);
 
-  useEffect(() => {
-    persistCollabName(collabName);
-    collabColorRef.current = pickCollabColor(collabName);
-    if (collabDocRef.current) {
-      collabDocRef.current.awareness.setLocalStateField('user', {
-        name: collabName,
-        color: collabColorRef.current
-      });
-    }
-  }, [collabName]);
-
-  useEffect(() => {
-    if (!collabEnabled) {
-      collabActiveRef.current = false;
-    }
-  }, [collabEnabled]);
+  useEffect(() => { persistCollabName(collabName); }, [collabName]);
 
   const llmConfig = useMemo(
     () => ({
@@ -1047,93 +626,6 @@ export default function EditorPage() {
     activePathRef.current = activePath;
   }, [activePath]);
 
-  useEffect(() => {
-    const view = cmViewRef.current;
-    if (!view) return;
-    if (!collabEnabled || !projectId || !activePath) {
-      collabActiveRef.current = false;
-      if (collabProviderRef.current) {
-        collabProviderRef.current.disconnect();
-        collabProviderRef.current = null;
-      }
-      collabDocRef.current = null;
-      view.dispatch({ effects: collabCompartment.reconfigure([]) });
-      setCollabStatus('disconnected');
-      setCollabPeers([]);
-      return;
-    }
-    if (!isTextPath(activePath)) {
-      collabActiveRef.current = false;
-      if (collabProviderRef.current) {
-        collabProviderRef.current.disconnect();
-        collabProviderRef.current = null;
-      }
-      collabDocRef.current = null;
-      view.dispatch({ effects: collabCompartment.reconfigure([]) });
-      setCollabStatus('disconnected');
-      setCollabPeers([]);
-      setStatus(t('协作暂不支持该文件类型。'));
-      return;
-    }
-    const currentDoc = view.state.doc.toString();
-    if (currentDoc.length > 0) {
-      suppressDirtyRef.current = true;
-      view.dispatch({ changes: { from: 0, to: currentDoc.length, insert: '' } });
-    }
-    setEditorValue('');
-    setIsDirty(false);
-
-    const ydoc = new Y.Doc();
-    const ytext = ydoc.getText('content');
-    const awareness = new Awareness(ydoc);
-    awareness.setLocalStateField('user', {
-      name: collabName,
-      color: collabColorRef.current
-    });
-    const provider = new CollabProvider({
-      serverUrl: normalizeServerUrl(collabServer) || (typeof window === 'undefined' ? '' : window.location.origin),
-      token: collabToken || undefined,
-      projectId,
-      filePath: activePath,
-      doc: ydoc,
-      awareness,
-      onStatus: setCollabStatus,
-      onError: (error) => setStatus(t('协作连接失败: {{error}}', { error }))
-    });
-    collabProviderRef.current = provider;
-    collabDocRef.current = { doc: ydoc, text: ytext, awareness };
-    view.dispatch({ effects: collabCompartment.reconfigure(yCollab(ytext, awareness)) });
-    collabActiveRef.current = true;
-    provider.connect();
-
-    const updatePeers = () => {
-      const peers: { id: number; name: string; color: string }[] = [];
-      awareness.getStates().forEach((state, id) => {
-        const user = (state as { user?: { name?: string; color?: string } }).user;
-        if (!user) return;
-        peers.push({
-          id,
-          name: user.name || `User-${id}`,
-          color: user.color || '#b44a2f'
-        });
-      });
-      setCollabPeers(peers);
-    };
-    awareness.on('update', updatePeers);
-    updatePeers();
-
-    return () => {
-      collabActiveRef.current = false;
-      awareness.off('update', updatePeers);
-      provider.disconnect();
-      collabProviderRef.current = null;
-      collabDocRef.current = null;
-      ydoc.destroy();
-      view.dispatch({ effects: collabCompartment.reconfigure([]) });
-      setCollabPeers([]);
-    };
-  }, [activePath, collabCompartment, collabEnabled, collabName, collabServer, collabToken, projectId, t]);
-
   const handleCreateInvite = useCallback(async () => {
     if (!projectId) return;
     setCollabInviteBusy(true);
@@ -1175,10 +667,12 @@ export default function EditorPage() {
     setFileOrder(res.fileOrder || {});
     if (!keepActive || !activePath || !visibleItems.find((item) => item.path === activePath)) {
       const requested = searchParams.get('open');
-      const requestedPath = requested && visibleItems.some((item) => item.type === 'file' && item.path === requested) ? requested : '';
+      const filePaths = visibleItems.filter((item) => item.type === 'file').map((item) => item.path);
+      const requestedPath = requested && filePaths.includes(requested) ? requested : '';
+      const restoredPath = restoredEditorFile(projectId, filePaths);
       const main = visibleItems.find((item) => item.path.endsWith('main.tex'))?.path;
       const firstTex = visibleItems.find((item) => item.type === 'file' && item.path.toLowerCase().endsWith('.tex'))?.path;
-      const next = requestedPath || main || firstTex || visibleItems.find((item) => item.type === 'file')?.path || '';
+      const next = requestedPath || restoredPath || main || firstTex || filePaths[0] || '';
       if (next) {
         await openFile(next);
       }
@@ -1189,55 +683,15 @@ export default function EditorPage() {
     if (!projectId) return;
     setFiles({});
     setActivePath('');
-    setCompileLog('');
-    setCompiledSources({});
     refreshTree(false).catch((err) => setStatus(t('加载文件树失败: {{error}}', { error: String(err) })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, t]);
 
 
-  useEffect(() => {
-    if (!editorHostRef.current || cmViewRef.current) return;
-
-    const updateListener = EditorView.updateListener.of((update) => {
-      const skipClear = applyingSuggestionRef.current;
-      if (update.docChanged) {
-        const value = update.state.doc.toString();
-        const programmatic = suppressDirtyRef.current;
-        setEditorValue(value);
-        if (!programmatic && !collabActiveRef.current) {
-          setIsDirty(true);
-        } else {
-          suppressDirtyRef.current = false;
-        }
-        const path = activePathRef.current;
-        if (path && (!programmatic || collabActiveRef.current)) {
-          setFiles((prev) => ({ ...prev, [path]: value }));
-        }
-      }
-      if (update.selectionSet) {
-        const sel = update.state.selection.main;
-        setSelectionRange([sel.from, sel.to]);
-        const heading = findNearestHeading(update.state.doc.toString(), sel.head);
-        setCurrentHeading(heading);
-      }
-      if (!skipClear && inlineSuggestionRef.current && (update.docChanged || update.selectionSet)) {
-        inlineSuggestionRef.current = '';
-        inlineAnchorRef.current = null;
-        setInlineSuggestionText('');
-        setTimeout(() => {
-          const view = cmViewRef.current;
-          if (view) {
-            view.dispatch({ effects: setGhostEffect.of({ pos: null, text: '' }) });
-          }
-        }, 0);
-      }
-      if (skipClear) {
-        applyingSuggestionRef.current = false;
-      }
-    });
-
-    const keymapExtension = keymap.of([
+  const { hostRef: editorHostRef, viewRef: cmViewRef, value: editorValue,
+    setValue: setEditorValue, selection: selectionRange, replaceDocument: setEditorDoc,
+    } = useEditorSession({
+    extensions: () => [...editorExtensions(collabCompartment.of([])), keymap.of([
       {
         key: 'Mod-s',
         run: () => {
@@ -1291,53 +745,56 @@ export default function EditorPage() {
       },
       ...foldKeymap,
       ...searchKeymap
-    ]);
-
-    const state = EditorState.create({
-      doc: '',
-      extensions: [
-        basicSetup,
-        lintGutter(),
-        latex(),
-        envDepthField,
-        scopeGutter,
-        indentOnInput(),
-        foldService.of(latexFoldService),
-        EditorView.lineWrapping,
-        editorTheme,
-        collabCompartment.of([]),
-        ghostField,
-        search(),
-        autocompletion({ override: [latexCompletionSource] }),
-        updateListener,
-        keymapExtension
-      ]
-    });
-
-    const view = new EditorView({
-      state,
-      parent: editorHostRef.current
-    });
-    cmViewRef.current = view;
-
-    const handleAltSlash = (event: KeyboardEvent) => {
-      if (!event.altKey) return;
-      if (event.key === '/' || event.key === '÷' || event.code === 'Slash') {
-        event.preventDefault();
-        event.stopPropagation();
-        requestSuggestionRef.current();
+    ])],
+    onChange: (value, programmatic) => {
+      if (!programmatic && !collabActiveRef.current) setIsDirty(true);
+      const path = activePathRef.current;
+      if (path && (!programmatic || collabActiveRef.current)) {
+        draftsRef.current.changed(path, value);
+        setFiles((prev) => ({ ...prev, [path]: value }));
       }
-    };
-    view.dom.addEventListener('keydown', handleAltSlash, true);
+    },
+    onSelection: (value, head) => setCurrentHeading(findNearestHeading(value, head)),
+    onCompletion: () => requestSuggestionRef.current(),
+    onUpdate: (update) => {
+      const skipClear = applyingSuggestionRef.current;
+      if (!skipClear && inlineSuggestionRef.current && (update.docChanged || update.selectionSet)) {
+        inlineSuggestionRef.current = '';
+        inlineAnchorRef.current = null;
+        setInlineSuggestionText('');
+        setTimeout(() => {
+          const view = cmViewRef.current;
+          if (view) {
+            view.dispatch({ effects: setGhostEffect.of({ pos: null, text: '' }) });
+          }
+        }, 0);
+      }
+      if (skipClear) {
+        applyingSuggestionRef.current = false;
+      }
 
-    return () => {
-      view.dom.removeEventListener('keydown', handleAltSlash, true);
-      view.destroy();
-      cmViewRef.current = null;
-    };
-  }, []);
+    }
+  });
+
+  const { activeRef: collabActiveRef, status: collabStatus, peers: collabPeers,
+    flush: flushCollaboration, replace: replaceCollaborativeDocument } = useCollaborationSession({
+    projectId, path: activePath, enabled: collabEnabled, supported: isTextPath(activePath),
+    server: collabServer, token: collabToken, name: collabName,
+    viewRef: cmViewRef, compartment: collabCompartment,
+    prepare: () => { setEditorDoc(''); setEditorValue(''); setIsDirty(false); },
+    onStatus: setStatus
+  });
 
   const openFile = async (filePath: string) => {
+    const request = ++openFileSequenceRef.current;
+    let draft = drafts.get(filePath);
+    if (!draft) {
+      const data = await getFile(projectId, filePath);
+      if (request !== openFileSequenceRef.current || draftsRef.current !== drafts) return '';
+      drafts.loaded(filePath, data.content, data.version);
+      draft = drafts.get(filePath)!;
+    }
+    rememberEditorFile(projectId, filePath);
     setActivePath(filePath);
     activePathRef.current = filePath;
     setSelectedPath(filePath);
@@ -1353,37 +810,14 @@ export default function EditorPage() {
         return next;
       });
     }
-    if (Object.prototype.hasOwnProperty.call(files, filePath)) {
-      const cached = files[filePath] ?? '';
-      const collabTextFile = collabEnabled && isTextPath(filePath);
-      setEditorValue(collabTextFile ? '' : cached);
-      setIsDirty(false);
-      if (!collabTextFile) {
-        setEditorDoc(cached);
-      }
-      return cached;
-    }
-    const data = await getFile(projectId, filePath);
-    setFiles((prev) => ({ ...prev, [filePath]: data.content }));
+    const content = draft.content;
+    setFiles((prev) => ({ ...prev, [filePath]: content }));
     const collabTextFile = collabEnabled && isTextPath(filePath);
-    setEditorValue(collabTextFile ? '' : data.content);
-    setIsDirty(false);
-    if (!collabTextFile) {
-      setEditorDoc(data.content);
-    }
-    return data.content;
+    setEditorValue(collabTextFile ? '' : content);
+    setIsDirty(draft.content !== draft.saved);
+    if (!collabTextFile) setEditorDoc(content);
+    return content;
   };
-
-  const setEditorDoc = useCallback((value: string) => {
-    const view = cmViewRef.current;
-    if (!view) return;
-    const current = view.state.doc.toString();
-    if (current === value) return;
-    suppressDirtyRef.current = true;
-    view.dispatch({
-      changes: { from: 0, to: current.length, insert: value }
-    });
-  }, []);
 
   const clearInlineSuggestion = useCallback(() => {
     inlineSuggestionRef.current = '';
@@ -1548,56 +982,40 @@ export default function EditorPage() {
   }, [requestInlineSuggestion, acceptInlineSuggestion, acceptSuggestionChunk, clearInlineSuggestion]);
 
   const saveActiveFile = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (!activePath) return;
-      if (collabActiveRef.current) {
-        setIsSaving(true);
-        try {
-          await flushCollabFile(projectId, activePath);
-          setSavePulse(true);
-          window.setTimeout(() => setSavePulse(false), 1200);
-          if (!opts?.silent) {
-            setStatus(t('协作已同步 {{path}}', { path: activePath }));
-          }
-        } catch (err) {
-          setStatus(t('协作同步失败: {{error}}', { error: String(err) }));
-        } finally {
-          setIsSaving(false);
-        }
-        return;
-      }
+    async (opts?: { silent?: boolean; throwOnError?: boolean }) => {
       setIsSaving(true);
       try {
-        await writeFile(projectId, activePath, editorValue);
-        setIsDirty(false);
+        const stored = await flushCollaboration();
+        if (stored) drafts.loaded(activePath, stored.content, stored.version);
+        await drafts.save();
+        const draft = drafts.get(activePath);
+        if (activePathRef.current === activePath) setIsDirty(Boolean(draft && draft.content !== draft.saved));
         setSavePulse(true);
         window.setTimeout(() => setSavePulse(false), 1200);
-        if (!opts?.silent) {
-          setStatus(t('已保存 {{path}}', { path: activePath }));
-        }
+        if (!opts?.silent) setStatus(t('已保存 {{path}}', { path: activePath }));
       } catch (err) {
         setStatus(t('保存失败: {{error}}', { error: String(err) }));
-      } finally {
-        setIsSaving(false);
-      }
+        if (opts?.throwOnError) throw err;
+      } finally { setIsSaving(false); }
     },
-    [activePath, editorValue, projectId, t]
+    [activePath, flushCollaboration, drafts, t]
   );
 
   const writeFileCompat = useCallback(
     async (path: string, content: string) => {
-      if (collabActiveRef.current && collabDocRef.current && path === activePath) {
-        const { doc, text } = collabDocRef.current;
-        doc.transact(() => {
-          text.delete(0, text.length);
-          text.insert(0, content);
-        });
+      if (replaceCollaborativeDocument(path, content)) {
         setIsDirty(false);
         return { ok: true };
       }
-      return writeFile(projectId, path, content);
+      return drafts.exclusive(async () => {
+        const draft = drafts.get(path);
+        const result = await writeFile(projectId, path, content, draft?.version);
+        if (!result.ok) throw new Error(t('保存失败: {{error}}', { error: path }));
+        drafts.persisted(path, content, result.version, draft?.content);
+        return result;
+      });
     },
-    [activePath, projectId]
+    [replaceCollaborativeDocument, drafts, projectId, t]
   );
 
   useEffect(() => {
@@ -1709,14 +1127,17 @@ export default function EditorPage() {
 
   const ensureFileContent = useCallback(
     async (path: string) => {
-      if (Object.prototype.hasOwnProperty.call(files, path)) {
-        return files[path] ?? '';
-      }
+      const draft = drafts.get(path);
+      if (draft) return draft.content;
       const data = await getFile(projectId, path);
-      setFiles((prev) => ({ ...prev, [path]: data.content }));
-      return data.content;
+      if (draftsRef.current === drafts) {
+        // Another reader may have opened and edited this file during the fetch.
+        if (!drafts.get(path)) drafts.loaded(path, data.content, data.version);
+        setFiles((prev) => ({ ...prev, [path]: drafts.get(path)!.content }));
+      }
+      return drafts.get(path)?.content ?? data.content;
     },
-    [files, projectId]
+    [drafts, projectId]
   );
 
   const buildProjectContext = useCallback(async () => {
@@ -1928,34 +1349,11 @@ export default function EditorPage() {
           citePayload.length > 0 ? t('Papers: {{payload}}', { payload: JSON.stringify(citePayload) }) : ''
         ].filter(Boolean).join(' ');
         try {
-          const targetContent = await ensureFileContent(targetFile);
-          const res = await runAgent({
-            task: 'insert_citations',
-            prompt,
-            selection: '',
-            content: targetContent || '',
-            mode: 'tools',
-            projectId,
-            activePath: targetFile,
-            compileLog,
-            llmConfig: searchLlmConfig,
-            interaction: 'agent',
-            history: []
-          });
-          if (res.patches && res.patches.length > 0) {
-            const nextPending = res.patches.map((patch) => ({
-              filePath: patch.path,
-              original: files[patch.path] ?? '',
-              proposed: patch.content,
-              diff: patch.diff,
-              deleted: patch.deleted
-            }));
-            setPendingChanges(nextPending);
-            setRightView('diff');
-            setArxivStatus(t('已生成引用插入建议，请在 Diff 面板应用。'));
-          } else {
-            setArxivStatus(t('未生成可应用的引用修改。'));
-          }
+          await ensureFileContent(targetFile);
+          const started = await assistant.start({ task: 'insert_citations', prompt, permission: 'edit',
+            activePath: targetFile, llmConfig: searchLlmConfig, history: assistant.history }, prepareAssistantDocuments);
+          if (started) { setActiveSidebar('agent'); setSidebarOpen(true); }
+          setArxivStatus(started ? t('引用任务已启动，请在助手中查看和审阅。') : t('引用任务未启动，请查看助手提示。'));
         } catch (err) {
           setArxivStatus(t('引用插入失败: {{error}}', { error: String(err) }));
         }
@@ -2339,6 +1737,8 @@ export default function EditorPage() {
     try {
       const result = await deleteFile(projectId, target);
       if (result.ok) {
+        drafts.forget(target);
+        setFiles((previous) => Object.fromEntries(Object.entries(previous).filter(([path]) => path !== target && !path.startsWith(`${target}/`))));
         // If deleted file was the active file, clear it
         if (target === activePath) {
           setActivePath('');
@@ -2368,7 +1768,10 @@ export default function EditorPage() {
       const to = parent ? `${parent}/${value}` : value;
       const entry = tree.find((item) => item.path === from);
       const fromName = from.split('/').pop() || '';
-      await renamePath(projectId, from, to);
+      await drafts.exclusive(async () => {
+        await renamePath(projectId, from, to);
+        drafts.rename(from, to);
+      });
       if (activePath === from) {
         setActivePath(to);
         activePathRef.current = to;
@@ -2415,7 +1818,10 @@ export default function EditorPage() {
     if (!fileName) return;
     const target = folderPath ? `${folderPath}/${fileName}` : fileName;
     if (target === fromPath) return;
-    await renamePath(projectId, fromPath, target);
+    await drafts.exclusive(async () => {
+      await renamePath(projectId, fromPath, target);
+      drafts.rename(fromPath, target);
+    });
     if (activePath === fromPath) {
       setActivePath(target);
       activePathRef.current = target;
@@ -2670,16 +2076,24 @@ export default function EditorPage() {
     const view = cmViewRef.current;
     const targetFile = error.file
       ? resolveCompileFile(error.file, tree.filter((item) => item.type === 'file').map((item) => item.path))
-      : activePath;
-    if (!targetFile) return;
+      : undefined;
+    if (!targetFile || !error.line || !Number.isSafeInteger(error.line) || error.line < 1) return;
+    if (!Object.prototype.hasOwnProperty.call(compiledSources, targetFile)) {
+      setStatus(t('无法核对错误对应的源码，请重新编译后定位。'));
+      return;
+    }
     let content = '';
     try {
       content = targetFile === activePath ? editorValue : await openFile(targetFile);
     } catch {
       return;
     }
-    if (!content || !view) return;
-    if (error.line) {
+    if (draftsRef.current !== drafts || activePathRef.current !== targetFile || cmViewRef.current !== view) return;
+    if (!view || content !== compiledSources[targetFile] || view.state.doc.toString() !== content) {
+      setStatus(t('源码已变化或尚未加载，请重新编译后定位。'));
+      return;
+    }
+    if (error.line <= view.state.doc.lines) {
       const offset = findLineOffset(content, error.line);
       view.dispatch({
         selection: { anchor: offset, head: offset },
@@ -2857,80 +2271,11 @@ export default function EditorPage() {
       );
     });
 
-  const compile = async () => {
-    if (!projectId) return;
-    setIsCompiling(true);
-    setStatus(t('编译中...'));
-    setCompileLog('');
-    setCompiledSources({});
-    setCompiledMainFile(mainFile);
-    try {
-      // The backend compiles files on disk; wait for the latest editor content.
-      if (activePath) {
-        if (collabActiveRef.current) await flushCollabFile(projectId, activePath);
-        else await writeFile(projectId, activePath, editorValue);
-        if (activePathRef.current === activePath && cmViewRef.current?.state.doc.toString() === editorValue) {
-          setIsDirty(false);
-        }
-      }
-      const { files: serverFiles } = await getAllFiles(projectId);
-      const fileMap: Record<string, string | Uint8Array> = {};
-      const sources: Record<string, string> = {};
-      for (const file of serverFiles) {
-        if (file.encoding === 'base64') {
-          const binary = Uint8Array.from(atob(file.content), (c) => c.charCodeAt(0));
-          fileMap[file.path] = binary;
-        } else {
-          fileMap[file.path] = file.content;
-          sources[file.path] = file.content;
-        }
-      }
-      if (activePath) {
-        fileMap[activePath] = editorValue;
-      }
-      if (!fileMap[mainFile]) {
-        throw new Error(t('主文件不存在: {{file}}', { file: mainFile }));
-      }
-      setCompiledSources(sources);
-      const res = await compileProject({ projectId, mainFile, engine: compileEngine });
-      if (!res.ok || !res.pdf) {
-        const detail = [res.error, res.log].filter(Boolean).join('\n');
-        throw new Error(detail || t('后端编译失败'));
-      }
-      const result: CompileOutcome = {
-        pdf: Uint8Array.from(atob(res.pdf), (c) => c.charCodeAt(0)),
-        log: res.log || '',
-        status: res.status ?? 0,
-        engine: compileEngine
-      };
-
-      const meta = [
-        t('Engine: {{engine}}', { engine: compileEngine }),
-        t('Main file: {{file}}', { file: mainFile })
-      ].filter(Boolean).join('\n');
-      setEngineName(compileEngine);
-      setCompileLog(`${meta}\n\n${result.log || t('No log')}`.trim());
-
-      const pdfBytes = new Uint8Array(result.pdf.byteLength);
-      pdfBytes.set(result.pdf);
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const nextUrl = URL.createObjectURL(blob);
-      if (pdfUrl) {
-        URL.revokeObjectURL(pdfUrl);
-      }
-      setPdfUrl(nextUrl);
-      setRightView('pdf');
-      setStatus(t('编译完成 ({{engine}})', { engine: result.engine }));
-    } catch (err) {
-      console.error('Compilation error:', err);
-      const detail = String(err);
-      setCompileLog(t('编译错误: {{error}}', { error: detail }));
-      setRightView('log');
-      setStatus(t('编译失败: {{error}}', { error: detail.split('\n')[0] }));
-    } finally {
-      setIsCompiling(false);
-    }
-  };
+  const compile = () => compileDocument({
+    mainFile, engine: compileEngine, activePath, editorValue,
+    save: () => saveActiveFile({ silent: true, throwOnError: true }),
+    onStatus: setStatus, onView: setRightView
+  });
 
   const selectionText = useMemo(() => {
     const [start, end] = selectionRange;
@@ -2938,11 +2283,10 @@ export default function EditorPage() {
     return editorValue.slice(start, end);
   }, [selectionRange, editorValue]);
 
-  const compileErrors = useMemo(() => parseCompileErrors(compileLog, compiledMainFile), [compileLog, compiledMainFile]);
   useEffect(() => {
     const view = cmViewRef.current;
     if (!view) return;
-    const currentErrors = compiledSources[activePath] === editorValue
+    const currentErrors = Object.prototype.hasOwnProperty.call(compiledSources, activePath) && compiledSources[activePath] === editorValue
       ? compileErrors.map((error) => ({
         ...error,
         file: error.file ? resolveCompileFile(error.file, Object.keys(compiledSources)) : undefined
@@ -2950,13 +2294,7 @@ export default function EditorPage() {
       : [];
     view.dispatch(setDiagnostics(view.state, compileDiagnostics(currentErrors, activePath, editorValue)));
   }, [compileErrors, compiledSources, activePath, editorValue]);
-  const pendingGrouped = useMemo(() => {
-    const map = new Map<string, PendingChange>();
-    pendingChanges.forEach((item) => {
-      map.set(item.filePath, item);
-    });
-    return Array.from(map.values());
-  }, [pendingChanges]);
+  const pendingGrouped = pendingChanges;
 
   const figureFiles = useMemo(
     () =>
@@ -3039,239 +2377,82 @@ export default function EditorPage() {
     setPdfFitScale((prev) => (prev && Math.abs(prev - value) < 0.005 ? prev : value));
   }, []);
 
-  const startTypewriter = useCallback((setHistory: Dispatch<SetStateAction<Message[]>>, text: string) => {
-    if (typewriterTimerRef.current) {
-      window.clearTimeout(typewriterTimerRef.current);
-      typewriterTimerRef.current = null;
-    }
-    if (!text) {
-      setHistory((prev) => {
-        if (prev.length === 0) return prev;
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last.role === 'assistant') {
-          next[next.length - 1] = { ...last, content: '' };
-        }
-        return next;
-      });
-      return;
-    }
-    let idx = 0;
-    const step = () => {
-      idx = Math.min(text.length, idx + 2);
-      const slice = text.slice(0, idx);
-      setHistory((prev) => {
-        if (prev.length === 0) return prev;
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last.role !== 'assistant') return prev;
-        next[next.length - 1] = { ...last, content: slice };
-        return next;
-      });
-      if (idx < text.length) {
-        typewriterTimerRef.current = window.setTimeout(step, 16);
-      }
-    };
-    step();
-  }, []);
+  const prepareAssistantDocuments = async () => {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    await saveActiveFile({ silent: true, throwOnError: true });
+    return drafts.versions();
+  };
 
-  useEffect(() => {
-    return () => {
-      if (typewriterTimerRef.current) {
-        window.clearTimeout(typewriterTimerRef.current);
-      }
-    };
-  }, []);
+  const sendAssistant = async (intent: AssistantIntent) => {
+    const accepted = await assistant.start({
+      ...intent, activePath, compileLog, llmConfig, history: assistant.history
+    }, prepareAssistantDocuments);
+    if (accepted) { setActiveSidebar('agent'); setSidebarOpen(true); }
+    return accepted;
+  };
 
-  const sendPrompt = async () => {
-    const isChat = assistantMode === 'chat';
-    if (!activePath && !isChat) return;
-    if (isChat === false && task === 'translate') {
-      if (translateScope === 'selection' && !selectionText) {
-        setStatus(t('请选择要翻译的文本。'));
-        return;
-      }
-    }
-    const userMsg: Message = { role: 'user', content: prompt || t('(empty)') };
-    const setHistory = isChat ? setChatMessages : setAgentMessages;
-    const history = isChat ? chatMessages : agentMessages;
-    const nextHistory = [...history, userMsg];
-    setHistory(nextHistory);
-    try {
-      let effectivePrompt = prompt;
-      let effectiveSelection = selectionText;
-      let effectiveContent = editorValue;
-      let effectiveMode = mode;
-      let effectiveTask = task;
-
-      if (!isChat && task === 'translate') {
-        const note = prompt ? `\n${t('User note')}: ${prompt}` : '';
-        if (translateScope === 'project') {
-          effectiveMode = 'tools';
-          effectiveSelection = '';
-          effectiveContent = '';
-          effectivePrompt = t('Translate all .tex files in the project to {{target}}. Preserve LaTeX commands and structure.{{note}}', { target: translateTarget, note });
-        } else if (translateScope === 'file') {
-          effectiveSelection = '';
-          effectivePrompt = t('Translate the current file to {{target}}. Preserve LaTeX commands and structure.{{note}}', { target: translateTarget, note });
-        } else {
-          effectivePrompt = t('Translate the selected text to {{target}}. Preserve LaTeX commands and structure.{{note}}', { target: translateTarget, note });
-        }
-        effectiveTask = 'translate';
-      }
-
-      if (!isChat && task === 'websearch') {
-        effectiveMode = 'tools';
-        effectiveSelection = '';
-        effectiveContent = '';
-        effectivePrompt = prompt
-          ? t('Search arXiv and return 3-5 relevant papers with BibTeX entries. User query: {{query}}', { query: prompt })
-          : t('Search arXiv and return 3-5 relevant papers with BibTeX entries.');
-        effectiveTask = 'websearch';
-      }
-
-      if (!isChat && effectiveTask !== 'websearch') {
-        const context = await buildProjectContext();
-        if (context) {
-          effectivePrompt = `${effectivePrompt}\n\n[Project Context]\n${context}`;
-        }
-      }
-
-      const effectiveLlmConfig = !isChat && effectiveTask === 'websearch' ? searchLlmConfig : llmConfig;
-      const res = await runAgent({
-        task: effectiveTask,
-        prompt: effectivePrompt,
-        selection: effectiveSelection,
-        content: effectiveContent,
-        mode: isChat ? 'direct' : effectiveMode,
-        projectId,
-        activePath,
-        compileLog,
-        llmConfig: effectiveLlmConfig,
-        interaction: isChat ? 'chat' : 'agent',
-        history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
-      });
-      const replyText = `${res.reply || t('已生成建议。')}${isChat && res.constraintProposalError ? `\n\n约束提案未创建：${res.constraintProposalError.message}` : ''}`;
-      if (isChat && res.constraintProposal) setConstraintRefreshToken((value) => value + 1);
-      setHistory((prev) => [...prev, { role: 'assistant', content: '' }]);
-      window.setTimeout(() => startTypewriter(setHistory, replyText), 0);
-
-      if (!isChat && res.patches && res.patches.length > 0) {
-        const nextPending = res.patches.map((patch) => ({
-          filePath: patch.path,
-          original: files[patch.path] ?? '',
-          proposed: patch.content,
-          diff: patch.diff,
-          deleted: patch.deleted
-        }));
-        setPendingChanges(nextPending);
-        setRightView('diff');
-      } else if (!isChat && res.suggestion) {
-        const proposed = selectionText
-          ? replaceSelection(editorValue, selectionRange[0], selectionRange[1], res.suggestion)
-          : res.suggestion;
-        const diff = createTwoFilesPatch(activePath, activePath, editorValue, proposed, 'current', 'suggested');
-        setPendingChanges([{ filePath: activePath, original: editorValue, proposed, diff }]);
-        setRightView('diff');
-      }
-    } catch (err) {
-      setHistory((prev) => [...prev, { role: 'assistant', content: t('请求失败: {{error}}', { error: String(err) }) }]);
-    }
+  const retryAssistant = async (run: HarnessRun) => {
+    const request = run.request;
+    if (!request) return;
+    await assistant.start({
+      task: request.task || run.task, prompt: request.prompt || '',
+      permission: request.permission || 'edit', activePath: request.activePath,
+      selection: '', compileLog: run.task === 'debug_compile' ? compileLog : request.compileLog,
+      history: request.history, skillNames: request.skillNames, llmConfig
+    }, prepareAssistantDocuments);
   };
 
   const diagnoseCompile = async () => {
-    if (!compileLog) {
-      setStatus(t('暂无编译日志可诊断。'));
-      return;
-    }
-    if (!activePath) return;
-    setDiagnoseBusy(true);
-    const userMsg: Message = { role: 'user', content: t('诊断并修复编译错误') };
-    const nextHistory = [...agentMessages, userMsg];
-    setAgentMessages(nextHistory);
-    try {
-      const res = await runAgent({
-        task: 'debug_compile',
-        prompt: t('基于编译日志诊断并修复错误，给出可应用的 diff。'),
-        selection: compileLog,
-        content: editorValue,
-        mode: 'tools',
-        projectId,
-        activePath,
-        compileLog,
-        llmConfig,
-        interaction: 'agent',
-        history: nextHistory.filter((message): message is Message & { role: 'user' | 'assistant' } => message.role !== 'system').slice(-8)
-      });
-      const assistant: Message = {
-        role: 'assistant',
-        content: res.reply || t('已生成编译修复建议。')
-      };
-      setAgentMessages((prev) => [...prev, assistant]);
-      if (res.patches && res.patches.length > 0) {
-        const nextPending = res.patches.map((patch) => ({
-          filePath: patch.path,
-          original: files[patch.path] ?? '',
-          proposed: patch.content,
-          diff: patch.diff,
-          deleted: patch.deleted
-        }));
-        setPendingChanges(nextPending);
-        setRightView('diff');
+    if (!compileLog || !activePath) return;
+    await sendAssistant({ task: 'debug_compile', permission: 'edit',
+      prompt: t('基于编译日志诊断并修复错误，给出可审阅的修改。') });
+  };
+
+  const applyReviewedChanges = async (work: () => Promise<void>, changes: PendingChange[]) => {
+    await drafts.exclusive(async () => {
+      const before = new Map<string, string | undefined>();
+      for (const change of changes) {
+        const draft = drafts.get(change.filePath);
+        const live = change.filePath === activePathRef.current ? cmViewRef.current?.state.doc.toString() : draft?.content;
+        if (draft && live !== draft.saved) throw new Error(t('存在未保存的新内容，请先保存再审阅：{{path}}', { path: change.filePath }));
+        before.set(change.filePath, live);
       }
-    } catch (err) {
-      setAgentMessages((prev) => [...prev, { role: 'assistant', content: t('请求失败: {{error}}', { error: String(err) }) }]);
-    } finally {
-      setDiagnoseBusy(false);
-    }
+      try { await work(); }
+      finally {
+        for (const filePath of before.keys()) {
+          const currentContent = () => filePath === activePathRef.current ? cmViewRef.current?.state.doc.toString() : drafts.get(filePath)?.content;
+          if (currentContent() !== before.get(filePath)) continue;
+          const stored = await getFile(projectId, filePath).catch(() => null);
+          if (currentContent() !== before.get(filePath)) continue;
+          if (!stored) {
+            const { items } = await getProjectTree(projectId);
+            if (items.some((item) => item.path === filePath) || currentContent() !== before.get(filePath)) continue;
+            drafts.forget(filePath);
+            setFiles((previous) => { const next = { ...previous }; delete next[filePath]; return next; });
+            if (activePathRef.current === filePath) {
+              setActivePath(''); activePathRef.current = ''; setEditorValue(''); setEditorDoc('');
+            }
+          } else {
+            drafts.loaded(filePath, stored.content, stored.version);
+            setFiles((previous) => ({ ...previous, [filePath]: stored.content }));
+            if (activePathRef.current === filePath && !collabActiveRef.current) {
+              setEditorValue(stored.content); setEditorDoc(stored.content); setIsDirty(false);
+            }
+          }
+        }
+      }
+    });
+    await refreshTree();
   };
 
   const applyPending = async (change?: PendingChange) => {
-    const list = change ? [change] : pendingChanges;
-    for (const item of list) {
-      if (item.deleted) {
-        const result = await deleteFile(projectId, item.filePath);
-        if (!result.ok) throw new Error(result.error || `Failed to delete ${item.filePath}`);
-        setFiles((prev) => {
-          const next = { ...prev };
-          delete next[item.filePath];
-          return next;
-        });
-        if (activePath === item.filePath && !collabActiveRef.current) {
-          setActivePath('');
-          setEditorValue('');
-          setEditorDoc('');
-        }
-      } else {
-        await writeFileCompat(item.filePath, item.proposed);
-        setFiles((prev) => ({ ...prev, [item.filePath]: item.proposed }));
-        if (activePath === item.filePath && !collabActiveRef.current) {
-          setEditorDoc(item.proposed);
-        }
-      }
+    if (await changeReview.review(change ? [change] : pendingChanges, 'accept', applyReviewedChanges)) {
+      setDiffFocus(null); setStatus(t('已应用修改'));
     }
-    if (change) {
-      setPendingChanges((prev) => prev.filter((item) => item.filePath !== change.filePath));
-      if (diffFocus?.filePath === change.filePath) {
-        setDiffFocus(null);
-      }
-    } else {
-      setPendingChanges([]);
-      setDiffFocus(null);
-    }
-    setStatus(t('已应用修改'));
   };
 
-  const discardPending = (change?: PendingChange) => {
-    if (change) {
-      setPendingChanges((prev) => prev.filter((item) => item.filePath !== change.filePath));
-      if (diffFocus?.filePath === change.filePath) {
-        setDiffFocus(null);
-      }
-    } else {
-      setPendingChanges([]);
-      setDiffFocus(null);
-    }
+  const discardPending = async (change?: PendingChange) => {
+    if (await changeReview.review(change ? [change] : pendingChanges, 'reject', applyReviewedChanges)) setDiffFocus(null);
   };
 
   const startColumnDrag = useCallback(
@@ -3362,8 +2543,12 @@ export default function EditorPage() {
             </button>
           </div>
           <button onClick={() => void saveActiveFile()} className="icon-btn" title={t('保存')} aria-label={t('保存')}><Save size={17} /></button>
-          <button onClick={compile} className="editor-compile-button" disabled={isCompiling}>
-            <Play size={15} />{isCompiling ? t('编译中...') : t('编译')}
+          <button onClick={isCompiling ? () => {
+            abandonWait();
+            setRightView('log');
+            setStatus(t('已退出等待；服务端可能仍在运行，请到任务中心查看或取消。'));
+          } : compile} className="editor-compile-button" title={isCompiling ? t('只退出等待，不停止服务端编译；可到任务中心取消。') : t('编译')}>
+            {isCompiling ? <X size={15} /> : <Play size={15} />}{isCompiling ? t('退出等待') : t('编译')}
           </button>
           {researchMode && <button className={`icon-btn${researchContextOpen ? ' active' : ''}`} onClick={() => setResearchContextOpen((open) => !open)} title={t('研究上下文')} aria-label={t('研究上下文')}><PanelRight size={17} /></button>}
           <button className="icon-btn" onClick={() => setSettingsOpen(true)} title={t('设置')} aria-label={t('设置')}><SettingsIcon size={17} /></button>
@@ -3416,7 +2601,7 @@ export default function EditorPage() {
                   onClick={() => {
                     setActiveSidebar('research');
                     setSidebarOpen(true);
-                    if (!researchMode) navigate(`/editor/${projectId}/research/direction`);
+                    if (!researchMode) navigate(researchHref(projectId));
                   }}
                   title="研究流程"
                 >
@@ -3615,591 +2800,72 @@ export default function EditorPage() {
                 </div>
               </>
             ) : activeSidebar === 'collab' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('协作')}</div>
-                  <div className="panel-actions">
-                    <div className="collab-status">
-                      <span>{collabStatus === 'connected' ? t('已连接') : collabStatus === 'connecting' ? t('连接中...') : t('未连接')}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="collab-panel">
-                  <div className="collab-row">
-                    <input
-                      className="input"
-                      value={collabServer}
-                      onChange={(e) => setCollabServerState(e.target.value)}
-                      placeholder={t('协作服务器地址')}
-                    />
-                  </div>
-                  <div className="collab-row">
-                    <input
-                      className="input"
-                      value={collabName}
-                      onChange={(e) => setCollabName(e.target.value)}
-                      placeholder={t('显示名称')}
-                    />
-                    <button
-                      className="ios-btn secondary"
-                      onClick={() => setCollabEnabled((prev) => !prev)}
-                      disabled={!activePath || !isTextPath(activePath)}
-                    >
-                      {collabEnabled ? t('断开') : t('连接')}
-                    </button>
-                  </div>
-                  <div className="collab-row">
-                    <button
-                      className="ios-btn primary"
-                      onClick={() => handleCreateInvite()}
-                      disabled={collabInviteBusy || !projectId}
-                    >
-                      {collabInviteBusy ? t('生成中...') : t('生成邀请链接')}
-                    </button>
-                    <button
-                      className="ios-btn secondary"
-                      onClick={() => copyInviteLink()}
-                      disabled={!collabInviteLink}
-                    >
-                      {t('复制')}
-                    </button>
-                  </div>
-                  <div className="collab-row">
-                    <input
-                      className="input"
-                      readOnly
-                      value={collabInviteLink || ''}
-                      placeholder={t('尚未生成邀请链接')}
-                    />
-                  </div>
-                  <div className="collab-row">
-                    <div className="muted">
-                      {activePath ? t('当前文件: {{path}}', { path: activePath }) : t('未选择文件')}
-                    </div>
-                  </div>
-                  <div className="collab-users">
-                    {collabPeers.length === 0 ? (
-                      <div className="muted">{t('暂无协作者在线')}</div>
-                    ) : (
-                      collabPeers.map((peer) => (
-                        <div key={peer.id} className="collab-user">
-                          <span className="dot" style={{ background: peer.color }} />
-                          <span>{peer.name}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </>
+              <CollaborationPanel
+                collabStatus={collabStatus}
+                collabServer={collabServer}
+                setCollabServerState={setCollabServerState}
+                collabName={collabName}
+                setCollabName={setCollabName}
+                collabEnabled={collabEnabled}
+                onToggleConnection={() => setCollabEnabled((previous) => !previous)}
+                canConnect={Boolean(activePath && isTextPath(activePath))}
+                canInvite={Boolean(projectId)}
+                collabInviteBusy={collabInviteBusy}
+                handleCreateInvite={handleCreateInvite}
+                copyInviteLink={copyInviteLink}
+                collabInviteLink={collabInviteLink}
+                activePath={activePath}
+                collabPeers={collabPeers}
+              />
             ) : activeSidebar === 'agent' ? (
-              <>
-                <div className="panel-header">
-                  <div>{assistantMode === 'chat' ? t('Chat') : t('Agent')}</div>
-                  <div className="panel-actions">
-                    <div className="mode-toggle">
-                      <button
-                        className={`mode-btn ${assistantMode === 'chat' ? 'active' : ''}`}
-                        onClick={() => setAssistantMode('chat')}
-                      >
-                        {t('Chat')}
-                      </button>
-                      <button
-                        className={`mode-btn ${assistantMode === 'agent' ? 'active' : ''}`}
-                        onClick={() => setAssistantMode('agent')}
-                      >
-                        {t('Agent')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                {assistantMode === 'chat' && (
-                  <div className="context-tags">
-                    <span className="context-tag">{t('只读当前文件')}</span>
-                    {selectionText && <span className="context-tag">{t('只读选区')}</span>}
-                    {compileLog && <span className="context-tag">{t('只读编译日志')}</span>}
-                  </div>
-                )}
-                {assistantMode === 'chat' && projectId && <ConstraintProposalPanel projectId={projectId} refreshToken={constraintRefreshToken} />}
-                <div className="chat-messages">
-                  {assistantMode === 'chat' && chatMessages.length === 0 && (
-                    <div className="muted">{t('输入问题，进行只读对话。')}</div>
-                  )}
-                  {assistantMode === 'agent' && agentMessages.length === 0 && (
-                    <div className="muted">{t('输入任务描述，生成修改建议。')}</div>
-                  )}
-                  {(assistantMode === 'chat' ? chatMessages : agentMessages).map((msg, idx) => (
-                    <div key={idx} className={`chat-msg ${msg.role}`}>
-                      <div className="role">{msg.role}</div>
-                      <div className={`content ${msg.role === 'assistant' ? 'markdown-body' : ''}`}>
-                        {msg.role === 'assistant' ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                        ) : (
-                          msg.content
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="chat-controls">
-                  <div className="row chat-control-row">
-                    {assistantMode === 'agent' ? (
-                      <>
-                        <div className="ios-select-wrapper">
-                          <button
-                            className="ios-select-trigger"
-                            onClick={() => {
-                              setTaskDropdownOpen(!taskDropdownOpen);
-                              setModeDropdownOpen(false);
-                            }}
-                          >
-                            <span>{DEFAULT_TASKS(t).find((item) => item.value === task)?.label || t('选择任务')}</span>
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={taskDropdownOpen ? 'rotate' : ''}>
-                              <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                          </button>
-                          {taskDropdownOpen && (
-                            <div className="ios-dropdown">
-                              {DEFAULT_TASKS(t).map((item) => (
-                                <div
-                                  key={item.value}
-                                  className={`ios-dropdown-item ${task === item.value ? 'active' : ''}`}
-                                  onClick={() => {
-                                    setTask(item.value);
-                                    setTaskDropdownOpen(false);
-                                  }}
-                                >
-                                  {item.label}
-                                  {task === item.value && (
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="agent-mode-wrap">
-                          <div className="ios-select-wrapper">
-                            <button
-                              className="ios-select-trigger"
-                              onClick={() => {
-                                setModeDropdownOpen(!modeDropdownOpen);
-                                setTaskDropdownOpen(false);
-                              }}
-                            >
-                              <span>{mode === 'direct' ? t('Direct') : t('Tools')}</span>
-                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={modeDropdownOpen ? 'rotate' : ''}>
-                                <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                              </svg>
-                            </button>
-                            {modeDropdownOpen && (
-                              <div className="ios-dropdown">
-                                <div
-                                  className={`ios-dropdown-item ${mode === 'direct' ? 'active' : ''}`}
-                                  onClick={() => {
-                                    setMode('direct');
-                                    setModeDropdownOpen(false);
-                                  }}
-                                >
-                                  {t('Direct')}
-                                  {mode === 'direct' && (
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                                <div
-                                  className={`ios-dropdown-item ${mode === 'tools' ? 'active' : ''}`}
-                                  onClick={() => {
-                                    setMode('tools');
-                                    setModeDropdownOpen(false);
-                                  }}
-                                >
-                                  {t('Tools')}
-                                  {mode === 'tools' && (
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <span className="info-icon">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                              <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                              <path d="M8 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                              <circle cx="8" cy="5" r="0.5" fill="currentColor"/>
-                            </svg>
-                            <span className="tooltip">{t('Direct: 单轮生成 · Tools: 多轮工具调用/多文件修改')}</span>
-                          </span>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="muted">{t('Chat 模式仅对话，不会改动文件。')}</div>
-                    )}
-                  </div>
-                  {assistantMode === 'agent' && task === 'translate' && (
-                    <div className="row chat-control-row">
-                      <div className="ios-select-wrapper">
-                        <button
-                          className="ios-select-trigger"
-                          onClick={() => {
-                            setTranslateScopeDropdownOpen(!translateScopeDropdownOpen);
-                            setTranslateTargetDropdownOpen(false);
-                          }}
-                          >
-                          <span>
-                            {translateScope === 'selection' ? t('选区') : translateScope === 'file' ? t('当前文件') : t('整个项目')}
-                          </span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={translateScopeDropdownOpen ? 'rotate' : ''}>
-                            <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                        {translateScopeDropdownOpen && (
-                          <div className="ios-dropdown">
-                            {[
-                              { value: 'selection', label: t('选区') },
-                              { value: 'file', label: t('当前文件') },
-                              { value: 'project', label: t('整个项目') }
-                            ].map((item) => (
-                              <div
-                                key={item.value}
-                                className={`ios-dropdown-item ${translateScope === item.value ? 'active' : ''}`}
-                                onClick={() => {
-                                  setTranslateScope(item.value as 'selection' | 'file' | 'project');
-                                  setTranslateScopeDropdownOpen(false);
-                                }}
-                              >
-                                {item.label}
-                                {translateScope === item.value && (
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="ios-select-wrapper">
-                        <button
-                          className="ios-select-trigger"
-                          onClick={() => {
-                            setTranslateTargetDropdownOpen(!translateTargetDropdownOpen);
-                            setTranslateScopeDropdownOpen(false);
-                          }}
-                        >
-                          <span>{translateTargetOptions.find((item) => item.value === translateTarget)?.label || translateTarget}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={translateTargetDropdownOpen ? 'rotate' : ''}>
-                            <path d="M3 7L6 4L9 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                        {translateTargetDropdownOpen && (
-                          <div className="ios-dropdown">
-                            {translateTargetOptions.map((lang) => (
-                              <div
-                                key={lang.value}
-                                className={`ios-dropdown-item ${translateTarget === lang.value ? 'active' : ''}`}
-                                onClick={() => {
-                                  setTranslateTarget(lang.value);
-                                  setTranslateTargetDropdownOpen(false);
-                                }}
-                              >
-                                {lang.label}
-                                {translateTarget === lang.value && (
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                  </svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <textarea
-                    className="chat-input"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder={assistantMode === 'chat' ? t('例如：帮我解释这一段的实验设计。') : t('例如：润色这个段落，使其更符合 ACL 风格。')}
-                  />
-                  <button onClick={sendPrompt} className="btn full">
-                    {assistantMode === 'chat' ? t('发送') : t('生成建议')}
-                  </button>
-                  {selectionText && assistantMode === 'agent' && (
-                    <div className="muted">{t('已选择 {{count}} 字符，将用于任务输入', { count: selectionText.length })}</div>
-                  )}
-                  {assistantMode === 'agent' && task === 'translate' && translateScope === 'selection' && !selectionText && (
-                    <div className="muted">{t('翻译选区前请先选择文本。')}</div>
-                  )}
-                </div>
-              </>
+              <AssistantPanel key={projectId} projectId={projectId} assistant={assistant}
+                activePath={activePath} selection={selectionText} onSend={sendAssistant}
+                onRetry={(run) => void retryAssistant(run)} onReview={() => setRightView('diff')} />
             ) : activeSidebar === 'vision' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('图像识别')}</div>
-                  <div className="panel-actions">
-                    <button className="btn ghost" onClick={() => setVisionResult('')}>{t('清空结果')}</button>
-                  </div>
-                </div>
-                <div className="tools-body">
-                  <div className="tool-section">
-                    <div className="tool-title">{t('图像转 LaTeX')}</div>
-                    <div className="field">
-                      <label>{t('识别类型')}</label>
-                      <div className="ios-select-wrapper">
-                        <button className="ios-select-trigger" onClick={() => setVisionModeDropdownOpen(!visionModeDropdownOpen)}>
-                          <span>{({'equation':t('公式'),'table':t('表格'),'figure':t('图像 + 图注'),'algorithm':t('算法'),'ocr':t('仅提取文字')} as Record<string,string>)[visionMode]}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={visionModeDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </button>
-                        {visionModeDropdownOpen && (
-                          <div className="ios-dropdown dropdown-down">
-                            {([['equation',t('公式')],['table',t('表格')],['figure',t('图像 + 图注')],['algorithm',t('算法')],['ocr',t('仅提取文字')]] as [string,string][]).map(([val,lbl]) => (
-                              <div key={val} className={`ios-dropdown-item ${visionMode === val ? 'active' : ''}`} onClick={() => { setVisionMode(val as 'equation'|'table'|'figure'|'algorithm'|'ocr'); setVisionResult(''); setVisionModeDropdownOpen(false); }}>
-                                {lbl}
-                                {visionMode === val && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>{t('上传图片')}</label>
-                      <div
-                        className={`image-drop-zone ${visionFile ? 'has-file' : ''}`}
-                        onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }}
-                        onDragLeave={(e) => { e.currentTarget.classList.remove('drag-over'); }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          e.currentTarget.classList.remove('drag-over');
-                          const file = e.dataTransfer.files?.[0];
-                          if (file && file.type.startsWith('image/')) {
-                            setVisionFile(file);
-                            setVisionResult('');
-                          }
-                        }}
-                        onPaste={(e) => {
-                          const items = e.clipboardData?.items;
-                          if (!items) return;
-                          for (const item of items) {
-                            if (item.type.startsWith('image/')) {
-                              const file = item.getAsFile();
-                              if (file) {
-                                setVisionFile(file);
-                                setVisionResult('');
-                              }
-                              break;
-                            }
-                          }
-                        }}
-                        tabIndex={0}
-                      >
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0] || null;
-                            setVisionFile(file);
-                            setVisionResult('');
-                          }}
-                          style={{ display: 'none' }}
-                          id="vision-file-input"
-                        />
-                        {visionFile ? (
-                          <div className="drop-zone-preview">
-                            <span className="file-name">{visionFile.name}</span>
-                            <button className="remove-btn" onClick={(e) => { e.stopPropagation(); setVisionFile(null); setVisionPreviewUrl(''); }}>✕</button>
-                          </div>
-                        ) : (
-                          <label htmlFor="vision-file-input" className="drop-zone-content">
-                            <span className="drop-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></span>
-                            <span className="drop-text">{t('点击选择、拖拽或粘贴图片')}</span>
-                          </label>
-                        )}
-                      </div>
-                    </div>
-                    {visionPreviewUrl && (
-                      <div className="vision-preview">
-                        <img src={visionPreviewUrl} alt="preview" />
-                      </div>
-                    )}
-                    <div className="field">
-                      <label>{t('附加约束 (可选)')}</label>
-                      <textarea
-                        className="input"
-                        value={visionPrompt}
-                        onChange={(event) => setVisionPrompt(event.target.value)}
-                        placeholder={t('例如：只输出 tabular，不要表格标题')}
-                        rows={2}
-                      />
-                    </div>
-                    <div className="vision-actions">
-                      <button className="ios-btn secondary" onClick={handleVisionSubmit} disabled={visionBusy}>
-                        {visionBusy ? t('识别中...') : t('开始识别')}
-                      </button>
-                      <button className="ios-btn primary" onClick={handleVisionInsert} disabled={!visionResult}>{t('插入到光标')}</button>
-                    </div>
-                    {visionResult && (
-                      <div className="vision-result">
-                        <div className="muted">{t('识别结果 (可编辑)：')}</div>
-                        <textarea
-                          className="input"
-                          value={visionResult}
-                          onChange={(event) => setVisionResult(event.target.value)}
-                          rows={6}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
+              <VisionPanel
+                visionMode={visionMode}
+                setVisionMode={setVisionMode}
+                visionFile={visionFile}
+                setVisionFile={setVisionFile}
+                visionResult={visionResult}
+                setVisionResult={setVisionResult}
+                visionPreviewUrl={visionPreviewUrl}
+                setVisionPreviewUrl={setVisionPreviewUrl}
+                visionPrompt={visionPrompt}
+                setVisionPrompt={setVisionPrompt}
+                visionBusy={visionBusy}
+                handleVisionSubmit={handleVisionSubmit}
+                handleVisionInsert={handleVisionInsert}
+              />
             ) : activeSidebar === 'search' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('论文检索')}</div>
-                </div>
-                <div className="tools-body">
-                  <div className="tool-section">
-                    <div className="tool-title">{t('arXiv 检索')}</div>
-                    <div className="field">
-                      <label>{t('关键词')}</label>
-                      <input
-                        className="input"
-                        value={arxivQuery}
-                        onChange={(event) => setArxivQuery(event.target.value)}
-                        placeholder={t('例如: diffusion transformer compression')}
-                      />
-                    </div>
-                    <div className="row">
-                      <input
-                        className="input small"
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={arxivMaxResults}
-                        onChange={(event) => setArxivMaxResults(Number(event.target.value) || 5)}
-                      />
-                      <button className="btn ghost" onClick={handleArxivSearch} disabled={arxivBusy}>
-                        {arxivBusy ? t('检索中...') : useLlmSearch ? t('LLM 检索') : t('检索')}
-                      </button>
-                    </div>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={useLlmSearch}
-                        onChange={(event) => setUseLlmSearch(event.target.checked)}
-                      />
-                      {t('使用 Websearch 模型')}
-                    </label>
-                    {arxivStatus && <div className="muted">{arxivStatus}</div>}
-                    {llmSearchOutput && (
-                      <div className="vision-result">
-                        <div className="muted">{t('LLM 原始输出')}</div>
-                        <textarea
-                          className="input"
-                          value={llmSearchOutput}
-                          onChange={(event) => setLlmSearchOutput(event.target.value)}
-                          rows={5}
-                        />
-                      </div>
-                    )}
-                    {arxivResults.length > 0 && (
-                      <div className="tool-list">
-                        {arxivResults.map((paper) => (
-                          <label key={paper.arxivId} className="tool-item">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(arxivSelected[paper.arxivId])}
-                              onChange={(event) => {
-                                const checked = event.target.checked;
-                                setArxivSelected((prev) => ({ ...prev, [paper.arxivId]: checked }));
-                              }}
-                            />
-                            <div>
-                              <div className="tool-item-title">{paper.title}</div>
-                              <div className="muted">{paper.authors?.join(', ') || t('Unknown authors')}</div>
-                              <div className="muted">{paper.arxivId}</div>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    <div className="field">
-                      <label>{t('Bib 文件')}</label>
-                      <div className="ios-select-wrapper">
-                        <button className="ios-select-trigger" onClick={() => setBibTargetDropdownOpen(!bibTargetDropdownOpen)}>
-                          <span>{bibTarget || t('(新建/选择 Bib 文件)')}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={bibTargetDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </button>
-                        {bibTargetDropdownOpen && (
-                          <div className="ios-dropdown dropdown-down">
-                            <div className={`ios-dropdown-item ${bibTarget === '' ? 'active' : ''}`} onClick={() => { setBibTarget(''); setBibTargetDropdownOpen(false); }}>
-                              {t('(新建/选择 Bib 文件)')}
-                              {bibTarget === '' && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                            </div>
-                            {bibFiles.map((p) => (
-                              <div key={p} className={`ios-dropdown-item ${bibTarget === p ? 'active' : ''}`} onClick={() => { setBibTarget(p); setBibTargetDropdownOpen(false); }}>
-                                {p}
-                                {bibTarget === p && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button className="btn ghost" onClick={async () => {
-                        const created = await createBibFile();
-                        if (created) setBibTarget(created);
-                      }}>{t('新建 Bib')}</button>
-                    </div>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={autoInsertCite}
-                        onChange={(event) => setAutoInsertCite(event.target.checked)}
-                      />
-                      {t('自动插入引用到当前 TeX')}
-                    </label>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={autoInsertToMain}
-                        onChange={(event) => setAutoInsertToMain(event.target.checked)}
-                      />
-                      {t('AI 插入引用到指定 TeX')}
-                    </label>
-                    {autoInsertToMain && (
-                      <div className="field">
-                        <label>{t('引用插入目标')}</label>
-                        <div className="ios-select-wrapper">
-                          <button className="ios-select-trigger" onClick={() => setCiteTargetDropdownOpen(!citeTargetDropdownOpen)}>
-                            <span>{citeTargetFile || texFiles[0] || 'main.tex'}</span>
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={citeTargetDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                          </button>
-                          {citeTargetDropdownOpen && (
-                            <div className="ios-dropdown dropdown-down">
-                              {texFiles.map((p) => (
-                                <div key={p} className={`ios-dropdown-item ${citeTargetFile === p ? 'active' : ''}`} onClick={() => { setCiteTargetFile(p); setCiteTargetDropdownOpen(false); }}>
-                                  {p}
-                                  {citeTargetFile === p && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    <div className="row">
-                      <button className="btn" onClick={handleArxivApply} disabled={arxivBusy}>
-                        {t('写入 Bib / 插入引用')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </>
+              <LiteratureSearchPanel
+                arxivQuery={arxivQuery}
+                setArxivQuery={setArxivQuery}
+                arxivMaxResults={arxivMaxResults}
+                setArxivMaxResults={setArxivMaxResults}
+                handleArxivSearch={handleArxivSearch}
+                arxivBusy={arxivBusy}
+                useLlmSearch={useLlmSearch}
+                setUseLlmSearch={setUseLlmSearch}
+                arxivStatus={arxivStatus}
+                llmSearchOutput={llmSearchOutput}
+                setLlmSearchOutput={setLlmSearchOutput}
+                arxivResults={arxivResults}
+                arxivSelected={arxivSelected}
+                onSelectPaper={(id, selected) => setArxivSelected((previous) => ({ ...previous, [id]: selected }))}
+                bibTarget={bibTarget}
+                setBibTarget={setBibTarget}
+                bibFiles={bibFiles}
+                createBibFile={createBibFile}
+                autoInsertCite={autoInsertCite}
+                setAutoInsertCite={setAutoInsertCite}
+                autoInsertToMain={autoInsertToMain}
+                setAutoInsertToMain={setAutoInsertToMain}
+                citeTargetFile={citeTargetFile}
+                setCiteTargetFile={setCiteTargetFile}
+                texFiles={texFiles}
+                handleArxivApply={handleArxivApply}
+              />
             ) : activeSidebar === 'websearch' ? (
               <>
                 <div className="panel-header">
@@ -4390,143 +3056,36 @@ export default function EditorPage() {
                 </div>
               </>
             ) : activeSidebar === 'plot' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('绘图')}</div>
-                </div>
-                <div className="tools-body">
-                  <div className="tool-section">
-                    <div className="tool-title">{t('表格 → 图表')}</div>
-                    <div className="muted">{t('从选区表格生成图表（seaborn）')}</div>
-                    <div className="field">
-                      <label>{t('图表类型')}</label>
-                      <div className="ios-select-wrapper">
-                        <button className="ios-select-trigger" onClick={() => setPlotTypeDropdownOpen(!plotTypeDropdownOpen)}>
-                          <span>{{ bar: t('Bar'), line: t('Line'), heatmap: t('Heatmap') }[plotType]}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={plotTypeDropdownOpen ? 'rotate' : ''}>
-                            <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                        {plotTypeDropdownOpen && (
-                          <div className="ios-dropdown dropdown-down">
-                            {([['bar', t('Bar')], ['line', t('Line')], ['heatmap', t('Heatmap')]] as [string, string][]).map(([val, label]) => (
-                              <div key={val} className={`ios-dropdown-item ${plotType === val ? 'active' : ''}`} onClick={() => { setPlotType(val as 'bar' | 'line' | 'heatmap'); setPlotTypeDropdownOpen(false); }}>
-                                {label}
-                                {plotType === val && (
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="field">
-                      <label>{t('标题 (可选)')}</label>
-                      <input
-                        className="input"
-                        value={plotTitle}
-                        onChange={(event) => setPlotTitle(event.target.value)}
-                        placeholder={t('Chart title')}
-                      />
-                    </div>
-                    <div className="field">
-                      <label>{t('文件名 (可选)')}</label>
-                      <input
-                        className="input"
-                        value={plotFilename}
-                        onChange={(event) => setPlotFilename(event.target.value)}
-                        placeholder="plot.png"
-                      />
-                    </div>
-                    <div className="field">
-                      <label>{t('补充提示 (可选)')}</label>
-                      <textarea
-                        className="input"
-                        value={plotPrompt}
-                        onChange={(event) => setPlotPrompt(event.target.value)}
-                        placeholder={t('例如：使用折线图，突出 Method A；加上 legend；设置 y 轴为 Accuracy')}
-                        rows={2}
-                      />
-                    </div>
-                    <div className="field">
-                      <label>{t('Debug 重试次数')}</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={5}
-                        value={plotRetries}
-                        onChange={(event) => setPlotRetries(Math.max(0, Math.min(5, Number(event.target.value) || 0)))}
-                      />
-                    </div>
-                    <label className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={plotAutoInsert}
-                        onChange={(event) => setPlotAutoInsert(event.target.checked)}
-                      />
-                      {t('生成后插入 Figure')}
-                    </label>
-                    <div className="row">
-                      <button className="btn" onClick={handlePlotGenerate} disabled={plotBusy}>
-                        {plotBusy ? t('生成中...') : t('生成图表')}
-                      </button>
-                    </div>
-                    {plotStatus && <div className="muted">{plotStatus}</div>}
-                    {plotAssetPath && (
-                      <div className="vision-result">
-                        <div className="muted">{t('预览')}</div>
-                        <img
-                          src={`/api/projects/${projectId}/blob?path=${encodeURIComponent(plotAssetPath)}`}
-                          alt={plotAssetPath}
-                          style={{ width: '100%', borderRadius: '8px' }}
-                        />
-                        <div className="row">
-                          <button className="btn ghost" onClick={() => insertFigureSnippet(plotAssetPath)}>{t('插入图模板')}</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="tool-section">
-                    <div className="tool-title">GPT Image 2</div>
-                    <div className="muted">{t('生成论文示意图或视觉草稿；定量结果图请使用可复现数据绘图。')}</div>
-                    <div className="field">
-                      <label>{t('图像描述')}</label>
-                      <textarea className="input" value={imagePrompt} onChange={(event) => setImagePrompt(event.target.value)}
-                        placeholder={t('描述图中的对象、结构、布局和标注')} rows={5} />
-                    </div>
-                    <div className="field">
-                      <label>{t('尺寸')}</label>
-                      <select className="input" value={imageSize} onChange={(event) => setImageSize(event.target.value as typeof imageSize)}>
-                        <option value="1536x1024">1536 × 1024</option>
-                        <option value="1024x1024">1024 × 1024</option>
-                        <option value="1024x1536">1024 × 1536</option>
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label>{t('质量')}</label>
-                      <select className="input" value={imageQuality} onChange={(event) => setImageQuality(event.target.value as typeof imageQuality)}>
-                        <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-                      </select>
-                    </div>
-                    <div className="row">
-                      <button className="btn" onClick={handleGptImageGenerate} disabled={imageBusy || !imagePrompt.trim()}>
-                        {imageBusy ? t('生成中...') : t('生成图像')}
-                      </button>
-                    </div>
-                    {imageStatus && <div className="muted">{imageStatus}</div>}
-                    {imageAssetPath && (
-                      <div className="vision-result">
-                        <div className="muted">{t('预览')}</div>
-                        <img src={`/api/projects/${projectId}/blob?path=${encodeURIComponent(imageAssetPath)}`} alt={imagePrompt}
-                          style={{ width: '100%', borderRadius: '8px' }} />
-                        <div className="row"><button className="btn ghost" onClick={() => insertFigureSnippet(imageAssetPath)}>{t('插入图模板')}</button></div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
+              <PlotPanel
+                projectId={projectId}
+                plotType={plotType}
+                plotTitle={plotTitle}
+                plotFilename={plotFilename}
+                plotPrompt={plotPrompt}
+                plotRetries={plotRetries}
+                plotAutoInsert={plotAutoInsert}
+                plotBusy={plotBusy}
+                plotStatus={plotStatus}
+                plotAssetPath={plotAssetPath}
+                imagePrompt={imagePrompt}
+                imageSize={imageSize}
+                imageQuality={imageQuality}
+                imageBusy={imageBusy}
+                imageStatus={imageStatus}
+                imageAssetPath={imageAssetPath}
+                setPlotType={setPlotType}
+                setPlotTitle={setPlotTitle}
+                setPlotFilename={setPlotFilename}
+                setPlotPrompt={setPlotPrompt}
+                setPlotRetries={setPlotRetries}
+                setPlotAutoInsert={setPlotAutoInsert}
+                setImagePrompt={setImagePrompt}
+                setImageSize={setImageSize}
+                setImageQuality={setImageQuality}
+                handlePlotGenerate={handlePlotGenerate}
+                handleGptImageGenerate={handleGptImageGenerate}
+                insertFigureSnippet={insertFigureSnippet}
+              />
             ) : activeSidebar === 'review' ? (
               <>
                 <div className="panel-header">
@@ -4638,17 +3197,6 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                             history: []
                           });
                           setReviewNotes((prev) => [{ title: t('一致性检查'), content: res.reply || t('无结果') }, ...prev]);
-                          if (res.patches && res.patches.length > 0) {
-                            const nextPending = res.patches.map((patch) => ({
-                              filePath: patch.path,
-                              original: files[patch.path] ?? '',
-                              proposed: patch.content,
-                              diff: patch.diff,
-                              deleted: patch.deleted
-                            }));
-                            setPendingChanges(nextPending);
-                            setRightView('diff');
-                          }
                         }}
                       >
                         <span className="review-btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
@@ -4908,6 +3456,21 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
           </div>
           <div className="right-body">
             <div className="view-content">
+              {(isCompiling || waitingAbandoned) && (
+                <div className="compile-input-note" role="status">
+                  <div>{isCompiling ? t('退出等待或离开页面不会停止服务端编译。') : t('已退出等待；服务端可能仍在运行，请到任务中心查看或取消。')}</div>
+                  <button className="btn ghost small" onClick={() => navigate(`/project/${projectId}/tasks`)}>{t('到任务中心查看或取消')}</button>
+                </div>
+              )}
+              {(rightView === 'pdf' || rightView === 'log') && inputSnapshot && (
+                <div className="compile-input-note" role="status">
+                  {t('本次编译输入')}：{compiledMainFile} · {inputSnapshot.hash.slice(0, 12)}
+                  <div>{t('PDF 和日志对应这次输入；后续编辑需重新编译。')}</div>
+                  {(!diagnosticsVerified || (Object.prototype.hasOwnProperty.call(compiledSources, activePath) && compiledSources[activePath] !== editorValue)) && (
+                    <div>{t('源码已变化或无法核对，请重新编译后定位错误。')}</div>
+                  )}
+                </div>
+              )}
               {rightView === 'pdf' && (
                 <>
                   <div className="pdf-toolbar">
@@ -5082,20 +3645,22 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
               {rightView === 'diff' && (
                 <div className="diff-panel">
                   <div className="diff-title">{t('Diff Preview ({{count}})', { count: pendingGrouped.length })}</div>
+                  {changeReview.error && <div role="alert">{changeReview.error}</div>}
+                  {changeReview.busy && <div role="status">{t('正在保存审阅决定…')}</div>}
                   {pendingGrouped.length === 0 && <div className="muted">{t('暂无待确认修改。')}</div>}
                   {pendingGrouped.map((change) => (
                     (() => {
                       const rows = buildSplitDiff(change.original, change.proposed);
                       return (
-                        <div key={change.filePath} className="diff-item">
+                        <div key={`${change.runId}:${change.filePath}`} className="diff-item">
                           <div className="diff-header">
                             <div className="diff-path">{change.filePath}</div>
                             <button className="btn ghost" onClick={() => setDiffFocus(change)}>{t('放大')}</button>
                           </div>
                           <SplitDiffView rows={rows} />
                           <div className="row">
-                            <button className="btn" onClick={() => applyPending(change)}>{t('应用此修改')}</button>
-                            <button className="btn ghost" onClick={() => discardPending(change)}>{t('放弃')}</button>
+                            <button className="btn" disabled={changeReview.busy} onClick={() => applyPending(change)}>{t('应用此修改')}</button>
+                            <button className="btn ghost" disabled={changeReview.busy} onClick={() => discardPending(change)}>{t('放弃')}</button>
                           </div>
                         </div>
                       );
@@ -5103,8 +3668,8 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                   ))}
                   {pendingGrouped.length > 1 && (
                     <div className="row">
-                      <button className="btn" onClick={() => applyPending()}>{t('应用全部')}</button>
-                      <button className="btn ghost" onClick={() => discardPending()}>{t('全部放弃')}</button>
+                      <button className="btn" disabled={changeReview.busy} onClick={() => applyPending()}>{t('应用全部')}</button>
+                      <button className="btn ghost" disabled={changeReview.busy} onClick={() => discardPending()}>{t('全部放弃')}</button>
                     </div>
                   )}
                 </div>
@@ -5126,17 +3691,21 @@ Be thorough. Read ALL .tex files before reporting. Group findings by category. I
                   </div>
                   {compileErrors.length > 0 && (
                     <div className="log-errors">
-                      {compileErrors.map((error, idx) => (
-                        <button
+                      {compileErrors.map((error, idx) => {
+                        const located = Boolean(error.file && error.line && resolveCompileFile(error.file, tree.filter((item) => item.type === 'file').map((item) => item.path)));
+                        return <button
                           key={`${error.message}-${idx}`}
                           className="error-item"
                           onClick={() => jumpToError(error)}
+                          disabled={!located}
                         >
                           <span className="error-tag">!</span>
                           <span className="error-text">{error.message}</span>
-                          {error.line && <span className="error-line">L{error.line}</span>}
-                        </button>
-                      ))}
+                          <span className="error-line">{located
+                            ? `${error.file}:${error.line}`
+                            : t('无法确定项目文件位置，请查看日志')}</span>
+                        </button>;
+                      })}
                     </div>
                   )}
                   <pre className="log-content">{compileLog || t('暂无编译日志')}</pre>

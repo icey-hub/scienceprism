@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { normalizePaper, paperKey, sourceCheckFor } from './paperNormalization.js';
 import { getEvidence, upsertEvidence } from '../evidenceLedger/index.js';
 import { createTask } from './taskCenter.js';
 import { clone, readHubJson, withHubLock, writeHubJson } from './repository.js';
 
 const FILE = 'paper-library.json';
-const STATUSES = new Set(['unread', 'reading', 'read', 'archived']);
 const MAX_PAPERS = 5_000;
 
 function now() {
@@ -17,120 +17,6 @@ function emptyLibrary(projectId) {
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
-}
-
-function uniqueStrings(value) {
-  return [...new Set((Array.isArray(value) ? value : []).map(text).filter(Boolean))];
-}
-
-function normalizedUrl(value) {
-  const url = text(value);
-  if (!url) return '';
-  try {
-    const parsed = new URL(url);
-    parsed.hash = '';
-    parsed.search = '';
-    return parsed.toString().replace(/\/$/, '').toLowerCase();
-  } catch {
-    return url.toLowerCase().replace(/\/$/, '');
-  }
-}
-
-function normalizedArxiv(value) {
-  const input = text(value).replace(/^https?:\/\/[^/]+\/(?:abs|pdf)\//i, '').replace(/\.pdf$/i, '');
-  return input ? input.replace(/v\d+$/i, '').toLowerCase() : '';
-}
-
-function normalizedDoi(value) {
-  return text(value).replace(/^https?:\/\/doi\.org\//i, '').replace(/^doi:/i, '').toLowerCase();
-}
-
-function paperKey(input) {
-  const arxivId = normalizedArxiv(input.arxivId || input.metadata?.arxivId);
-  if (arxivId) return `arxiv:${arxivId}`;
-  const doi = normalizedDoi(input.doi || input.metadata?.doi);
-  if (doi) return `doi:${doi}`;
-  const url = normalizedUrl(input.url || input.source?.url);
-  if (url) return `url:${url}`;
-  const title = text(input.title).toLowerCase().replace(/\s+/g, ' ');
-  return title ? `title:${title}:${input.year || ''}` : '';
-}
-
-function bibtexFor(paper) {
-  if (text(paper.bibtex)) return paper.bibtex;
-  const firstAuthor = text(paper.authors?.[0]).split(/\s+/).filter(Boolean).pop() || 'paper';
-  const firstWord = text(paper.title).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24) || 'paper';
-  const key = `${firstAuthor.toLowerCase().replace(/[^a-z0-9]+/g, '')}${paper.year || ''}${firstWord}`;
-  const authors = uniqueStrings(paper.authors).join(' and ');
-  return `@article{${key},\n  title={${text(paper.title)}},\n  author={${authors}},\n  year={${paper.year || ''}},\n  journal={${text(paper.venue) || 'Preprint'}},\n  url={${text(paper.url)}}\n}`;
-}
-
-function sourceCheckFor(paper, previous) {
-  const issues = [];
-  if (!text(paper.title)) issues.push('missing-title');
-  if (!uniqueStrings(paper.authors).length) issues.push('missing-authors');
-  if (!text(paper.url) && !text(paper.doi) && !text(paper.arxivId)) issues.push('missing-source-location');
-  return {
-    status: issues.length ? 'needs-review' : 'checked',
-    checkedAt: now(),
-    provider: text(paper.source) || previous?.provider || 'metadata',
-    issues
-  };
-}
-
-function normalizeAnnotation(annotation, previous) {
-  const at = now();
-  return {
-    id: text(annotation?.id) || `annotation-${randomUUID()}`,
-    text: text(annotation?.text),
-    quote: text(annotation?.quote),
-    page: Number.isFinite(Number(annotation?.page)) ? Number(annotation.page) : null,
-    createdAt: previous?.createdAt || at,
-    updatedAt: at
-  };
-}
-
-function normalizePaper(input, { existing } = {}) {
-  const at = now();
-  const previous = existing || {};
-  const source = input.source && typeof input.source === 'object'
-    ? { ...input.source }
-    : { provider: text(input.source) || previous.source?.provider || null, url: text(input.url) || previous.source?.url || null };
-  const merged = {
-    ...previous,
-    ...input,
-    id: previous.id || text(input.id) || `paper-${randomUUID()}`,
-    title: text(input.title) || text(previous.title) || 'Untitled paper',
-    authors: uniqueStrings(input.authors ?? previous.authors),
-    abstract: text(input.abstract ?? previous.abstract),
-    url: text(input.url ?? previous.url),
-    doi: normalizedDoi(input.doi ?? previous.doi),
-    arxivId: normalizedArxiv(input.arxivId ?? previous.arxivId),
-    venue: text(input.venue ?? previous.venue),
-    year: Number.isFinite(Number(input.year ?? previous.year)) ? Number(input.year ?? previous.year) : null,
-    source,
-    sourceRecords: [...new Map([
-      ...(previous.sourceRecords || []),
-      ...(Array.isArray(input.sourceRecords) ? input.sourceRecords : []),
-      ...((text(input.source) || previous.source?.provider || input.arxivId || input.doi) ? [{ provider: text(input.source) || previous.source?.provider || null, id: input.arxivId || input.doi || input.url || null, retrievedAt: at }] : [])
-    ].map((record) => [`${record.provider || ''}:${record.id || ''}`, record])).values()],
-    evidenceId: text(input.evidenceId ?? previous.evidenceId) || null,
-    tags: uniqueStrings(input.tags ?? previous.tags),
-    favorite: input.favorite === undefined ? Boolean(previous.favorite) : Boolean(input.favorite),
-    readingStatus: STATUSES.has(input.readingStatus) ? input.readingStatus : (STATUSES.has(previous.readingStatus) ? previous.readingStatus : 'unread'),
-    notes: text(input.notes ?? previous.notes),
-    annotations: Array.isArray(input.annotations)
-      ? input.annotations.map((annotation, index) => normalizeAnnotation(annotation, previous.annotations?.[index]))
-      : (previous.annotations || []),
-    bibtex: text(input.bibtex ?? previous.bibtex) || bibtexFor({ ...previous, ...input }),
-    sourceCheck: input.sourceCheck || previous.sourceCheck || sourceCheckFor({ ...previous, ...input }, previous.sourceCheck),
-    importedAt: previous.importedAt || at,
-    createdAt: previous.createdAt || at,
-    updatedAt: at
-  };
-  merged.canonicalKey = paperKey(merged);
-  if (input.runSourceCheck) merged.sourceCheck = sourceCheckFor(merged, previous.sourceCheck);
-  return merged;
 }
 
 async function readLibrary(projectId) {
@@ -179,14 +65,53 @@ async function ensurePaperEvidence(projectId, paper, actor) {
   return result.entry.id;
 }
 
-export async function importPaper(projectId, input, { actor = 'human' } = {}) {
+export function paperRevision(paper) {
+  return paper ? createHash('sha256').update(JSON.stringify(paper)).digest('hex') : null;
+}
+
+export class PaperImportConflictError extends Error {
+  constructor() {
+    super('The library record changed after preview. Preview again before importing.');
+    this.code = 'IMPORT_PREVIEW_STALE';
+    this.statusCode = 409;
+  }
+}
+
+export async function importPaper(projectId, input, { actor = 'human', confirmation } = {}) {
   if (!input || typeof input !== 'object') throw new Error('Paper must be an object.');
   const result = await withHubLock(projectId, async () => {
     const library = await readLibrary(projectId);
     const candidate = normalizePaper(input, {});
-    const existingIndex = library.papers.findIndex((paper) => paper.canonicalKey === candidate.canonicalKey);
+    if (confirmation?.sourceIdentity) {
+      const { field, value } = confirmation.sourceIdentity;
+      const identityKey = paperKey({ [field]: value });
+      const matches = library.papers.filter((paper) => paper[field] && paperKey({ [field]: paper[field] }) === identityKey);
+      const expected = confirmation.sourceMatches;
+      if (matches.length !== expected.length || matches.some((paper) => !expected.some((match) => match.paperId === paper.id && match.revision === paperRevision(paper)))) throw new PaperImportConflictError();
+    }
+    const existingIndex = confirmation?.paperId
+      ? library.papers.findIndex((paper) => paper.id === confirmation.paperId)
+      : library.papers.findIndex((paper) => paper.canonicalKey === candidate.canonicalKey);
     const existing = existingIndex >= 0 ? library.papers[existingIndex] : undefined;
-    const paper = normalizePaper({ ...candidate, ...input }, { existing });
+    let selectedInput = input;
+    if (confirmation) {
+      if (paperRevision(existing) !== confirmation.expectedRevision) throw new PaperImportConflictError();
+      if (confirmation.action === 'keep') return { paper: clone(existing), duplicate: Boolean(existing), libraryVersion: library.version, skipped: true };
+      if ((confirmation.action === 'create') === Boolean(existing)) throw new PaperImportConflictError();
+      if (existing) {
+        selectedInput = Object.fromEntries(confirmation.fields.map((field) => [field, input[field]]));
+        selectedInput.sourceRecords = input.sourceRecords;
+      }
+    }
+    // Legacy imports keep their existing merge behavior; confirmed previews
+    // supply only fields explicitly chosen by the human.
+    const paper = normalizePaper(existing ? selectedInput : { ...candidate, ...selectedInput }, { existing });
+    // Provider review receipts can only enter through server-owned confirmation.
+    // Raw imports and ordinary edits retain existing receipts, never mint them.
+    if (existing?.sourceReviews) paper.sourceReviews = clone(existing.sourceReviews);
+    else delete paper.sourceReviews;
+    if (confirmation?.sourceReview) paper.sourceReviews = [...(paper.sourceReviews || []), clone(confirmation.sourceReview)];
+    if (confirmation && library.papers.some((item) => item.id !== paper.id && item.canonicalKey === paper.canonicalKey)) throw new PaperImportConflictError();
     paper.evidenceId = await ensurePaperEvidence(projectId, paper, actor);
     if (existingIndex >= 0) {
       library.papers[existingIndex] = paper;
@@ -199,6 +124,7 @@ export async function importPaper(projectId, input, { actor = 'human' } = {}) {
     await writeHubJson(projectId, FILE, library);
     return { paper: clone(paper), duplicate: Boolean(existing), libraryVersion: library.version };
   });
+  if (result.skipped) return result;
   await createTask(projectId, {
     kind: 'paper-import',
     title: `Import paper: ${result.paper.title}`,
@@ -216,6 +142,8 @@ export async function updatePaper(projectId, paperId, patch, { actor = 'human' }
     const index = library.papers.findIndex((paper) => paper.id === paperId);
     if (index < 0) throw new Error('Paper not found.');
     const paper = normalizePaper({ ...patch, id: paperId }, { existing: library.papers[index] });
+    if (library.papers[index].sourceReviews) paper.sourceReviews = clone(library.papers[index].sourceReviews);
+    else delete paper.sourceReviews;
     if (patch.runSourceCheck) paper.sourceCheck = sourceCheckFor(paper, library.papers[index].sourceCheck);
     paper.evidenceId = await ensurePaperEvidence(projectId, paper, actor);
     library.papers[index] = paper;
