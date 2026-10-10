@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import * as tar from 'tar';
 import path from 'node:path';
 import test, { after } from 'node:test';
 import Fastify from 'fastify';
@@ -21,6 +22,27 @@ const { registerProjectRoutes } = await import('../src/routes/projects.js');
 const { registerHealthRoutes } = await import('../src/routes/health.js');
 
 after(async () => { await rm(fixture, { recursive: true, force: true }); });
+
+test('arXiv source import retains real TeX files and never extracts archive links', async () => {
+  const source = path.join(fixture, 'arxiv-source');
+  await mkdir(source);
+  await writeFile(path.join(source, 'main.tex'), '\\documentclass{article}\\begin{document}Imported.\\end{document}');
+  await symlink(path.join(outside, 'project.json'), path.join(source, 'linked.json'));
+  const archive = path.join(fixture, 'source.tar.gz');
+  await tar.c({ cwd: source, file: archive, gzip: true }, ['main.tex', 'linked.json']);
+  const originalFetch = globalThis.fetch;
+  const bytes = await readFile(archive);
+  globalThis.fetch = async () => new Response(bytes);
+  const app = Fastify(); registerProjectRoutes(app);
+  try {
+    const response = await app.inject({ method: 'GET', url: '/api/projects/import-arxiv-sse?arxivIdOrUrl=2401.00001' });
+    const done = response.body.match(/event: done\ndata: (.+)/);
+    assert.ok(done, response.body);
+    const { project } = JSON.parse(done[1]);
+    assert.ok((await readFile(path.join(dataDir, project.id, 'main.tex'), 'utf8')).includes('Imported.'));
+    await assert.rejects(access(path.join(dataDir, project.id, 'linked.json')), { code: 'ENOENT' });
+  } finally { globalThis.fetch = originalFetch; await app.close(); }
+});
 
 test('a project ID cannot select a directory outside the project store', async () => {
   await assert.rejects(() => getProjectRoot('../outside'), /Invalid storage identifier/);

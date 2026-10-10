@@ -1,7 +1,7 @@
 import path from 'path';
 import { promises as fs, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
-import tar from 'tar';
+import * as tar from 'tar';
 import unzipper from 'unzipper';
 import crypto from 'crypto';
 import { DATA_DIR, TEMPLATE_DIR } from '../config/constants.js';
@@ -159,8 +159,9 @@ export function registerProjectRoutes(fastify) {
       await tar.x({
         file: tmpTar,
         cwd: projectRoot,
-        filter: (entryPath) => {
+        filter: (entryPath, entry) => {
           if (!entryPath) return false;
+          if (!['File', 'Directory'].includes(entry.type)) return false;
           if (path.isAbsolute(entryPath)) return false;
           return !entryPath.split('/').some((part) => part === '..');
         }
