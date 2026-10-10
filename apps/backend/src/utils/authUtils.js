@@ -4,20 +4,15 @@ import { COLLAB_REQUIRE_TOKEN, TUNNEL_MODE } from '../config/constants.js';
 export function isLocalAddress(ip) {
   if (!ip) return false;
   if (ip === '127.0.0.1' || ip === '::1') return true;
-  if (ip.startsWith('::ffff:127.0.0.1')) return true;
+  if (ip === '::ffff:127.0.0.1') return true;
   return false;
 }
 
 export function getClientIp(req) {
-  // In tunnel mode, ignore x-forwarded-for since the tunnel proxy is local
+  // Forwarded headers are untrusted. A loopback tunnel proxy is remote access,
+  // even when it omits its forwarded headers.
   const tunnelActive = !['false', '0', 'no'].includes(TUNNEL_MODE.toLowerCase().trim());
-  if (!tunnelActive) {
-    const forwarded = req.headers?.['x-forwarded-for'];
-    if (forwarded) {
-      return String(forwarded).split(',')[0].trim();
-    }
-  }
-  return req.ip;
+  return tunnelActive ? 'tunnel' : req.ip;
 }
 
 export function getBearerToken(req) {

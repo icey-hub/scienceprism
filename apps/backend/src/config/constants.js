@@ -1,4 +1,5 @@
 import path from 'path';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,7 +13,8 @@ export const DATA_DIR = getEnv('DATA_DIR') || path.join(REPO_ROOT, 'data');
 export const TEMPLATE_DIR = path.join(REPO_ROOT, 'templates');
 export const TEMPLATE_MANIFEST = path.join(TEMPLATE_DIR, 'manifest.json');
 export const PORT = Number(process.env.PORT || 8787);
-export const COLLAB_TOKEN_SECRET = getEnv('COLLAB_TOKEN_SECRET') || 'scienceprism-collab-dev';
+// Without a configured secret, invitations are valid only for this process.
+export const COLLAB_TOKEN_SECRET = getEnv('COLLAB_TOKEN_SECRET') || randomBytes(32).toString('hex');
 export const COLLAB_TOKEN_TTL = Number(getEnv('COLLAB_TOKEN_TTL') || 24 * 60 * 60);
 const requireTokenEnv = getEnv('COLLAB_REQUIRE_TOKEN');
 export const COLLAB_REQUIRE_TOKEN = requireTokenEnv
