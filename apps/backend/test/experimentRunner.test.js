@@ -475,6 +475,49 @@ test('a persisted running experiment without a live executor becomes a retryable
   assert.equal((await retryExperimentRun(projectId, run.id)).retryOf, run.id);
 });
 
+test('experiment input and source bytes remain archived even when the executing code changes them', async () => {
+  const projectId = 'experiment-frozen-inputs';
+  const root = await createProject(projectId);
+  const source = 'import{writeFile,mkdir}from"node:fs/promises";await mkdir("results",{recursive:true});await writeFile("results/metrics.json",JSON.stringify({metrics:[{name:"accuracy",value:0.9}]}));await writeFile("run.mjs","// changed by child");await writeFile("dataset.csv","changed data");await writeFile(process.env.SCIENCEPRISM_EXPERIMENT_INPUT,"{}");';
+  await writeFile(path.join(root, 'run.mjs'), source);
+  await writeFile(path.join(root, 'dataset.csv'), 'original input data');
+  const run = await createExperimentRun(projectId, { plan: { ...plan(0.9), codePaths: ['run.mjs', 'dataset.csv'] } });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const result = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(result.status, 'completed');
+  const artifact = (name) => result.artifacts.find(item => item.name === name);
+  assert.ok(artifact('input.json'), 'Retain the input that was actually delivered to the process.');
+  const input = JSON.parse(await readFile(path.join(root, artifact('input.json').path), 'utf8'));
+  assert.equal(input.runId, run.id);
+  assert.equal(input.seed, '7');
+  assert.equal(input.parameters.accuracy, 0.9);
+  assert.equal(await readFile(path.join(root, artifact('inputs/run.mjs').path), 'utf8'), source);
+  assert.equal(await readFile(path.join(root, artifact('inputs/dataset.csv').path), 'utf8'), 'original input data');
+  await writeFile(path.join(root, 'run.mjs'), '// later project revision');
+  assert.equal(await readFile(path.join(root, artifact('inputs/run.mjs').path), 'utf8'), source);
+  const index = JSON.parse(await readFile(path.join(root, artifact('input-snapshot.json').path), 'utf8'));
+  assert.equal(index.complete, true);
+  assert.ok(index.files.every(file => file.status === 'archived'));
+});
+
+test('source archive limits are explicit and outputs cannot replace retained inputs or logs', async () => {
+  const projectId = 'experiment-input-archive-limits';
+  const root = await createProject(projectId);
+  await writeFile(path.join(root, 'large.txt'), 'x'.repeat(5000));
+  for (const artifact of ['input.json', 'input-snapshot.json', 'inputs/run.mjs', 'manifest.json', 'stdout.log']) {
+    await assert.rejects(createExperimentRun(projectId, { plan: { ...plan(), artifacts: [artifact] } }), { code: 'ARTIFACT_PATH_RESERVED' });
+  }
+  const run = await createExperimentRun(projectId, { plan: { ...plan(), codePaths: ['run.mjs', 'large.txt'], resources: { maxArtifactBytes: 4096 } } });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const result = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(result.status, 'completed');
+  const index = result.artifacts.find(item => item.name === 'input-snapshot.json');
+  const snapshot = JSON.parse(await readFile(path.join(root, index.path), 'utf8'));
+  assert.equal(snapshot.complete, false);
+  assert.equal(snapshot.files.find(file => file.path === 'large.txt').reason, 'snapshot-budget');
+  assert.ok(snapshot.bytes <= 4096);
+});
+
 test('server shutdown stops active experiments, archives logs, and never records a human cancellation', async () => {
   const { shutdownExperimentRuns } = await import('../src/services/experimentRunner/index.js');
   const { readdir } = await import('node:fs/promises');

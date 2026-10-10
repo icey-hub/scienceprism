@@ -325,6 +325,31 @@ async function saveTextArtifact(root, run, relativeOutput, content, kind, name, 
   }
 }
 
+async function archiveExperimentInputs(root, workspaceRoot, run, artifacts) {
+  const limit = run.manifest.resources.maxArtifactBytes;
+  artifacts.push(await saveArtifact(root, run, path.join(workspaceRoot, '.scienceprism-experiment-input.json'), 'input.json', 'environment', 'input.json', limit));
+  const outputs = new Set(run.manifest.artifacts.map((item) => item.path));
+  const files = [];
+  let bytes = 0;
+  for (const file of run.manifest.code.files || []) {
+    if (outputs.has(file.path)) { files.push({ ...file, status: 'declared-output' }); continue; }
+    if (!file.sha256 || bytes + file.bytes > limit) {
+      files.push({ ...file, status: 'not-archived', reason: file.skipped || 'snapshot-budget' });
+      continue;
+    }
+    const source = safeJoin(workspaceRoot, file.path);
+    await assertWorkspaceFile(workspaceRoot, source);
+    const relative = path.posix.join('inputs', file.path);
+    const artifact = await saveArtifact(root, run, source, relative, 'environment', relative, limit);
+    if (artifact.sha256 !== file.sha256) throw new ExperimentRunnerError(409, 'EXPERIMENT_CODE_CHANGED', 'Experiment inputs changed before execution.');
+    artifacts.push(artifact);
+    files.push({ ...file, status: 'archived', artifactId: artifact.id });
+    bytes += artifact.bytes;
+  }
+  const snapshot = { runId: run.id, codeSnapshotHash: run.manifest.code.snapshotHash, complete: files.every((file) => file.status !== 'not-archived'), maxBytes: limit, bytes, files };
+  artifacts.push(await saveTextArtifact(root, run, 'input-snapshot.json', `${JSON.stringify(snapshot, null, 2)}\n`, 'environment', 'input-snapshot.json', limit));
+}
+
 function normalizeMetrics(value) {
   const source = Array.isArray(value) ? value : Array.isArray(value?.metrics) ? value.metrics : value && typeof value === 'object' ? Object.entries(value).map(([name, metric]) => ({ name, value: metric })) : [];
   return source.map((metric) => {
@@ -335,9 +360,9 @@ function normalizeMetrics(value) {
   }).filter(Boolean);
 }
 
-async function collectArtifacts(root, workspaceRoot, run, result) {
+async function collectArtifacts(root, workspaceRoot, run, result, inputArtifacts = []) {
   const maxBytes = run.manifest.resources.maxArtifactBytes;
-  const artifacts = [];
+  const artifacts = [...inputArtifacts];
   artifacts.push(await saveTextArtifact(root, run, 'stdout.log', result.stdout || '', 'log', 'stdout.log', maxBytes));
   artifacts.push(await saveTextArtifact(root, run, 'stderr.log', result.stderr || '', 'log', 'stderr.log', maxBytes));
   artifacts.push(await saveTextArtifact(root, run, 'environment.json', `${JSON.stringify(run.manifest.environment, null, 2)}\n`, 'environment', 'environment.json', maxBytes));
@@ -429,6 +454,7 @@ async function executeRun(projectId, runId, control) {
   const workspaceRoot = path.join(runRoot, 'workspace');
   const inputPath = path.join(workspaceRoot, '.scienceprism-experiment-input.json');
   try {
+  const inputArtifacts = [];
   let result;
   let executionError = null;
   const startedAt = now();
@@ -442,6 +468,7 @@ async function executeRun(projectId, runId, control) {
       try { await fs.unlink(target); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     await writeExperimentInput(workspaceRoot, run);
+    await archiveExperimentInputs(root, workspaceRoot, run, inputArtifacts);
     const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal });
     const timer = setTimeout(() => {
       control.timedOut = true;
@@ -457,11 +484,11 @@ async function executeRun(projectId, runId, control) {
     result = { exitCode: null, signal: control.timedOut ? 'SIGTERM' : null, stdout: error.stdout || '', stderr: error.stderr || executionError.message };
   }
 
-  let artifacts = [];
+  let artifacts = inputArtifacts;
   let metrics = [];
   if (!executionError || result?.stdout || result?.stderr) {
     try {
-      const collected = await collectArtifacts(root, workspaceRoot, run, result || {});
+      const collected = await collectArtifacts(root, workspaceRoot, run, result || {}, inputArtifacts);
       ({ artifacts, metrics } = collected);
       if (!executionError && collected.error) executionError = collected.error instanceof ExperimentRunnerError ? collected.error : new ExperimentRunnerError(500, 'ARTIFACT_ARCHIVE_FAILED', collected.error.message);
     }

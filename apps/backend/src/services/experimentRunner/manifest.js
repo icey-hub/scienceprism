@@ -9,6 +9,7 @@ export const EXPERIMENT_ADAPTERS = Object.freeze(['node', 'python', 'fake']);
 export const ARTIFACT_KINDS = Object.freeze(['log', 'metric', 'chart', 'table', 'checkpoint', 'environment', 'output']);
 const MAX_SNAPSHOT_FILES = 2_000;
 const MAX_SNAPSHOT_FILE_BYTES = 25 * 1024 * 1024;
+const RESERVED_ARTIFACT_PATHS = new Set(['input.json', 'input-snapshot.json', 'stdout.log', 'stderr.log', 'environment.json', 'manifest.json']);
 
 function now() { return new Date().toISOString(); }
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
@@ -39,9 +40,12 @@ function normalizeArtifacts(value) {
   if (!Array.isArray(value)) return [];
   if (value.length > 100) throw new ExperimentRunnerError(400, 'INVALID_ARTIFACT_DECLARATIONS', 'An Experiment Run may declare at most 100 artifacts.');
   return value.map((item, index) => {
-    if (typeof item === 'string') return { path: normalizeRelativePath(item, `artifacts[${index}]`), kind: 'output', name: path.posix.basename(item) };
+    if (typeof item === 'string') item = { path: item };
     if (!plainObject(item)) throw new ExperimentRunnerError(400, 'INVALID_ARTIFACT_DECLARATION', `Artifact declaration ${index + 1} must be an object.`);
     const relativePath = normalizeRelativePath(item.path, `artifacts[${index}].path`);
+    if (RESERVED_ARTIFACT_PATHS.has(relativePath) || relativePath === 'inputs' || relativePath.startsWith('inputs/')) {
+      throw new ExperimentRunnerError(400, 'ARTIFACT_PATH_RESERVED', 'Declared outputs cannot replace retained execution inputs or logs. Use a results/ path.');
+    }
     const kind = text(item.kind || 'output').toLowerCase();
     if (!ARTIFACT_KINDS.includes(kind)) throw new ExperimentRunnerError(400, 'INVALID_ARTIFACT_KIND', `Unsupported artifact kind: ${kind}.`);
     return { path: relativePath, kind, name: text(item.name) || path.posix.basename(relativePath) };
