@@ -7,6 +7,7 @@ import {
   BookOpenText,
   ChevronDown,
   Copy,
+  Download,
   FilePlus2,
   Folder,
   Languages,
@@ -35,6 +36,7 @@ import {
 } from '../api/projectAdapter';
 import type { ProjectMeta, TemplateMeta, TemplateCategory } from '../api/projectAdapter';
 import TransferPanel from './TransferPanel';
+import { useProjectBackups } from './project/useProjectBackups';
 
 type ViewFilter = 'all' | 'mine' | 'archived' | 'trash';
 type SortBy = 'updatedAt' | 'name' | 'createdAt';
@@ -159,6 +161,7 @@ export default function ProjectPage() {
     const res = await listProjects();
     setProjects(res.projects || []);
   }, []);
+  const backups = useProjectBackups({ onStatus: setStatus, onRestored: async () => { setImportOpen(false); await loadProjects(); } });
 
   useEffect(() => {
     loadProjects().catch((err) => setStatus(t('加载项目失败: {{error}}', { error: String(err) })));
@@ -664,6 +667,7 @@ export default function ProjectPage() {
                               <button onClick={() => navigate(`/editor/${project.id}`)}><BookOpenText size={15} />{t('论文编辑')}</button>
                               <button onClick={() => { setRenameState({ id: project.id, value: project.name }); setActiveActionMenuId(null); }}><Pencil size={15} />{t('重命名')}</button>
                               <button onClick={() => { void handleCopy(project.id, project.name); setActiveActionMenuId(null); }}><Copy size={15} />{t('复制')}</button>
+                              <button disabled={backups.busy} onClick={() => { void backups.download(project); setActiveActionMenuId(null); }}><Download size={15} />{t('下载项目备份')}</button>
                               <button onClick={() => { setTransferSource({ id: project.id, name: project.name }); setTransferOpen(true); setActiveActionMenuId(null); }}><Sparkles size={15} />{t('模板转换')}</button>
                               <button onClick={() => { void handleArchive(project.id, !project.archived); setActiveActionMenuId(null); }}>
                                 {project.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
@@ -705,6 +709,8 @@ export default function ProjectPage() {
           }
         }}
       />
+
+      <input ref={backups.inputRef} type="file" accept=".json" aria-label={t('项目备份文件')} hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void backups.restore(file); event.target.value = ''; }} />
 
       {createOpen && (
         <div className="modal-backdrop" onClick={() => setCreateOpen(false)}>
@@ -768,6 +774,11 @@ export default function ProjectPage() {
               <button className="icon-btn" onClick={() => setImportOpen(false)}>✕</button>
             </div>
             <div className="modal-body">
+              <div className="field">
+                <label>{t('恢复项目备份')}</label>
+                <p className="muted">{t('恢复到当前电脑，保留研究与实验记录。已有同名 ID 的项目不会被覆盖；请在本机关闭隧道后操作。')}</p>
+                <button className="btn" disabled={backups.busy} onClick={() => backups.inputRef.current?.click()}>{backups.busy ? t('处理中...') : t('选择项目备份')}</button>
+              </div>
               <div className="field">
                 <label>{t('上传 Zip 文件')}</label>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

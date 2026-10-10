@@ -165,6 +165,35 @@ export function copyProject(id: string, name?: string) {
   });
 }
 
+export interface ProjectBackup {
+  format: 'scienceprism-project-backup';
+  version: 1;
+  createdAt: string;
+  project: ProjectMeta;
+  files: { path: string; encoding: 'base64'; bytes: number; sha256: string; content: string }[];
+}
+
+async function backupRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  try { return await request<T>(url, options); }
+  catch (error) {
+    if (error instanceof Error) {
+      let message;
+      try { message = JSON.parse(error.message)?.error?.message; } catch { /* non-JSON network failure */ }
+      if (typeof message === 'string') throw new Error(message);
+    }
+    throw error;
+  }
+}
+
+export function getProjectBackup(id: string) {
+  return backupRequest<ProjectBackup>(`/api/projects/${id}/backup`);
+}
+
+// Restoring twice returns PROJECT_EXISTS; never replaces an existing project.
+export function restoreProjectBackup(backup: unknown) {
+  return backupRequest<{ ok: true; project: ProjectMeta }>('/api/projects/restore-backup', { method: 'POST', body: JSON.stringify(backup) });
+}
+
 export function deleteProject(id: string) {
   return request<{ ok: boolean; error?: string }>(`/api/projects/${id}`, {
     method: 'DELETE'
