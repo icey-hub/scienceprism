@@ -23,6 +23,20 @@ const {
 } = await import('../src/services/researchWorkflow/commands.js');
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
 const { getResearchWorkflow } = await import('../src/services/researchWorkflow/queries.js');
+const { toFrontendWorkflow } = await import('../src/services/researchWorkflow/projection.js');
+
+test('legacy textual idea plans and risks project to renderable lists without changing saved data', () => {
+  const workflow = createWorkflowDocument('legacy-idea-text');
+  const data = { ideas: [{ id: 'idea-text', title: 'A reviewable candidate', evidence: 'paper-1', validationPlan: 'Compare the same splits.\nRecord uncertainty.', risks: 'No confirmed scientific finding.' }, { id: 'idea-array', title: 'Array candidate', evidence: ['paper-2'], validationPlan: ['Keep the list.'], risks: [{ unknown: true }, 'Keep textual risk.'] }] };
+  workflow.stages.find(stage => stage.id === 'ideation').data = structuredClone(data);
+  const view = toFrontendWorkflow(workflow);
+  assert.deepEqual(view.ideas[0].evidence, ['paper-1']);
+  assert.deepEqual(view.ideas[0].validationPlan, ['Compare the same splits.', 'Record uncertainty.']);
+  assert.deepEqual(view.ideas[0].risks, ['No confirmed scientific finding.']);
+  assert.deepEqual(view.ideas[1].validationPlan, ['Keep the list.']);
+  assert.deepEqual(view.ideas[1].risks, ['Keep textual risk.']);
+  assert.deepEqual(workflow.stages.find(stage => stage.id === 'ideation').data, data);
+});
 
 test('state machine records versioned approval, rejection, and recovery transitions', () => {
   const workflow = createWorkflowDocument('project-a', { now: '2026-01-01T00:00:00.000Z' });

@@ -4,6 +4,11 @@ import { getStageReadiness, RESEARCH_WORKFLOW_STAGES } from './stageContracts.js
 export const UI_TO_STAGE = Object.freeze({ direction: 'direction', search: 'search', selection: 'selection', replication: 'replication', innovation: 'ideation', method: 'method', experiment: 'experiment', writing: 'writing' });
 export const STAGE_TO_UI = Object.fromEntries(Object.entries(UI_TO_STAGE).map(([key, value]) => [value, key]));
 
+function textList(value) {
+  const items = typeof value === 'string' ? value.split(/\r?\n/) : Array.isArray(value) ? value : [];
+  return items.filter((item) => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
+}
+
 function paperForUi(paper, selectionIds = new Set()) {
   const candidate = paper?.candidate || paper || {};
   const decision = paper?.decision || paper?.eligibility;
@@ -60,7 +65,7 @@ export function toFrontendWorkflow(workflow) {
     },
     papers,
     replication: replication.replication || replication.replicationPlan || replication,
-    ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: idea.evidence || idea.relatedPaperIds || [], hypothesis: idea.hypothesis || '', novelty: idea.novelty || '', validationPlan: idea.validationPlan || [], risks: idea.risks || [], humanReview: idea.humanReview || null, selected: Boolean(idea.selected) })),
+    ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: textList(idea.evidence || idea.relatedPaperIds), hypothesis: idea.hypothesis || '', novelty: idea.novelty || '', validationPlan: textList(idea.validationPlan), risks: textList(idea.risks), humanReview: idea.humanReview || null, selected: Boolean(idea.selected) })),
     ideaComparison: ideation.comparison || [],
     ideaHumanDirection: ideation.humanDirection || '',
     ideaCaveats: ideation.caveats || [],
