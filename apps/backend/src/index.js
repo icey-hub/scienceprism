@@ -7,6 +7,7 @@ import { DATA_DIR, PORT, TUNNEL_MODE } from './config/constants.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerArxivRoutes } from './routes/arxiv.js';
 import { registerProjectRoutes } from './routes/projects.js';
+import { registerProjectBackupRoutes } from './routes/projectBackups.js';
 import { registerCompileRoutes } from './routes/compile.js';
 import { registerLLMRoutes } from './routes/llm.js';
 import { registerVisionRoutes } from './routes/vision.js';
@@ -54,6 +55,7 @@ fastify.addHook('preHandler', async (req, reply) => {
 registerHealthRoutes(fastify);
 registerArxivRoutes(fastify);
 registerProjectRoutes(fastify);
+registerProjectBackupRoutes(fastify);
 registerCompileRoutes(fastify);
 registerLLMRoutes(fastify);
 registerVisionRoutes(fastify);

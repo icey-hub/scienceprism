@@ -22,7 +22,7 @@ export function registerProjectRoutes(fastify) {
     const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
     const projects = [];
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory() || entry.name.startsWith('.restore-')) continue;
       const metaPath = path.join(DATA_DIR, entry.name, 'project.json');
       try {
         const meta = await readJson(metaPath);
