@@ -456,3 +456,60 @@ test('a missing declared artifact keeps the new Run logs and other produced metr
   const ledger = await getEvidenceLedger(projectId);
   assert.equal(ledger.entries.find(entry => entry.id === result.evidence.runId).verificationStatus, 'unverified');
 });
+
+test('a persisted running experiment without a live executor becomes a retryable interruption', async () => {
+  const projectId = 'experiment-crash-recovery';
+  const root = await createProject(projectId);
+  const run = await createExperimentRun(projectId, { plan: plan(0.8) });
+  const { readExperimentRuns, writeExperimentRuns } = await import('../src/services/experimentRunner/repository.js');
+  const document = await readExperimentRuns(root, projectId);
+  document.runs[0].status = 'running';
+  document.runs[0].logs = { stdout: 'LOG_BEFORE_CRASH', stderr: '' };
+  await writeExperimentRuns(root, document);
+  const recovered = await getExperimentRun(projectId, run.id);
+  assert.equal(recovered.status, 'failed');
+  assert.equal(recovered.error.code, 'EXPERIMENT_INTERRUPTED');
+  assert.equal(recovered.error.retryable, true);
+  assert.match(recovered.logs.stdout, /LOG_BEFORE_CRASH/);
+  assert.ok(recovered.execution.finishedAt);
+  assert.equal((await retryExperimentRun(projectId, run.id)).retryOf, run.id);
+});
+
+test('server shutdown stops active experiments, archives logs, and never records a human cancellation', async () => {
+  const { shutdownExperimentRuns } = await import('../src/services/experimentRunner/index.js');
+  const { readdir } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const projectId = 'experiment-graceful-restart';
+  const root = await createProject(projectId);
+  await writeFile(path.join(root, 'run.mjs'), 'import{writeFile}from"node:fs/promises";console.log("SHUTDOWN_OUTPUT");await writeFile("shutdown-ready.txt","ready");setTimeout(() => {}, 4000);');
+  const run = await createExperimentRun(projectId, { plan: { ...plan(), artifacts: [] } });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  try {
+    await startExperimentRun(projectId, run.id);
+    const deadline = Date.now() + 10_000;
+    while (true) {
+      let launched = false;
+      for (const entry of await readdir(tmpdir())) {
+        if (!entry.startsWith('scienceprism-experiment-')) continue;
+        const workspace = path.join(tmpdir(), entry, 'workspace');
+        try {
+          const input = JSON.parse(await readFile(path.join(workspace, '.scienceprism-experiment-input.json'), 'utf8'));
+          if (input.runId === run.id && await readFile(path.join(workspace, 'shutdown-ready.txt'), 'utf8') === 'ready') launched = true;
+        } catch {}
+      }
+      if (launched) break;
+      assert.ok(Date.now() < deadline, 'The actual child must launch before shutdown.');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await shutdownExperimentRuns();
+    const stopped = await getExperimentRun(projectId, run.id);
+    assert.equal(stopped.status, 'failed');
+    assert.equal(stopped.error.code, 'EXPERIMENT_INTERRUPTED');
+    assert.equal(stopped.error.retryable, true);
+    assert.match(stopped.logs.stdout, /SHUTDOWN_OUTPUT/);
+    assert.ok(stopped.artifacts.some(artifact => artifact.name === 'stdout.log'));
+    assert.ok(stopped.execution.finishedAt);
+    assert.equal((await getEvidenceLedger(projectId)).entries.find(entry => entry.id === stopped.evidence.runId).verificationStatus, 'unverified');
+    await assert.rejects(startExperimentRun(projectId, run.id), { code: 'EXPERIMENT_RUNNER_STOPPING' });
+  } finally { await shutdownExperimentRuns(); }
+});

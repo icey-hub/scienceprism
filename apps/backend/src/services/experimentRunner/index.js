@@ -20,6 +20,7 @@ import { safeJoin } from '../../utils/pathUtils.js';
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
 const activeRuns = new Map();
+let shuttingDown = false;
 
 function now() { return new Date().toISOString(); }
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
@@ -111,7 +112,7 @@ export function experimentRunSummary(run, evidenceEntries = []) {
 }
 
 export async function listExperimentRuns(projectId, { status, limit = 100 } = {}) {
-  const { document } = await getRunDocument(projectId);
+  const document = await recoverInterruptedExperiments(projectId);
   const runs = document.runs
     .filter((run) => !status || run.status === status)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -119,10 +120,41 @@ export async function listExperimentRuns(projectId, { status, limit = 100 } = {}
 }
 
 export async function getExperimentRun(projectId, runId) {
-  const { document } = await getRunDocument(projectId);
+  const document = await recoverInterruptedExperiments(projectId);
   const run = document.runs.find((item) => item.id === runId);
   if (!run) throw new ExperimentRunnerError(404, 'EXPERIMENT_RUN_NOT_FOUND', 'Experiment Run not found.', { runId });
   return clone(run);
+}
+
+async function recoverInterruptedExperiments(projectId) {
+  const { root, document } = await getRunDocument(projectId);
+  if (!document.runs.some((run) => run.status === 'running' && !activeRuns.has(run.id))) return document;
+  const recovered = [];
+  await withExperimentRunLock(projectId, async () => {
+    const latest = await readExperimentRuns(root, projectId);
+    for (const run of latest.runs) {
+      if (run.status !== 'running' || activeRuns.has(run.id)) continue;
+      run.status = 'failed';
+      run.error = { code: 'EXPERIMENT_INTERRUPTED', message: 'Experiment execution was interrupted by a server restart.', retryable: true };
+      run.execution = { ...run.execution, finishedAt: now(), error: { code: run.error.code, message: run.error.message } };
+      run.updatedAt = now();
+      recovered.push(clone(run));
+    }
+    if (recovered.length) {
+      latest.version += 1;
+      latest.updatedAt = now();
+      await writeExperimentRuns(root, latest);
+    }
+  });
+  for (const run of recovered) {
+    try {
+      const evidence = await persistRunEvidence(projectId, run);
+      await updateRun(projectId, run.id, (current) => ({ ...current, evidence }));
+    } catch (error) {
+      await updateRun(projectId, run.id, (current) => ({ ...current, evidenceError: { code: error.code || 'EVIDENCE_WRITE_FAILED', message: error.message } }));
+    }
+  }
+  return readExperimentRuns(root, projectId);
 }
 
 function makeRun(projectId, manifest, actor, { retryOf = null, attempt = 0 } = {}) {
@@ -437,7 +469,8 @@ async function executeRun(projectId, runId, control) {
       if (!executionError) executionError = error instanceof ExperimentRunnerError ? error : new ExperimentRunnerError(500, 'ARTIFACT_ARCHIVE_FAILED', error?.message || String(error));
     }
   }
-  const cancelled = control.cancelRequested || control.controller.signal.aborted && !control.timedOut;
+  if (control.interrupted) executionError = new ExperimentRunnerError(503, 'EXPERIMENT_INTERRUPTED', 'Experiment execution was interrupted by server shutdown.');
+  const cancelled = control.cancelRequested || control.controller.signal.aborted && !control.timedOut && !control.interrupted;
   const status = cancelled ? 'cancelled' : executionError || result?.exitCode !== 0 ? 'failed' : 'completed';
   const finishedAt = now();
   const updated = await updateRun(projectId, runId, (current) => {
@@ -485,6 +518,7 @@ async function executeRun(projectId, runId, control) {
 
 async function transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled, workflow = null) {
   return withExperimentRunLock(projectId, async () => {
+    if (shuttingDown) throw new ExperimentRunnerError(503, 'EXPERIMENT_RUNNER_STOPPING', 'The server is shutting down. Retry after restart.');
     const document = await readExperimentRuns(root, projectId);
     const index = document.runs.findIndex((run) => run.id === runId);
     if (index < 0) throw new ExperimentRunnerError(404, 'EXPERIMENT_RUN_NOT_FOUND', 'Experiment Run not found.', { runId });
@@ -508,13 +542,14 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
     document.runs[index] = next;
     document.version += 1;
     document.updatedAt = now();
-    await writeExperimentRuns(root, document);
     activeRuns.set(runId, { projectId, control, promise: null });
+    await writeExperimentRuns(root, document);
     return clone(next);
   });
 }
 
 export async function startExperimentRun(projectId, runId, { wait = false } = {}) {
+  if (shuttingDown) throw new ExperimentRunnerError(503, 'EXPERIMENT_RUNNER_STOPPING', 'The server is shutting down. Retry after restart.');
   const { root } = await getRunDocument(projectId);
   if (activeRuns.has(runId)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_ACTIVE', 'The Experiment Run is already executing.');
   const current = await getExperimentRun(projectId, runId);
@@ -542,6 +577,18 @@ export async function startExperimentRun(projectId, runId, { wait = false } = {}
   activeRuns.set(runId, { projectId, control, promise });
   if (wait) return promise;
   return run;
+}
+
+export async function shutdownExperimentRuns() {
+  shuttingDown = true;
+  while (activeRuns.size) {
+    const entries = [...activeRuns.values()];
+    for (const { control } of entries) {
+      control.interrupted = true;
+      control.controller.abort(new Error('Server shutdown.'));
+    }
+    await Promise.allSettled(entries.map((entry) => entry.promise || new Promise((resolve) => setTimeout(resolve, 10))));
+  }
 }
 
 export async function cancelExperimentRun(projectId, runId) {

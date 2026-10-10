@@ -25,6 +25,7 @@ import { registerConstraintProposalRoutes } from './routes/constraintProposals.j
 import { registerConstraintPolicyRoutes } from './routes/constraintPolicy.js';
 import { tryStartTunnel } from './services/tunnel.js';
 import { registerApiAuth } from './utils/authUtils.js';
+import { shutdownExperimentRuns } from './services/experimentRunner/index.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -84,6 +85,23 @@ if (existsSync(frontendDist)) {
 }
 
 await ensureDir(DATA_DIR);
+
+let shutdownStarted = false;
+async function shutdown() {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  const closing = fastify.close();
+  try {
+    await shutdownExperimentRuns();
+    await closing;
+    process.exit(0);
+  } catch (error) {
+    fastify.log.error(error, 'Server shutdown failed');
+    process.exit(1);
+  }
+}
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
 
 await fastify.listen({ port: PORT, host: '0.0.0.0' });
 
