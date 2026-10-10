@@ -246,9 +246,11 @@ test('running Experiments can be cancelled, retried, and interpreted only from t
   const slow = await createExperimentRun(projectId, { plan: { ...plan(0.7), parameters: { accuracy: 0.7, waitMs: 500 } } });
   await decideExperimentRun(projectId, slow.id, { decision: 'approve' });
   await startExperimentRun(projectId, slow.id);
-  await cancelExperimentRun(projectId, slow.id);
+  const cancelled = await cancelExperimentRun(projectId, slow.id);
+  assert.ok(cancelled.execution?.finishedAt, 'Cancellation returns after the process and archive have settled.');
+  assert.ok(cancelled.artifacts.some(artifact => artifact.name === 'manifest.json'));
+  assert.equal(cancelled.error.code, 'EXPERIMENT_CANCELLED');
   assert.equal((await getExperimentRun(projectId, slow.id)).status, 'cancelled');
-  await new Promise((resolve) => setTimeout(resolve, 100));
 
   const failed = await createExperimentRun(projectId, { plan: { ...plan(0.7), execution: { adapter: 'node', entrypoint: 'missing.mjs', args: [] } } });
   await decideExperimentRun(projectId, failed.id, { decision: 'approve' });
@@ -267,6 +269,48 @@ test('running Experiments can be cancelled, retried, and interpreted only from t
   const interpreted = await recordExperimentInterpretation(projectId, result.id, { summary: 'Accuracy was recorded by the controlled process.', sourceArtifactIds: [result.artifacts[0].id], metricFindings: [{ metric: 'accuracy', observation: 'A numeric value was persisted.' }] }, { actor: 'human' });
   assert.equal(interpreted.metrics[0].value, 0.88);
   assert.equal(interpreted.interpretation.sourceArtifactIds.length, 1);
+});
+
+test('cancelling a process that ignores SIGTERM waits for termination and keeps its output', async () => {
+  const { runNodeExperiment } = await import('../src/services/experimentRunner/adapters.js');
+  const projectId = 'experiment-stubborn-cancel';
+  const root = await createProject(projectId);
+  await writeFile(path.join(root, 'stubborn.mjs'), 'process.on("SIGTERM", () => {});\nconsole.log("READY_FOR_CANCEL");\nsetTimeout(() => {}, 4000);\n');
+  const run = await createExperimentRun(projectId, { plan: { ...plan(0.7), execution: { adapter: 'node', entrypoint: 'stubborn.mjs' } } });
+  const controller = new AbortController();
+  const started = Date.now();
+  const result = await runNodeExperiment(run.manifest, { workspaceRoot: root, inputPath: path.join(root, 'input.json'), signal: controller.signal, onOutput: ({ text }) => { if (text.includes('READY_FOR_CANCEL')) controller.abort(); } });
+  assert.equal(result.signal, 'SIGKILL');
+  assert.match(result.stdout, /READY_FOR_CANCEL/);
+  assert.ok(Date.now() - started < 3500, 'Ignored SIGTERM must be followed by bounded forced termination.');
+});
+
+test('timed out Experiments stop an uncooperative process before archiving its available logs', async () => {
+  const projectId = 'experiment-stubborn-timeout';
+  const root = await createProject(projectId);
+  await writeFile(path.join(root, 'stubborn.mjs'), 'process.on("SIGTERM", () => {});\nconsole.log("TIMEOUT_OUTPUT");\nsetTimeout(() => {}, 5000);\n');
+  const run = await createExperimentRun(projectId, { plan: { ...plan(0.7), resources: { timeoutMs: 1000 }, execution: { adapter: 'node', entrypoint: 'stubborn.mjs' } } });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const started = Date.now();
+  const result = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'EXPERIMENT_TIMEOUT');
+  assert.equal(result.execution.signal, 'SIGKILL');
+  assert.match(result.logs.stdout, /TIMEOUT_OUTPUT/);
+  assert.ok(Date.now() - started < 3500);
+  assert.equal((await getEvidenceLedger(projectId)).entries.find(entry => entry.id === result.evidence.runId).verificationStatus, 'unverified');
+});
+
+test('output-limit failures stop execution and preserve logs emitted before the limit', async () => {
+  const projectId = 'experiment-output-limit';
+  const root = await createProject(projectId);
+  await writeFile(path.join(root, 'flood.mjs'), 'console.log("OUTPUT_BEFORE_LIMIT");\nsetTimeout(() => console.log("x".repeat(2048)), 50);\nsetTimeout(() => {}, 5000);\n');
+  const run = await createExperimentRun(projectId, { plan: { ...plan(0.7), resources: { maxOutputBytes: 1024 }, execution: { adapter: 'node', entrypoint: 'flood.mjs' } } });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const result = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'OUTPUT_LIMIT_EXCEEDED');
+  assert.match(result.logs.stdout, /OUTPUT_BEFORE_LIMIT/);
 });
 
 test('Experiment Runner reports whether an OS sandbox is applicable', async () => {

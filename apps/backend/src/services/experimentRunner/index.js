@@ -411,19 +411,18 @@ async function executeRun(projectId, runId, control) {
     }
     await writeExperimentInput(workspaceRoot, run);
     const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal });
-    let timer;
-    const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => {
-        control.timedOut = true;
-        control.controller.abort(new Error('Experiment Run timed out.'));
-        reject(new ExperimentRunnerError(504, 'EXPERIMENT_TIMEOUT', 'Experiment Run exceeded its configured timeout.'));
-      }, run.manifest.resources.timeoutMs);
-    });
-    try { result = await Promise.race([task, timeout]); }
+    const timer = setTimeout(() => {
+      control.timedOut = true;
+      control.controller.abort(new Error('Experiment Run timed out.'));
+    }, run.manifest.resources.timeoutMs);
+    try {
+      result = await task;
+      if (control.timedOut) executionError = new ExperimentRunnerError(504, 'EXPERIMENT_TIMEOUT', 'Experiment Run exceeded its configured timeout.');
+    }
     finally { clearTimeout(timer); }
   } catch (error) {
     executionError = error instanceof ExperimentRunnerError ? error : new ExperimentRunnerError(500, error?.code === 'ABORT_ERR' ? 'EXPERIMENT_CANCELLED' : 'EXPERIMENT_FAILED', error?.message || String(error));
-    result = { exitCode: null, signal: control.timedOut ? 'SIGTERM' : null, stdout: '', stderr: executionError.message };
+    result = { exitCode: null, signal: control.timedOut ? 'SIGTERM' : null, stdout: error.stdout || '', stderr: error.stderr || executionError.message };
   }
 
   let artifacts = [];
@@ -455,7 +454,9 @@ async function executeRun(projectId, runId, control) {
     current.logs = { stdout: String(result?.stdout || '').slice(-MAX_LOG_TAIL), stderr: String(result?.stderr || '').slice(-MAX_LOG_TAIL) };
     current.metrics = metrics;
     current.artifacts = artifacts;
-    current.error = executionError
+    current.error = cancelled
+      ? { code: 'EXPERIMENT_CANCELLED', message: 'Experiment Run was cancelled by human.', retryable: false }
+      : executionError
       ? { code: executionError.code, message: executionError.message, retryable: status === 'failed' && executionError.code !== 'EXPERIMENT_SANDBOX_UNAVAILABLE' }
       : status === 'failed'
         ? { code: 'EXPERIMENT_EXIT_NONZERO', message: `Experiment process exited with code ${result?.exitCode ?? 'unknown'}.`, retryable: true }
@@ -550,7 +551,10 @@ export async function cancelExperimentRun(projectId, runId) {
   if (active) {
     active.control.cancelRequested = true;
     active.control.controller.abort(new Error('Experiment Run cancelled by human.'));
-    return updateRun(projectId, runId, (run) => ({ ...run, status: 'cancelled', error: { code: 'EXPERIMENT_CANCELLED', message: 'Experiment Run was cancelled by human.', retryable: false }, updatedAt: now() }));
+    // The executor owns the final status and archive. Await its cleanup before
+    // reporting cancellation or allowing the caller's next execution attempt.
+    if (active.promise) await active.promise;
+    return getExperimentRun(projectId, runId);
   }
   return updateRun(projectId, runId, (run) => ({ ...run, status: 'cancelled', phase: 'execution', error: { code: 'EXPERIMENT_CANCELLED', message: 'Experiment Run was cancelled before execution.', retryable: false }, updatedAt: now() }));
 }

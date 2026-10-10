@@ -183,21 +183,37 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
   await fs.mkdir(path.join(workspaceRoot, '.experiment-home'), { recursive: true });
   await fs.mkdir(path.join(workspaceRoot, '.experiment-tmp'), { recursive: true });
   const command = await commandFactory(workspaceRoot, entrypoint, manifest.command.args);
+  if (signal?.aborted) return { exitCode: null, signal: 'SIGTERM', stdout: '', stderr: 'Cancelled before process launch.', isolation: command.isolation };
   const child = spawn(command.executable, command.args, {
     cwd: workspaceRoot,
     env: safeEnvironment(manifest.id, inputPath, workspaceRoot),
     shell: false,
     windowsHide: true,
-    signal
+    detached: process.platform !== 'win32'
   });
   let stdout = '';
   let stderr = '';
   let bytes = 0;
+  let stopTimer;
+  let processError = null;
+  const kill = (killSignal) => {
+    try {
+      if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, killSignal);
+      else child.kill(killSignal);
+    } catch (error) { if (error.code !== 'ESRCH') child.kill(killSignal); }
+  };
+  const stop = () => {
+    if (stopTimer) return;
+    kill('SIGTERM');
+    stopTimer = setTimeout(() => kill('SIGKILL'), 1000);
+  };
+  signal?.addEventListener('abort', stop, { once: true });
+  if (signal?.aborted) stop();
   const append = (target, chunk) => {
     const value = chunk.toString();
     bytes += Buffer.byteLength(value);
     if (bytes > manifest.resources.maxOutputBytes) {
-      child.kill('SIGTERM');
+      stop();
       throw new ExperimentRunnerError(413, 'OUTPUT_LIMIT_EXCEEDED', 'Experiment output exceeded its configured limit.');
     }
     if (target === 'stdout') stdout += value;
@@ -205,15 +221,22 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
     onOutput?.({ stream: target, text: value });
   };
   child.stdout.on('data', (chunk) => {
-    try { append('stdout', chunk); } catch (error) { child.emit('error', error); }
+    try { append('stdout', chunk); } catch (error) { processError ||= error; stop(); }
   });
   child.stderr.on('data', (chunk) => {
-    try { append('stderr', chunk); } catch (error) { child.emit('error', error); }
+    try { append('stderr', chunk); } catch (error) { processError ||= error; stop(); }
   });
-  const result = await new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (exitCode, closeSignal) => resolve({ exitCode, signal: closeSignal, stdout, stderr }));
-  });
+  let result;
+  try {
+    result = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', (exitCode, closeSignal) => resolve({ exitCode, signal: closeSignal, stdout, stderr }));
+    });
+  } finally {
+    clearTimeout(stopTimer);
+    signal?.removeEventListener('abort', stop);
+  }
+  if (processError) throw Object.assign(processError, { stdout, stderr });
   if (result.exitCode !== 0 && isSandboxApplyFailure(result.stderr)) {
     throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `macOS sandbox-exec could not apply the run profile (${String(result.stderr).trim().split('\n')[0]}); the Experiment Run did not execute.`);
   }
