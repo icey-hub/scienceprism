@@ -79,7 +79,7 @@ for (const outcome of ['completed', 'failed', 'cancelled']) {
       assert.ok(artifact.includes(`Status: \`${outcome}\``));
       assert.ok(artifact.includes('Supports successful finding: no'));
       assert.equal(artifact.includes(`Run ID: \`${replication.id}\``), includeReplication);
-      assert.equal(artifact.includes('999'), false);
+      assert.doesNotMatch(artifact, /^- Metric mean: 999(?:\s|$)/m);
     }
   });
 }

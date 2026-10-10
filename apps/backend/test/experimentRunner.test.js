@@ -346,3 +346,32 @@ test('the Node permission model fallback permits workspace writes and denies hos
   assert.doesNotMatch(denied.stdout, /HOST_READ_ALLOWED/);
   assert.match(denied.stderr, /ERR_ACCESS_DENIED/);
 });
+
+
+test('Experiment Run approval requires an explicit human decision and rejects automated actors without changing the Run', async () => {
+  const projectId = 'experiment-human-decision';
+  await createProject(projectId);
+  const run = await createExperimentRun(projectId, { plan: plan() });
+  const original = await getExperimentRun(projectId, run.id);
+  for (const actor of ['ai', 'system', 'experiment-runner', 'unknown']) {
+    await assert.rejects(decideExperimentRun(projectId, run.id, { decision: 'approve', actor }), { code: 'HUMAN_APPROVAL_REQUIRED' });
+    assert.deepEqual(await getExperimentRun(projectId, run.id), original);
+  }
+  const app = Fastify();
+  registerExperimentRunRoutes(app);
+  try {
+    for (const [payload, code] of [
+      [{ decision: 'approve' }, 'ACTOR_REQUIRED'],
+      [{ decision: 'approve', actor: 'ai' }, 'HUMAN_APPROVAL_REQUIRED'],
+      [{ actor: 'human' }, 'INVALID_EXPERIMENT_DECISION']
+    ]) {
+      const response = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/experiment-runs/${run.id}/decision`, payload });
+      assert.ok(response.statusCode >= 400);
+      assert.equal(response.json().error.code, code);
+      assert.deepEqual(await getExperimentRun(projectId, run.id), original);
+    }
+    const approved = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/experiment-runs/${run.id}/decision`, payload: { decision: 'approve' }, headers: { 'x-scienceprism-actor': 'human' } });
+    assert.equal(approved.statusCode, 200);
+    assert.equal(approved.json().run.approval.actor, 'human');
+  } finally { await app.close(); }
+});

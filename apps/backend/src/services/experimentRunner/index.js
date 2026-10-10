@@ -203,7 +203,9 @@ export async function createExperimentRun(projectId, input = {}, { actor = 'huma
   return persistNewRun(projectId, root, makeRun(projectId, manifest, actor));
 }
 
-export async function decideExperimentRun(projectId, runId, { decision = 'approve', actor = 'human', note = '' } = {}) {
+export async function decideExperimentRun(projectId, runId, { decision, actor = 'human', note = '' } = {}) {
+  if (!text(actor)) throw new ExperimentRunnerError(400, 'ACTOR_REQUIRED', 'An Experiment Run decision must identify its human actor.');
+  if (!['human', 'researcher'].includes(actor)) throw new ExperimentRunnerError(403, 'HUMAN_APPROVAL_REQUIRED', 'Only an explicit human decision may approve or reject an Experiment Run.');
   if (!['approve', 'reject'].includes(decision)) throw new ExperimentRunnerError(400, 'INVALID_EXPERIMENT_DECISION', 'Experiment Run decision must be approve or reject.');
   return updateRun(projectId, runId, (run) => {
     if (!['awaiting_approval', 'rejected'].includes(run.status)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_NOT_REVIEWABLE', `Experiment Run is ${run.status} and cannot receive an approval decision.`);

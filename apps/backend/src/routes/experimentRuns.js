@@ -14,7 +14,7 @@ import { ExperimentRunnerError } from '../services/experimentRunner/errors.js';
 const BASE = '/api/projects/:id/experiment-runs';
 
 function bodyOf(req) { return req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}; }
-function actor(req, body = {}) { return body.actor || req.headers?.['x-scienceprism-actor'] || req.collabAuth?.sub || 'human'; }
+function actor(req, body = {}, fallback = 'human') { return body.actor || req.headers?.['x-scienceprism-actor'] || fallback; }
 
 function sendError(req, reply, error) {
   if (error?.code === 'FEATURE_FLAG_DISABLED') return reply.code(403).send({ ok: false, error: { code: error.code, message: error.message, details: error.details } });
@@ -35,7 +35,7 @@ export function registerExperimentRunRoutes(fastify) {
   fastify.get(`${BASE}/comparisons`, route(async (req) => ({ comparison: await compareExperimentRuns(req.params.id, req.query?.runIds || req.query?.ids) })));
   fastify.get(`${BASE}/:runId`, route(async (req) => ({ run: await getExperimentRun(req.params.id, req.params.runId) })));
   fastify.post(BASE, route(async (req, reply) => { const run = await createExperimentRun(req.params.id, bodyOf(req), { actor: actor(req, bodyOf(req)) }); reply.code(201); return { run }; }));
-  fastify.post(`${BASE}/:runId/decision`, route(async (req) => ({ run: await decideExperimentRun(req.params.id, req.params.runId, { ...bodyOf(req), actor: actor(req, bodyOf(req)) }) })));
+  fastify.post(`${BASE}/:runId/decision`, route(async (req) => ({ run: await decideExperimentRun(req.params.id, req.params.runId, { ...bodyOf(req), actor: actor(req, bodyOf(req), null) }) })));
   fastify.post(`${BASE}/:runId/start`, route(async (req) => ({ run: await startExperimentRun(req.params.id, req.params.runId, { wait: bodyOf(req).wait === true }) })));
   fastify.post(`${BASE}/:runId/cancel`, route(async (req) => ({ run: await cancelExperimentRun(req.params.id, req.params.runId) })));
   fastify.post(`${BASE}/:runId/retry`, route(async (req) => ({ run: await retryExperimentRun(req.params.id, req.params.runId, { actor: actor(req, bodyOf(req)) }) })));

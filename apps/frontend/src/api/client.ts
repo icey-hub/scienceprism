@@ -809,7 +809,7 @@ export function createReplicationExperimentRun(projectId: string, expectedVersio
 export function decideExperimentRun(projectId: string, runId: string, decision: 'approve' | 'reject', note = '') {
   return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs/${encodeURIComponent(runId)}/decision`, {
     method: 'POST',
-    body: JSON.stringify({ decision, note })
+    body: JSON.stringify({ decision, note, actor: 'human' })
   });
 }
 
