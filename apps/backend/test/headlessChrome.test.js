@@ -12,6 +12,10 @@ const executable = path.join(work, 'fake-chrome');
 await writeFile(executable, `#!/usr/bin/env node
 const args = process.argv.slice(2);
 console.log(JSON.stringify(args));
+if (args.includes('--inherited-pipe')) {
+  const { spawn } = require('node:child_process');
+  spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2000)'], { detached: true, stdio: ['ignore', 1, 2] }).unref();
+}
 if (args.includes('--fail')) { console.error('render rejected'); process.exit(7); }
 if (args.includes('--hang')) setInterval(() => {}, 1000);
 `);
@@ -49,4 +53,10 @@ test('Chrome failures and timeouts reject with diagnostics and clean their profi
 
 test('a missing Chrome executable fails explicitly', async () => {
   await assert.rejects(runHeadlessChrome([], { executable: path.join(work, 'missing') }), /ENOENT/);
+});
+
+test('render timeout settles even when descendants retain a terminated process output pipe', async () => {
+  const started = Date.now();
+  await assert.rejects(runHeadlessChrome(['--inherited-pipe'], { executable, timeout: 300 }), /timed out/);
+  assert.ok(Date.now() - started < 1500, 'The render deadline must not wait for inherited pipes to close.');
 });

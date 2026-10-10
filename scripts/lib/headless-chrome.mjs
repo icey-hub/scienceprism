@@ -32,7 +32,14 @@ export async function runHeadlessChrome(args, { executable = CHROME, timeout = 3
         // Close only this process via its private DevTools pipe after output is ready.
         child.stdio[3].write(`${JSON.stringify({ id: 1, method: 'Browser.close' })}\0`);
       };
-      const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeout);
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGKILL');
+        // Descendants may retain stdout or the DevTools pipe after Chrome exits.
+        // Reject at the deadline instead of waiting indefinitely for `close`.
+        for (const stream of child.stdio) stream?.destroy();
+        reject(Object.assign(new Error(`Chrome render timed out after ${timeout} ms (SIGKILL). ${stderr}`), { code: 'ETIMEDOUT', stdout, stderr }));
+      }, timeout);
       child.stdio[3].on('error', () => {}); // It may already be exiting normally.
       child.stdio[4].resume();
       child.stdout.on('data', (chunk) => { stdout += chunk; closeWhenRendered(); });
