@@ -15,6 +15,7 @@ import { getFeatureFlags } from '../featureFlags.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
 import { assertReplicationPreparationUnchangedFromWorkflow, isReplicationRequest, readReplicationContextFromWorkflow, readExperimentContextFromWorkflow, assertExperimentPlanUnchangedFromWorkflow } from './replicationContext.js';
 import { isDeepStrictEqual } from 'node:util';
+import { safeJoin } from '../../utils/pathUtils.js';
 
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
@@ -310,6 +311,7 @@ async function collectArtifacts(root, workspaceRoot, run, result) {
   artifacts.push(await saveTextArtifact(root, run, 'environment.json', `${JSON.stringify(run.manifest.environment, null, 2)}\n`, 'environment', 'environment.json', maxBytes));
   artifacts.push(await saveTextArtifact(root, run, 'manifest.json', `${JSON.stringify(run.manifest, null, 2)}\n`, 'environment', 'manifest.json', maxBytes));
 
+  let archiveError = null;
   for (const declaration of run.manifest.artifacts) {
     const source = path.resolve(workspaceRoot, declaration.path);
     const relative = path.relative(workspaceRoot, source).replace(/\\/g, '/');
@@ -318,8 +320,9 @@ async function collectArtifacts(root, workspaceRoot, run, result) {
       await assertWorkspaceFile(workspaceRoot, source);
       artifacts.push(await saveArtifact(root, run, source, declaration.path, declaration.kind, declaration.name, maxBytes));
     } catch (error) {
-      if (error?.code === 'ENOENT') throw new ExperimentRunnerError(424, 'ARTIFACT_MISSING', `Declared artifact was not produced: ${declaration.path}.`);
-      throw error;
+      archiveError ||= error?.code === 'ENOENT'
+        ? new ExperimentRunnerError(424, 'ARTIFACT_MISSING', `Declared artifact was not produced: ${declaration.path}.`)
+        : error;
     }
   }
   if (Array.isArray(result.metrics)) {
@@ -333,7 +336,7 @@ async function collectArtifacts(root, workspaceRoot, run, result) {
     } catch {}
   }
   const uniqueMetrics = [...new Map(metrics.map((metric) => [metric.name, metric])).values()];
-  return { artifacts, metrics: uniqueMetrics };
+  return { artifacts, metrics: uniqueMetrics, error: archiveError };
 }
 
 async function persistRunEvidence(projectId, run) {
@@ -400,6 +403,12 @@ async function executeRun(projectId, runId, control) {
   try {
     await copyProjectWorkspace(root, workspaceRoot);
     await assertExperimentCodeSnapshot(workspaceRoot, run.manifest);
+    // Declared outputs must be produced by this Run, not inherited from the project.
+    for (const artifact of run.manifest.artifacts) {
+      if (artifact.path === run.manifest.command.entrypoint) throw new ExperimentRunnerError(400, 'ARTIFACT_INPUT_COLLISION', 'An execution entrypoint cannot also be a declared output.');
+      const target = safeJoin(workspaceRoot, artifact.path);
+      try { await fs.unlink(target); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
     await writeExperimentInput(workspaceRoot, run);
     const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal });
     let timer;
@@ -420,7 +429,11 @@ async function executeRun(projectId, runId, control) {
   let artifacts = [];
   let metrics = [];
   if (!executionError || result?.stdout || result?.stderr) {
-    try { ({ artifacts, metrics } = await collectArtifacts(root, workspaceRoot, run, result || {})); }
+    try {
+      const collected = await collectArtifacts(root, workspaceRoot, run, result || {});
+      ({ artifacts, metrics } = collected);
+      if (!executionError && collected.error) executionError = collected.error instanceof ExperimentRunnerError ? collected.error : new ExperimentRunnerError(500, 'ARTIFACT_ARCHIVE_FAILED', collected.error.message);
+    }
     catch (error) {
       if (!executionError) executionError = error instanceof ExperimentRunnerError ? error : new ExperimentRunnerError(500, 'ARTIFACT_ARCHIVE_FAILED', error?.message || String(error));
     }

@@ -375,3 +375,40 @@ test('Experiment Run approval requires an explicit human decision and rejects au
     assert.equal(approved.json().run.approval.actor, 'human');
   } finally { await app.close(); }
 });
+
+
+test('new Experiment Runs cannot reuse declared output files from the project as newly produced metrics', async () => {
+  const projectId = 'experiment-stale-output';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, 'results'), { recursive: true });
+  const stale = JSON.stringify({ metrics: [{ name: 'accuracy', value: 0.999 }] });
+  await writeFile(path.join(root, 'results/metrics.json'), stale);
+  await writeFile(path.join(root, 'run.mjs'), 'console.log("No new metrics produced.");');
+  const run = await createExperimentRun(projectId, { plan: plan() });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const result = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'ARTIFACT_MISSING');
+  assert.deepEqual(result.metrics, []);
+  assert.ok(result.artifacts.some(artifact => artifact.name === 'stdout.log'));
+  assert.ok(result.artifacts.some(artifact => artifact.name === 'manifest.json'));
+  assert.equal(await readFile(path.join(root, 'results/metrics.json'), 'utf8'), stale);
+  const ledger = await getEvidenceLedger(projectId);
+  assert.equal(ledger.entries.find(entry => entry.id === result.evidence.runId).verificationStatus, 'unverified');
+});
+
+
+test('a missing declared artifact keeps the new Run logs and other produced metrics available for review', async () => {
+  const projectId = 'experiment-partial-artifacts';
+  await createProject(projectId);
+  const run = await createExperimentRun(projectId, { plan: { ...plan(0.8), artifacts: [...plan().artifacts, { path: 'results/missing.txt', kind: 'output' }] } });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const result = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(result.status, 'failed');
+  assert.equal(result.error.code, 'ARTIFACT_MISSING');
+  assert.equal(result.metrics[0].value, 0.8);
+  assert.ok(result.artifacts.some(artifact => artifact.name === 'stdout.log'));
+  assert.ok(result.artifacts.some(artifact => artifact.name === 'metrics.json'));
+  const ledger = await getEvidenceLedger(projectId);
+  assert.equal(ledger.entries.find(entry => entry.id === result.evidence.runId).verificationStatus, 'unverified');
+});
