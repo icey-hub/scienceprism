@@ -72,8 +72,18 @@ export const STAGE_CONTRACTS = Object.freeze({
     check: nonEmptyObject
   },
   experiment: {
-    required: ['dataset', 'command'],
-    check: (data) => (nonEmptyText(data.dataset) || nonEmptyText(data.datasetId) || nonEmptyArray(data.datasetIds)) && (nonEmptyText(data.command) || nonEmptyText(data.protocol) || nonEmptyArray(data.commands) || nonEmptyObject(data.experiment))
+    required: ['dataset', 'datasetVersion', 'protocol', 'methodId', 'seed', 'repetitions', 'budget', 'successCriteria'],
+    check: (data) => {
+      const experiment = nonEmptyObject(data.experiment) ? data.experiment : data;
+      return (nonEmptyText(experiment.dataset) || nonEmptyText(experiment.datasetId) || nonEmptyArray(experiment.datasetIds))
+        && nonEmptyText(experiment.datasetVersion)
+        && nonEmptyText(experiment.protocol || experiment.command)
+        && nonEmptyText(experiment.methodId)
+        && (nonEmptyText(experiment.seed) || Number.isSafeInteger(experiment.seed))
+        && Number.isInteger(Number(experiment.repetitions)) && Number(experiment.repetitions) >= 1 && Number(experiment.repetitions) <= 100
+        && nonEmptyText(experiment.budget)
+        && nonEmptyArray(experiment.successCriteria);
+    }
   },
   writing: {
     required: ['writing'],

@@ -13,7 +13,8 @@ import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary 
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
-import { assertReplicationPreparationUnchangedFromWorkflow, isReplicationRequest, readReplicationContextFromWorkflow } from './replicationContext.js';
+import { assertReplicationPreparationUnchangedFromWorkflow, isReplicationRequest, readReplicationContextFromWorkflow, readExperimentContextFromWorkflow, assertExperimentPlanUnchangedFromWorkflow } from './replicationContext.js';
+import { isDeepStrictEqual } from 'node:util';
 
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
@@ -58,6 +59,11 @@ const CONFIRMED_EVIDENCE_STATUSES = new Set(['verified', 'human-confirmed', 'app
 
 export function replicationRunSummary(run, evidenceEntries = []) {
   if (!run?.manifest?.replication) return null;
+  return experimentRunSummary(run, evidenceEntries);
+}
+
+export function experimentRunSummary(run, evidenceEntries = []) {
+  if (!run?.manifest) return null;
   const artifacts = Array.isArray(run.artifacts) ? run.artifacts : [];
   const artifactEvidenceIds = Array.isArray(run.evidence?.artifactIds) ? run.evidence.artifactIds : [];
   const runEvidenceId = run.evidence?.runId || `experiment-run-${run.id}`;
@@ -93,7 +99,7 @@ export function replicationRunSummary(run, evidenceEntries = []) {
       : run.status === 'completed'
         ? 'Run completed, but its Evidence is pending or unverified; human verification is required before treating findings as successful.'
         : `Run status is ${run.status}; it cannot support a successful finding.`,
-    provenance: run.manifest.replication,
+    provenance: run.manifest.replication || run.manifest.researchPlan || null,
     codeVersion: run.manifest.code?.version || '',
     codeSnapshotHash: run.manifest.code?.snapshotHash || '',
     dataset: run.manifest.dataset,
@@ -169,13 +175,29 @@ export async function createExperimentRun(projectId, input = {}, { actor = 'huma
     });
   }
   try {
-    const workflow = await getResearchWorkflow(projectId);
-    const experimentStage = workflow.stages?.find((stage) => stage.id === 'experiment');
-    if (experimentStage && experimentStage.status !== 'approved') {
-      throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_NOT_APPROVED', 'Approve the Experiment Plan before creating an Experiment Run.');
-    }
+    return await withWorkflowLock(projectId, async () => {
+      const workflow = await getResearchWorkflow(projectId);
+      const experimentContext = readExperimentContextFromWorkflow(projectId, workflow, { expectedVersion: input.expectedVersion ?? (input.sourceStage === 'experiment' ? undefined : workflow.version) });
+      const manifest = await buildExperimentManifest(projectId, runId, {}, root, { researchContext: experimentContext });
+      const requestedPlan = input.plan || input.experiment;
+      if (requestedPlan) {
+        const requested = await buildExperimentManifest(projectId, runId, input, root);
+        const fields = ['dataset', 'protocol', 'command', 'commandNote', 'parameters', 'seed', 'resources', 'successCriteria', 'artifacts'];
+        if (fields.some((field) => !isDeepStrictEqual(requested[field], manifest[field]))
+          || !isDeepStrictEqual(requested.code.paths, manifest.code.paths)
+          || (requestedPlan.codeVersion && requested.code.version !== manifest.code.version)) {
+          throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_MISMATCH', 'The requested Run differs from the approved experiment plan. Reload the approved plan before creating a Run.');
+        }
+      } else if (input.sourceStage !== 'experiment') {
+        throw new ExperimentRunnerError(400, 'EXPERIMENT_SOURCE_REQUIRED', 'Use sourceStage=experiment and the current workflow version, or provide the approved plan.');
+      }
+      return persistNewRun(projectId, root, makeRun(projectId, manifest, actor));
+    });
   } catch (error) {
-    if (error instanceof ExperimentRunnerError || error?.code !== 'WORKFLOW_NOT_FOUND') throw error;
+    if (error?.code !== 'WORKFLOW_NOT_FOUND') throw error;
+    if (input.sourceStage === 'experiment' || input.expectedVersion !== undefined) {
+      throw new ExperimentRunnerError(409, 'EXPERIMENT_WORKFLOW_REQUIRED', 'A research workflow is required for a version-bound experiment plan.');
+    }
   }
   const manifest = await buildExperimentManifest(projectId, runId, input, root);
   return persistNewRun(projectId, root, makeRun(projectId, manifest, actor));
@@ -458,6 +480,10 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
       if (!workflow) throw new ExperimentRunnerError(409, 'REPLICATION_WORKFLOW_REQUIRED', 'The replication workflow must be available before execution.');
       assertReplicationPreparationUnchangedFromWorkflow(projectId, workflow, next.manifest.replication);
     }
+    if (next.manifest?.researchPlan) {
+      if (!workflow) throw new ExperimentRunnerError(409, 'EXPERIMENT_WORKFLOW_REQUIRED', 'The research workflow must be available before execution.');
+      assertExperimentPlanUnchangedFromWorkflow(projectId, workflow, next.manifest.researchPlan);
+    }
     next.status = 'running';
     next.phase = 'execution';
     next.attempt = Number(next.attempt || 0) + 1;
@@ -484,7 +510,7 @@ export async function startExperimentRun(projectId, runId, { wait = false } = {}
   const rolloutEnabled = isConstraintEnabled(constraintPolicy, 'C-16');
   let run;
   try {
-    if (current.manifest?.replication) {
+    if (current.manifest?.replication || current.manifest?.researchPlan) {
       run = await withWorkflowLock(projectId, async () => {
         const workflow = await getResearchWorkflow(projectId);
         return transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled, workflow);
@@ -535,6 +561,15 @@ export async function retryExperimentRun(projectId, runId, { actor = 'human' } =
       const workflow = await getResearchWorkflow(projectId);
       const replicationContext = readReplicationContextFromWorkflow(projectId, workflow, { expectedVersion: workflow.version });
       const manifest = await buildExperimentManifest(projectId, id, { plan: executionPlan }, root, { replicationContext });
+      return persistNewRun(projectId, root, makeRun(projectId, manifest, actor, { retryOf: current.id }));
+    });
+  }
+
+  if (current.manifest?.researchPlan) {
+    return withWorkflowLock(projectId, async () => {
+      const workflow = await getResearchWorkflow(projectId);
+      const researchContext = assertExperimentPlanUnchangedFromWorkflow(projectId, workflow, current.manifest.researchPlan);
+      const manifest = await buildExperimentManifest(projectId, id, {}, root, { researchContext });
       return persistNewRun(projectId, root, makeRun(projectId, manifest, actor, { retryOf: current.id }));
     });
   }

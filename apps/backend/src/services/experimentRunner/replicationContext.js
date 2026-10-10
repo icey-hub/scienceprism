@@ -85,3 +85,43 @@ export function assertReplicationPreparationUnchangedFromWorkflow(projectId, wor
 export async function assertReplicationPreparationUnchanged(projectId, savedContext) {
   return withWorkflowLock(projectId, async () => assertReplicationPreparationUnchangedFromWorkflow(projectId, await getResearchWorkflow(projectId), savedContext));
 }
+
+function readApprovedExperimentPlan(projectId, workflow, { expectedVersion } = {}) {
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw new ExperimentRunnerError(400, 'EXPERIMENT_VERSION_REQUIRED', 'expectedVersion must be the current research workflow version.');
+  }
+  if (workflow.version !== expectedVersion) {
+    throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_STALE', 'The saved experiment plan changed. Read the current workflow and retry.', { expectedVersion, actualVersion: workflow.version });
+  }
+  const stage = workflow.stages?.find((item) => item.id === 'experiment');
+  if (!stage) throw new ExperimentRunnerError(409, 'EXPERIMENT_STAGE_UNAVAILABLE', 'The research workflow has no experiment stage.');
+  if (stage.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_NOT_APPROVED', 'Approve the saved experiment plan before creating an Experiment Run.');
+  const stageData = plainObject(stage.data) ? stage.data : {};
+  const plan = plainObject(stageData.experiment) ? stageData.experiment : stageData;
+  if (!text(plan.dataset) || !text(plan.datasetVersion) || !text(plan.protocol)) {
+    throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_INCOMPLETE', 'The approved experiment plan is missing dataset, dataset version, or protocol.');
+  }
+  if (!plainObject(plan.execution) || !text(plan.execution.entrypoint)) {
+    throw new ExperimentRunnerError(409, 'EXPERIMENT_EXECUTION_SPEC_REQUIRED', 'The approved experiment plan must contain a structured execution spec.');
+  }
+  return {
+    sourceStage: 'experiment',
+    projectId,
+    workflowId: workflow.id,
+    workflowVersion: workflow.version,
+    stageStatus: stage.status,
+    plan: clone(plan)
+  };
+}
+
+export function readExperimentContextFromWorkflow(projectId, workflow, options = {}) {
+  return readApprovedExperimentPlan(projectId, workflow, options);
+}
+
+export function assertExperimentPlanUnchangedFromWorkflow(projectId, workflow, savedContext) {
+  const current = readApprovedExperimentPlan(projectId, workflow, { expectedVersion: workflow.version });
+  if (current.workflowId !== savedContext.workflowId || current.stageStatus !== savedContext.stageStatus || !isDeepStrictEqual(current.plan, savedContext.plan)) {
+    throw new ExperimentRunnerError(409, 'EXPERIMENT_PLAN_CHANGED', 'The approved experiment plan changed after this Run was created. Create a new Run from the current approved plan.', { runWorkflowVersion: savedContext.workflowVersion, currentWorkflowVersion: workflow.version });
+  }
+  return current;
+}

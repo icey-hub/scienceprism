@@ -338,8 +338,8 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
   const createControlledExperimentRun = useCallback(async () => {
     setBusy(true); setError(''); setNotice('');
     try {
-      await persistHumanInstructions();
-      const result = await createProjectExperimentRun(projectId, { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' });
+      const expectedVersion = await persistHumanInstructions();
+      const result = await createProjectExperimentRun(projectId, { ...workflow.experiment, command: workflow.experiment?.command || workflow.experiment?.protocol || '' }, expectedVersion);
       setExperimentRun(result.run); setNotice('受控 Run 已创建，等待人工批准。');
     } catch (requestError) { setError(`创建运行失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
@@ -417,13 +417,12 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
     finally { setBusy(false); }
   }, [commitWorkflow, navigate, persistHumanInstructions, projectId, workflow.replication?.note]);
   const prepareWriting = useCallback(async () => {
-    const completedRun = experimentRun?.status === 'completed' ? experimentRun : null;
-    const experiment = completedRun ? { ...workflow.experiment, status: completedRun.status, metrics: completedRun.metrics } : workflow.experiment || {};
     const next = await runAction('handoff-writing', {
       paperIds: selectedIds,
       ideas: (workflow.ideas || []).filter((idea) => idea.selected),
       method: workflow.method || {},
-      experiment,
+      experiment: workflow.experiment || {},
+      ...(experimentRun ? { experimentRunId: experimentRun.id } : {}),
       ...(replicationRun ? { replicationRunId: replicationRun.id } : {}),
       agentMode: writingAgentMode
     }, writingAgentMode === 'multi-agent' ? '子 Agent 审查已完成，请检查审查记录与写作材料。' : '研究材料已整理，可以打开论文写作工作台。');

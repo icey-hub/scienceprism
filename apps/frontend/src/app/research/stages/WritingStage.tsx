@@ -34,6 +34,7 @@ export function WritingStage({ projectId, onCitationsSaved, citationRefreshError
   return (
     <div className="research-page-stack">
       <ReplicationResultSummary value={value.replicationRun} heading="写作中可引用的复现记录" />
+      <ReplicationResultSummary value={value.experimentRun} heading="写作中可引用的实验记录" />
       <section className="research-panel research-writing-summary">
         <div>
           <span className="research-overline">EVIDENCE HANDOFF</span>

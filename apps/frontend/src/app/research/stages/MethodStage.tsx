@@ -36,6 +36,8 @@ export function MethodStage({ value, replicationResult, candidates = [], selecte
           <label className="research-field research-field-wide"><span>核心假设</span><textarea value={value.hypothesis} rows={4} placeholder="什么机制会带来可测量的改善？" onChange={(event) => onChange({ ...value, hypothesis: event.target.value })} /></label>
           <label className="research-field"><span>基线方法 <small>每行一个</small></span><textarea value={value.baselines.join('\n')} rows={4} placeholder="RAG baseline" onChange={(event) => onChange({ ...value, baselines: toLines(event.target.value) })} /></label>
           <label className="research-field"><span>消融实验 <small>每行一个</small></span><textarea value={value.ablations.join('\n')} rows={4} placeholder="移除 evidence gate" onChange={(event) => onChange({ ...value, ablations: toLines(event.target.value) })} /></label>
+          <label className="research-field"><span>评估指标 <small>每行一个</small></span><textarea value={value.metrics.join('\n')} rows={3} onChange={(event) => onChange({ ...value, metrics: toLines(event.target.value) })} /></label>
+          <label className="research-field"><span>预期失败与停止条件 <small>每行一个</small></span><textarea value={value.expectedFailures.join('\n')} rows={3} onChange={(event) => onChange({ ...value, expectedFailures: toLines(event.target.value) })} /></label>
         </div>
       </section>
       <section className="research-callout research-callout-warning"><strong>进入实验前的人工检查</strong><p>核心假设、基线、指标和消融设置必须足够明确，才能进入实验验证。</p></section>

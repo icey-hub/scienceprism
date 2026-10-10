@@ -212,7 +212,11 @@ test('workflow projection preserves the structured Experiment Plan contract', ()
     successCriteria: ['accuracy >= 0.9'],
     artifacts: [{ path: 'results/metrics.json', kind: 'metric' }],
     status: 'planned',
-    metrics: ['accuracy']
+    metrics: ['accuracy'],
+    methodId: 'method-1',
+    repetitions: 3,
+    budget: '10 CPU minutes',
+    expectedFailures: ['dataset drift']
   };
 
   const projected = toFrontendWorkflow(workflow).experiment;

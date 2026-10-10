@@ -55,6 +55,7 @@ test('writing delegation executes two independent child Runs before the validate
     for (const child of result.delegation.children) {
       const run = await getHarnessRun(request.projectId, child.runId);
       assert.equal(run.parentRunId, result.delegation.parentRunId);
+      assert.equal(run.request.prompt.includes('The selected replication Run is not completed'), false, 'a missing replication Run must not be described as an unfinished selected Run');
       assert.deepEqual(run.capabilities.granted, ['project.read']);
       assert.deepEqual(run.skills, child.task === 'claim-evidence-audit' ? ['claim-evidence-audit'] : ['ccf-paper-review']);
     }

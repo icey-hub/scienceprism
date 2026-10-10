@@ -39,6 +39,28 @@ function arxivXml() {
   return `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2401.00001</id><title>Evidence gated retrieval</title><summary>A method for grounded retrieval.</summary><published>2024-01-02T00:00:00Z</published><author><name>A. Researcher</name></author></entry><entry><id>http://arxiv.org/abs/2401.00001v2</id><title>Evidence gated retrieval</title><summary>A longer method abstract.</summary><published>2024-01-02T00:00:00Z</published><author><name>A. Researcher</name></author><author><name>B. Researcher</name></author></entry></feed>`;
 }
 
+test('experiment approval rejects incomplete design even through direct workflow commands', async () => {
+  const projectId = 'experiment-design-approval';
+  await createProject(projectId);
+  let workflow = await initializeResearchWorkflow(projectId, {});
+  for (const [stageId, data] of [
+    ['direction', { researchQuestion: 'Does the method improve accuracy?' }],
+    ['search', { queries: ['accuracy'] }],
+    ['selection', { selectedPaperIds: ['paper-1'] }]
+  ]) {
+    workflow = await updateResearchWorkflow(projectId, { stageId, data, expectedVersion: workflow.version });
+    workflow = await approveResearchWorkflow(projectId, { stageId, expectedVersion: workflow.version });
+  }
+  workflow = await approveResearchWorkflow(projectId, { stageId: 'replication', decision: 'skip', note: 'No suitable reference implementation.', expectedVersion: workflow.version });
+  workflow = await updateResearchWorkflow(projectId, { stageId: 'ideation', data: { ideas: [{ id: 'idea-1' }] }, expectedVersion: workflow.version });
+  workflow = await approveResearchWorkflow(projectId, { stageId: 'ideation', expectedVersion: workflow.version });
+  workflow = await updateResearchWorkflow(projectId, { stageId: 'method', data: { method: { title: 'Method A', hypothesis: 'Improve accuracy', baselines: ['baseline'], metrics: ['accuracy'] } }, expectedVersion: workflow.version });
+  workflow = await approveResearchWorkflow(projectId, { stageId: 'method', expectedVersion: workflow.version });
+  workflow = await updateResearchWorkflow(projectId, { stageId: 'experiment', data: { dataset: 'dataset-1', command: 'node run.mjs' }, expectedVersion: workflow.version });
+  await assert.rejects(approveResearchWorkflow(projectId, { stageId: 'experiment', expectedVersion: workflow.version }), { code: 'STAGE_NOT_READY' });
+  assert.equal((await getResearchWorkflow(projectId)).stages.find((item) => item.id === 'experiment').status, 'in_progress');
+});
+
 test('selection approval preserves replication until an explicit human decision', async () => {
   const { approveFromRequest } = await import('../src/services/researchWorkflow/application.js');
   for (const legacySkip of [false, true]) {
@@ -133,9 +155,9 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
 
     workflow = await runUiAction(projectId, { action: 'generate-method', adapter: 'fake', ideaIds: ['idea-1'], fakeResponse: JSON.stringify({ stage: 'method_proposals', selectedIdeaId: 'idea-1', proposals: [{ id: 'method-1', name: 'Evidence gate', ideaId: 'idea-1', description: 'Gate retrieved context by source support.', components: ['evidence check'], assumptions: ['source metadata is available'], baselines: ['plain retrieval'], metrics: ['groundedness'], ablations: [], implementationRisks: [] }], recommendation: 'method-1', humanDecisionRequired: true }) }, 'human');
     await assertRunSuggestions('method', stageData(workflow, 'method').task.harness.runId);
+    workflow = await runUiAction(projectId, { action: 'save-method', method: { id: 'method-1', title: 'Evidence gate', hypothesis: 'Evidence gating reduces unsupported context.', baselines: ['plain retrieval'], metrics: ['groundedness'] } }, 'human');
     workflow = await approve(projectId, 'method');
-
-    workflow = await runUiAction(projectId, { action: 'run-experiment', experiment: { dataset: 'held-out', command: 'record-only', metrics: ['groundedness'] } }, 'human');
+    workflow = await runUiAction(projectId, { action: 'run-experiment', experiment: { dataset: 'held-out', datasetVersion: 'v1', protocol: 'Record groundedness across three repeats.', execution: { adapter: 'node', entrypoint: 'run.mjs', args: [] }, methodId: 'method-1', seed: 0, repetitions: 3, budget: '10 CPU minutes', successCriteria: ['groundedness is recorded'], metrics: [] } }, 'human');
     workflow = await approve(projectId, 'experiment');
 
     const evidence = await getEvidenceLedger(projectId);
@@ -205,14 +227,16 @@ test('direction to writing Brief vertical slice keeps approvals, Evidence, and e
   }
 });
 
-test('writing handoff uses server-derived replication Run data instead of forged client experiment fields', async () => {
+for (const outcome of ['completed', 'failed', 'cancelled']) {
+test(`writing handoff uses server-derived ${outcome} replication Run data instead of forged client experiment fields`, async () => {
   process.env.NODE_ENV = 'test';
-  const projectId = 'replication-writing-handoff';
+  const projectId = `replication-writing-handoff-${outcome}`;
   const root = await createProject(projectId);
   await mkdir(path.join(root, '.scienceprism'), { recursive: true });
   await writeFile(path.join(root, '.scienceprism', 'project-constraints.json'), JSON.stringify({ capabilities: ['project.read', 'experiment.execute'] }));
 
-  const { createExperimentRun, decideExperimentRun, startExperimentRun } = await import('../src/services/experimentRunner/index.js');
+  const { createExperimentRun, decideExperimentRun, startExperimentRun, cancelExperimentRun } = await import('../src/services/experimentRunner/index.js');
+  await writeFile(path.join(root, 'run.mjs'), 'process.exit(1);\n');
   let workflow = await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'Can the reported result be reproduced?' } });
   const approveStageWithData = async (stageId, data) => {
     workflow = await updateResearchWorkflow(projectId, { stageId, data, expectedVersion: workflow.version, actor: 'human' });
@@ -230,15 +254,17 @@ test('writing handoff uses server-derived replication Run data instead of forged
 
   const run = await createExperimentRun(projectId, {
     sourceStage: 'replication', expectedVersion: workflow.version,
-    plan: { execution: { adapter: 'fake' } }
+    plan: { execution: outcome === 'failed' ? { adapter: 'node', entrypoint: 'run.mjs', args: [] } : { adapter: 'fake' } }
   });
   await decideExperimentRun(projectId, run.id, { decision: 'approve', actor: 'human' });
-  const completedRun = await startExperimentRun(projectId, run.id, { wait: true });
-  assert.equal(completedRun.status, 'completed');
+  const completedRun = outcome === 'cancelled'
+    ? await cancelExperimentRun(projectId, run.id)
+    : await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(completedRun.status, outcome);
 
   await approveStageWithData('ideation', { ideas: [{ id: 'idea-1', title: 'A candidate' }] });
-  await approveStageWithData('method', { method: { name: 'Recorded protocol' } });
-  await approveStageWithData('experiment', { dataset: 'legacy-dataset', command: 'record-only' });
+  await approveStageWithData('method', { method: { id: 'method-recorded', title: 'Recorded protocol', hypothesis: 'The recorded method remains reviewable.', baselines: ['reported baseline'], metrics: ['accuracy'] } });
+  await approveStageWithData('experiment', { dataset: 'legacy-dataset', datasetVersion: 'legacy-v1', protocol: 'Recorded protocol plan.', methodId: 'method-recorded', seed: '7', repetitions: 1, budget: 'review only', successCriteria: ['accuracy is recorded'], command: 'record-only' });
   await (await import('../src/services/evidenceLedger/index.js')).upsertEvidence(projectId, {
     id: 'replication-paper', kind: 'paper', title: 'Replication source', verificationStatus: 'human-confirmed', version: 'paper-v1'
   }, { actor: 'human' });
@@ -253,7 +279,7 @@ test('writing handoff uses server-derived replication Run data instead of forged
   }, 'human');
 
   const writingInput = stageData(updated, 'writing').task.input;
-  assert.equal(writingInput.experiment.status, 'completed');
+  assert.equal(writingInput.experiment.status, outcome);
   assert.equal(writingInput.experiment.dataset, 'dataset-recorded');
   assert.equal(writingInput.experiment.datasetVersion, 'dataset-v3');
   assert.equal(writingInput.experiment.protocol, 'Human-approved replication preparation.');
@@ -261,16 +287,18 @@ test('writing handoff uses server-derived replication Run data instead of forged
   assert.equal(writingInput.experiment.resultRun.id, run.id);
   assert.equal(writingInput.experiment.resultRun.codeSnapshotHash, run.manifest.code.snapshotHash);
   assert.equal(writingInput.replicationRun.id, run.id);
-  assert.equal(writingInput.replicationRun.evidenceStatus, 'pending');
+  assert.equal(writingInput.replicationRun.evidenceStatus, outcome === 'completed' ? 'pending' : 'unverified');
   assert.equal(writingInput.replicationRun.supportsSuccessfulFinding, false);
   const { getProjectRoot } = await import('../src/services/projectService.js');
   assert.equal(await getProjectRoot(projectId), root, 'writing artifacts and the fixture must resolve the same project root');
   const artifact = await readFile(path.join(root, 'research', 'writing-brief.md'), 'utf8');
   assert.ok(artifact.includes(`Run ID: \`${run.id}\``));
   assert.ok(artifact.includes('Evidence: `experiment-run-'));
-  assert.ok(artifact.includes('(pending)'));
+  assert.ok(artifact.includes(outcome === 'completed' ? '(pending)' : '(unverified)'));
+  assert.ok(artifact.includes(`Status: \`${outcome}\``));
   assert.ok(artifact.includes('Supports successful finding: no'));
 });
+}
 
 test('writing handoff rejects a missing replication Run reference at the public UI seam', async () => {
   const projectId = 'replication-writing-missing-run';

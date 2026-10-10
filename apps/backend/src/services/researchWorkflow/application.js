@@ -4,7 +4,7 @@ import { applyQualityGate, listResearchSkills, resolveResearchSkillBindings, run
 import { mergePaperCandidates, prioritizePaperCandidates } from '../researchResearch/paperCandidates.js';
 import { listResearchSourceAdapters, searchResearchSources } from '../researchSources/index.js';
 import { getEvidenceLedger, upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
-import { getExperimentRun, replicationRunSummary } from '../experimentRunner/index.js';
+import { getExperimentRun, experimentRunSummary } from '../experimentRunner/index.js';
 import { createStageTask } from './stageTask.js';
 import { writeWritingBriefArtifact } from './writingBriefArtifact.js';
 import { runWritingDelegation } from './writingDelegation.js';
@@ -91,44 +91,43 @@ function hasOwn(value, key) {
   return value !== null && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key);
 }
 
-async function readReplicationHandoff(projectId, replicationRunId) {
-  if (replicationRunId === undefined || replicationRunId === null || replicationRunId === '') return null;
-  if (typeof replicationRunId !== 'string' || !replicationRunId.trim()) throw new ResearchWorkflowError(400, 'INVALID_REPLICATION_RUN_ID', 'replicationRunId must be a non-empty Run ID.');
+async function readRunHandoff(projectId, runId, sourceStage) {
+  if (runId === undefined || runId === null || runId === '') return null;
+  const codePrefix = sourceStage.toUpperCase();
+  if (typeof runId !== 'string' || !runId.trim()) throw new ResearchWorkflowError(400, `INVALID_${codePrefix}_RUN_ID`, `${sourceStage}RunId must be a non-empty Run ID.`);
   let run;
   try {
-    run = await getExperimentRun(projectId, replicationRunId.trim());
+    run = await getExperimentRun(projectId, runId.trim());
   } catch (error) {
-    if (error?.code === 'EXPERIMENT_RUN_NOT_FOUND') throw new ResearchWorkflowError(404, 'REPLICATION_RUN_NOT_FOUND', 'The requested replication Run does not belong to this project or does not exist.');
+    if (error?.code === 'EXPERIMENT_RUN_NOT_FOUND') throw new ResearchWorkflowError(404, `${codePrefix}_RUN_NOT_FOUND`, `The requested ${sourceStage} Run does not belong to this project or does not exist.`);
     throw error;
   }
-  if (!run.manifest?.replication || run.manifest.replication.projectId !== projectId || run.manifest.replication.sourceStage !== 'replication') {
-    throw new ResearchWorkflowError(409, 'REPLICATION_RUN_PROVENANCE_INVALID', 'The selected Run is not a replication Run for this project.');
+  const provenance = sourceStage === 'replication' ? run.manifest?.replication : run.manifest?.researchPlan;
+  if (!provenance || provenance.projectId !== projectId || provenance.sourceStage !== sourceStage) {
+    throw new ResearchWorkflowError(409, `${codePrefix}_RUN_PROVENANCE_INVALID`, `The selected Run is not a ${sourceStage} Run for this project.`);
   }
-  const summary = replicationRunSummary(run, (await getEvidenceLedger(projectId)).entries);
-  if (!summary) throw new ResearchWorkflowError(409, 'REPLICATION_RUN_PROVENANCE_INVALID', 'The selected Run has no server-recorded replication provenance.');
-  return summary;
+  return experimentRunSummary(run, (await getEvidenceLedger(projectId)).entries);
 }
 
-function handoffExperiment(workflow, body, replicationRun = null) {
+function handoffExperiment(workflow, body, resultRun = null) {
   const saved = stageData(workflow, 'experiment');
   const client = body.experiment && typeof body.experiment === 'object' && !Array.isArray(body.experiment) ? body.experiment : {};
-  // Keep the legacy ordinary-experiment handoff contract. Replication results
-  // use the separate server-derived replicationRun field below, so client
-  // metrics and provenance cannot override that authoritative context.
-  if (!replicationRun) return hasOwn(body, 'experiment') ? client : saved;
+  // Older clients may send a plan without a Run. A selected Run always owns
+  // the execution fields, even when it failed or was cancelled.
+  if (!resultRun) return hasOwn(body, 'experiment') ? client : saved;
   return {
     ...saved,
-    status: replicationRun.status,
-    dataset: replicationRun.dataset?.id || saved.dataset || '',
-    datasetVersion: replicationRun.dataset?.version || saved.datasetVersion || '',
-    protocol: replicationRun.provenance?.plan?.note || saved.protocol || '',
-    metrics: replicationRun.metrics,
+    status: resultRun.status,
+    dataset: resultRun.dataset?.id || '',
+    datasetVersion: resultRun.dataset?.version || '',
+    protocol: resultRun.provenance?.plan?.protocol || resultRun.provenance?.plan?.note || '',
+    metrics: resultRun.metrics,
     resultRun: {
-      id: replicationRun.id,
-      status: replicationRun.status,
-      codeSnapshotHash: replicationRun.codeSnapshotHash,
-      dataset: replicationRun.dataset,
-      artifacts: replicationRun.artifacts
+      id: resultRun.id,
+      status: resultRun.status,
+      codeSnapshotHash: resultRun.codeSnapshotHash,
+      dataset: resultRun.dataset,
+      artifacts: resultRun.artifacts
     }
   };
 }
@@ -204,8 +203,12 @@ export async function runUiAction(projectId, body, actor) {
   if (action === 'save-method') return updateStage(projectId, 'method', { method: body.method || {}, task: createStageTask({ stage: 'method', input: { method: body.method || {} }, output: { method: body.method || {} }, validation: { ok: true, errors: [], warnings: [] }, adapters: ['human-decision'] }) }, body, actor);
   if (action === 'run-experiment') {
     const experiment = body.experiment || {};
-    if (!experiment.dataset || !experiment.command) throw new ResearchWorkflowError(400, 'EXPERIMENT_INCOMPLETE', 'Dataset and command are required before an experiment can run.');
-    return updateStage(projectId, 'experiment', { ...experiment, status: 'planned', humanApprovalRequired: true, runRequestedAt: new Date().toISOString(), task: createStageTask({ stage: 'experiment', input: { experiment }, output: { ...experiment, status: 'planned' }, validation: { ok: true, errors: [], warnings: ['This Experiment Plan must be converted to a structured Experiment Run, explicitly approved, and executed with the project experiment.execute capability.'] }, adapters: ['human-decision'] }) }, body, actor);
+    const method = stageData(workflow, 'method').method || stageData(workflow, 'method');
+    if (!experiment.dataset || !experiment.datasetVersion || !experiment.protocol || !experiment.execution?.entrypoint) throw new ResearchWorkflowError(400, 'EXPERIMENT_INCOMPLETE', 'Dataset, version, protocol, and a structured project entrypoint are required before an experiment can be submitted.');
+    if (!method.title || !method.hypothesis || !Array.isArray(method.baselines) || !method.baselines.length || !Array.isArray(method.metrics) || !method.metrics.length) throw new ResearchWorkflowError(409, 'METHOD_PLAN_INCOMPLETE', 'Save a method title, hypothesis, baseline, and evaluation metric before submitting an experiment.');
+    if (!String(experiment.methodId || '').trim() || (experiment.methodId !== method.id && experiment.methodId !== method.title)) throw new ResearchWorkflowError(409, 'METHOD_PLAN_MISMATCH', 'The experiment must identify the current saved method plan.');
+    if (!(typeof experiment.seed === 'string' ? experiment.seed.trim().length > 0 : Number.isSafeInteger(experiment.seed)) || !Number.isInteger(Number(experiment.repetitions)) || Number(experiment.repetitions) < 1 || Number(experiment.repetitions) > 100 || !String(experiment.budget || '').trim() || !Array.isArray(experiment.successCriteria) || !experiment.successCriteria.length) throw new ResearchWorkflowError(400, 'EXPERIMENT_DESIGN_INCOMPLETE', 'Seed, repetitions (1-100), budget, and success criteria are required before approval.');
+    return updateStage(projectId, 'experiment', { ...experiment, status: 'planned', humanApprovalRequired: true, runRequestedAt: new Date().toISOString(), task: createStageTask({ stage: 'experiment', input: { methodId: experiment.methodId, method, experiment }, output: { ...experiment, status: 'planned' }, validation: { ok: true, errors: [], warnings: ['This Experiment Plan must be converted to a structured Experiment Run, explicitly approved, and executed with the project experiment.execute capability.'] }, adapters: ['human-decision'] }) }, body, actor);
   }
   if (action === 'handoff-writing') {
     if (body.agentMode && !['single-agent', 'multi-agent'].includes(body.agentMode)) {
@@ -215,7 +218,8 @@ export async function runUiAction(projectId, body, actor) {
     const selectedStage = stageData(workflow, 'selection');
     const selectedPapers = selectedStage.selectedPapers || [];
     const ideas = (stageData(workflow, 'ideation').ideas || []).filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
-    const replicationRun = await readReplicationHandoff(projectId, body.replicationRunId);
+    const replicationRun = await readRunHandoff(projectId, body.replicationRunId, 'replication');
+    const experimentRun = await readRunHandoff(projectId, body.experimentRunId, 'experiment');
     // The Evidence Ledger belongs in the writing input.
     //
     // It was missing, so the stage could only see the papers the selection stage
@@ -242,8 +246,9 @@ export async function runUiAction(projectId, body, actor) {
       papers: selectedPapers,
       ideas,
       method: body.method || stageData(workflow, 'method').method || {},
-      experiment: handoffExperiment(workflow, body, replicationRun),
+      experiment: handoffExperiment(workflow, body, experimentRun || replicationRun),
       ...(replicationRun ? { replicationRun } : {}),
+      ...(experimentRun ? { experimentRun } : {}),
       evidenceLedger: citableEvidence
     };
     const harness = body.agentMode === 'multi-agent'
@@ -264,12 +269,12 @@ export async function runUiAction(projectId, body, actor) {
         try { await linkEvidence(projectId, { type: 'supports', fromId: evidenceId, toId: claimId, actor }, { actor }); } catch { /* the claim check remains authoritative */ }
       }
     }
-    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation, replicationRun });
+    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation, replicationRun, experimentRun });
     // A completed workflow is immutable, but researchers may need to refresh
     // its derived writing brief after new Evidence is verified. Save the new
     // artifact without reopening or rewriting the completed stage history.
     if (completedWorkflow) return workflow;
-    return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, replicationRun, evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment, ...(replicationRun ? { replicationRun } : {}) }, task }, body, actor);
+    return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, replicationRun, experimentRun, evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment, ...(replicationRun ? { replicationRun } : {}), ...(experimentRun ? { experimentRun } : {}) }, task }, body, actor);
   }
   throw new ResearchWorkflowError(400, 'UNKNOWN_ACTION', `Unknown research workflow action: ${action}`);
 }

@@ -667,6 +667,14 @@ export interface ExperimentRun {
     seed?: string | null;
     successCriteria?: string[];
     replication?: ReplicationProvenance;
+    researchPlan?: {
+      sourceStage: 'experiment';
+      projectId: string;
+      workflowId: string;
+      workflowVersion: number;
+      stageStatus: string;
+      plan: { methodId?: string; repetitions?: number; budget?: string; expectedFailures?: string[] };
+    };
   };
   approval?: { decision: string; actor: string; note?: string; at: string } | null;
   execution?: { startedAt?: string; finishedAt?: string; exitCode?: number | null; signal?: string | null; error?: { code?: string; message?: string } | null } | null;
@@ -784,10 +792,10 @@ export function listExperimentRuns(projectId: string, query: Record<string, stri
   return request<{ ok: boolean; runs: ExperimentRun[] }>(`/api/projects/${projectId}/experiment-runs${qs ? `?${qs}` : ''}`);
 }
 
-export function createExperimentRun(projectId: string, plan: Record<string, unknown>) {
+export function createExperimentRun(projectId: string, plan: Record<string, unknown>, expectedVersion?: number) {
   return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${projectId}/experiment-runs`, {
     method: 'POST',
-    body: JSON.stringify({ plan })
+    body: JSON.stringify({ plan, ...(expectedVersion !== undefined ? { sourceStage: 'experiment', expectedVersion } : {}) })
   });
 }
 

@@ -114,9 +114,11 @@ async function fileHashIfPresent(root, relativePath) {
   try { return (await hashFile(root, relativePath)).sha256 || null; } catch (error) { if (error?.code === 'ENOENT') return null; throw error; }
 }
 
-export async function buildExperimentManifest(projectId, runId, input = {}, projectRoot, { replicationContext = null } = {}) {
+export async function buildExperimentManifest(projectId, runId, input = {}, projectRoot, { replicationContext = null, researchContext = null } = {}) {
   const inputPlan = plainObject(input.plan) ? input.plan : {};
-  const source = replicationContext
+  const source = researchContext
+    ? { ...researchContext.plan }
+    : replicationContext
     ? {
       execution: inputPlan.execution,
       parameters: inputPlan.parameters,
@@ -186,6 +188,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
     successCriteria,
     artifacts: normalizeArtifacts(source.artifacts || source.artifactPaths),
     ...(replicationContext ? { replication: replicationContext } : {}),
+    ...(researchContext ? { researchPlan: researchContext } : {}),
     createdAt: now()
   };
 }
@@ -204,7 +207,8 @@ export function manifestSummary(manifest) {
     resources: manifest.resources,
     successCriteria: manifest.successCriteria,
     artifacts: manifest.artifacts,
-    ...(manifest.replication ? { replication: manifest.replication } : {})
+    ...(manifest.replication ? { replication: manifest.replication } : {}),
+    ...(manifest.researchPlan ? { researchPlan: manifest.researchPlan } : {})
   };
 }
 

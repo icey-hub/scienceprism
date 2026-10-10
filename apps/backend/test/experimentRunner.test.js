@@ -47,6 +47,65 @@ function plan(accuracy = 0.91) {
   };
 }
 
+async function approvedResearchPlan(projectId) {
+  const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
+  const { writeWorkflowFile } = await import('../src/services/researchWorkflow/repository.js');
+  const root = await createProject(projectId);
+  const workflow = createWorkflowDocument(projectId);
+  workflow.currentStage = 'writing';
+  const stage = workflow.stages.find((item) => item.id === 'experiment');
+  stage.status = 'approved';
+  stage.data = { ...plan(), dataset: 'dataset-1', datasetVersion: 'snapshot-2026-09-21' };
+  await writeWorkflowFile(root, workflow);
+  return { root, workflow, savedPlan: stage.data };
+}
+
+test('research Experiment Runs bind approved inputs and refuse stale or different plans before saving', async () => {
+  const projectId = 'research-plan-binding';
+  const { workflow, savedPlan } = await approvedResearchPlan(projectId);
+  const { listExperimentRuns } = await import('../src/services/experimentRunner/index.js');
+  for (const patch of [
+    { parameters: { accuracy: 99 } },
+    { execution: { adapter: 'node', entrypoint: 'other.mjs', args: [] } },
+    { datasetVersion: 'different' },
+    { seed: 42 },
+    { codePaths: ['run.mjs'] }
+  ]) {
+    await assert.rejects(createExperimentRun(projectId, { sourceStage: 'experiment', expectedVersion: workflow.version, plan: { ...savedPlan, ...patch } }), { code: 'EXPERIMENT_PLAN_MISMATCH' });
+  }
+  await assert.rejects(createExperimentRun(projectId, { sourceStage: 'experiment', expectedVersion: workflow.version + 1 }), { code: 'EXPERIMENT_PLAN_STALE' });
+  await assert.rejects(createExperimentRun(projectId, { sourceStage: 'experiment' }), { code: 'EXPERIMENT_VERSION_REQUIRED' });
+  assert.equal((await listExperimentRuns(projectId)).length, 0);
+  const run = await createExperimentRun(projectId, { sourceStage: 'experiment', expectedVersion: workflow.version, plan: savedPlan });
+  assert.equal(run.manifest.researchPlan.workflowId, workflow.id);
+  assert.equal(run.manifest.researchPlan.projectId, projectId);
+  assert.deepEqual(run.manifest.parameters, savedPlan.parameters);
+  await assert.rejects(startExperimentRun(projectId, run.id), { code: 'EXPERIMENT_APPROVAL_REQUIRED' });
+  await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+  const completed = await startExperimentRun(projectId, run.id, { wait: true });
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.metrics[0].value, 0.91);
+});
+
+test('research Experiment Runs cannot start after plan drift or workflow reset', async () => {
+  const { writeWorkflowFile } = await import('../src/services/researchWorkflow/repository.js');
+  const { applyReset } = await import('../src/services/researchWorkflow/stateMachine.js');
+  for (const change of ['parameters', 'reset']) {
+    const projectId = `research-plan-${change}`;
+    const { root, workflow } = await approvedResearchPlan(projectId);
+    const run = await createExperimentRun(projectId, { sourceStage: 'experiment', expectedVersion: workflow.version });
+    await decideExperimentRun(projectId, run.id, { decision: 'approve' });
+    if (change === 'reset') await writeWorkflowFile(root, applyReset(workflow));
+    else {
+      workflow.stages.find((item) => item.id === 'experiment').data.parameters.accuracy = 99;
+      workflow.version += 1;
+      await writeWorkflowFile(root, workflow);
+    }
+    await assert.rejects(startExperimentRun(projectId, run.id), { code: change === 'reset' ? 'EXPERIMENT_PLAN_NOT_APPROVED' : 'EXPERIMENT_PLAN_CHANGED' });
+    assert.equal((await getExperimentRun(projectId, run.id)).status, 'approved');
+  }
+});
+
 test('Experiment Run requires approval and an explicit execution capability', async () => {
   const projectId = 'experiment-approval';
   await createProject(projectId, { execute: false });

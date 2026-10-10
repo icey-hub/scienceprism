@@ -50,7 +50,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
   const { workflow, skills, skillBindings, policy, setPolicy, paperFilter, setPaperFilter, projectName, loading, busy, harnessState, error, notice, instructionDrafts, setInstructionDrafts, claimMatrix, refreshCitations, citationRefreshError, stageRoles, experimentRun, replicationRun, evidenceEntries, evidenceLedgerError, writingAgentMode, setWritingAgentMode, loadWorkflow, saveHumanInstructions, patchStage, saveDirection, handleSkillBinding, handleSkillFiles, selectedIds, selectedIdeas, visiblePapers, approveStage, rejectStage, resetWorkflow, updateWorkflow, runSearch, savePaperSelection, generateIdeas, saveIdeaSelection, generateMethod, saveMethod, saveExperiment, runExperiment, createControlledExperimentRun, approveControlledExperimentRun, startControlledExperimentRun, cancelControlledExperimentRun, saveReplication, createControlledReplicationRun, approveControlledReplicationRun, startControlledReplicationRun, cancelControlledReplicationRun, skipReplication, prepareWriting } = useResearchSession(projectId, stage, navigate, llmConfig);
   useEffect(() => { if (rawStage && !isResearchStageId(rawStage)) navigate(`/editor/${projectId}/research/direction`, { replace: true }); }, [navigate, projectId, rawStage]);
 
-  const { direction, search, replication, replicationResult, method, experiment, writing } = toResearchView(workflow, claimMatrix || undefined, experimentRun, replicationRun, evidenceEntries || []);
+  const { direction, search, replication, replicationResult, method, experiment, writing } = toResearchView(workflow, claimMatrix || undefined, experimentRun, replicationRun, evidenceEntries);
 
   useEffect(() => {
     onStateChange?.({

@@ -98,7 +98,7 @@ test('replication projection keeps incomplete legacy Run data readable and unver
   assert.deepEqual(summary.artifacts, []);
 });
 
-test('writing projection preserves legacy outline and prefers completed experiment metrics', () => {
+test('writing projection preserves legacy outline without counting plan metrics as execution results', () => {
   const workflow = mergeWorkflow({ experiment: { command: 'node run.js', metrics: [{ name: 'draft' }] }, writing: { evidence: { outline: 'Evidence outline' } } });
   const matrix = { ok: false, unsupportedClaims: 1, rows: [] };
   const completed = toResearchView(workflow, matrix, { status: 'completed', metrics: [{}, {}] });
@@ -107,5 +107,26 @@ test('writing projection preserves legacy outline and prefers completed experime
   assert.equal(completed.writing.outline, 'Evidence outline');
   assert.equal(completed.writing.claimMatrix, matrix);
   assert.equal(completed.writing.ready, false);
-  assert.equal(toResearchView(workflow, matrix, { status: 'running', metrics: [{}, {}] }).writing.metricCount, 1);
+  assert.equal(toResearchView(workflow, matrix, { status: 'running', metrics: [{}, {}] }).writing.metricCount, 0);
+  assert.equal(toResearchView(workflow, matrix).writing.metricCount, 0);
+});
+
+test('writing keeps experiment and replication summaries distinct and drops stale confirmation on ledger failure', () => {
+  const provenance = { projectId: 'p', workflowId: 'w', workflowVersion: 3, stageStatus: 'approved', plan: {} };
+  const experiment = { id: 'experiment', status: 'completed', metrics: [{ name: 'mean', value: 4 }], manifest: { researchPlan: { ...provenance, sourceStage: 'experiment' } }, evidence: { runId: 'experiment-evidence' }, artifacts: [] };
+  const replication = { ...experiment, id: 'replication', manifest: { replication: { ...provenance, sourceStage: 'replication' } }, evidence: { runId: 'replication-evidence' } };
+  const workflow = mergeWorkflow({ writing: { replicationRun: { id: 'stale', supportsSuccessfulFinding: true } } });
+  const ledger = ['experiment-evidence', 'replication-evidence'].map(id => ({ id, verificationStatus: 'human-confirmed' }));
+  const confirmed = toResearchView(workflow, undefined, experiment, replication, ledger).writing;
+  assert.equal(confirmed.experimentRun.id, 'experiment');
+  assert.equal(confirmed.replicationRun.id, 'replication');
+  const unavailable = toResearchView(workflow, undefined, experiment, replication, null).writing;
+  for (const summary of [unavailable.experimentRun, unavailable.replicationRun]) {
+    assert.equal(summary.supportsSuccessfulFinding, false);
+    assert.equal(summary.evidenceStatus, 'unavailable');
+  }
+  assert.equal(toResearchView(workflow).writing.replicationRun, undefined);
+  const failed = toResearchView(workflow, undefined, { ...experiment, status: 'failed' }, replication, ledger).writing;
+  assert.equal(failed.experimentRun.supportsSuccessfulFinding, false);
+  assert.equal(failed.metricCount, 0);
 });

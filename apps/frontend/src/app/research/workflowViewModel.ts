@@ -69,8 +69,8 @@ export const DEFAULT_POLICY: FilterPolicy = {
 
 export const EMPTY_WORKFLOW: UiWorkflow = {
   activeStage: 'direction', direction: { question: '', keywords: [], scope: '', notes: '' }, search: { query: '', count: 0 }, papers: [],
-  replication: { repository: '', environment: '', dataset: '', note: '' }, ideas: [], method: { title: '', hypothesis: '', baselines: [], ablations: [] },
-  experiment: { dataset: '', datasetVersion: '', protocol: '', command: '', status: '待规划', metrics: [] }, writing: { ready: false, outline: '' }
+  replication: { repository: '', environment: '', dataset: '', note: '' }, ideas: [], method: { title: '', hypothesis: '', baselines: [], ablations: [], metrics: [], expectedFailures: [] },
+  experiment: { dataset: '', datasetVersion: '', protocol: '', command: '', methodId: '', repetitions: 1, budget: '', expectedFailures: [], status: '待规划', metrics: [] }, writing: { ready: false, outline: '' }
 };
 
 export function mergeWorkflow(input?: UiWorkflow | WorkflowEnvelope): UiWorkflow {
@@ -107,9 +107,13 @@ function evidenceStatus(entry: EvidenceRecord | undefined, fallback: string) {
 }
 
 export function replicationResultSummary(run?: ExperimentRun | null, evidenceEntries: readonly EvidenceRecord[] | null = []): ReplicationResultSummary | undefined {
+  return runResultSummary(run, evidenceEntries, 'replication');
+}
+
+function runResultSummary(run: ExperimentRun | null | undefined, evidenceEntries: readonly EvidenceRecord[] | null, sourceStage: 'experiment' | 'replication'): ReplicationResultSummary | undefined {
   const manifest = run?.manifest;
-  const provenance = manifest?.replication;
-  if (!run || !provenance) return undefined;
+  const provenance = sourceStage === 'replication' ? manifest?.replication : manifest?.researchPlan;
+  if (!run || !manifest || !provenance) return undefined;
   const metrics = Array.isArray(run.metrics) ? run.metrics : [];
   const artifactsFromRun = Array.isArray(run.artifacts) ? run.artifacts : [];
   const ledgerAvailable = evidenceEntries !== null;
@@ -170,10 +174,10 @@ export function toResearchView(workflow: UiWorkflow, claimMatrix?: WritingEviden
     ...(workflow.replication?.artifacts ? { artifacts: workflow.replication.artifacts } : {}),
     status: workflow.replication?.status
   };
-  const method: MethodDraft = { title: workflow.method?.title || '', hypothesis: workflow.method?.hypothesis || '', baselines: workflow.method?.baselines || [], ablations: workflow.method?.ablations || [] };
-  const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', execution: workflow.experiment?.execution, parameters: workflow.experiment?.parameters, seed: workflow.experiment?.seed, successCriteria: workflow.experiment?.successCriteria, artifacts: workflow.experiment?.artifacts, codePaths: workflow.experiment?.codePaths, resources: workflow.experiment?.resources, status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
-  const completedMetrics = experimentRun?.status === 'completed' && Array.isArray(experimentRun.metrics) ? experimentRun.metrics : [];
+  const method: MethodDraft = { title: workflow.method?.title || '', hypothesis: workflow.method?.hypothesis || '', baselines: workflow.method?.baselines || [], ablations: workflow.method?.ablations || [], metrics: workflow.method?.metrics || [], expectedFailures: workflow.method?.expectedFailures || [] };
+  const experiment: ExperimentPlan = { dataset: workflow.experiment?.dataset || '', datasetVersion: workflow.experiment?.datasetVersion || '', protocol: workflow.experiment?.protocol || workflow.experiment?.command || '', methodId: workflow.experiment?.methodId || '', repetitions: workflow.experiment?.repetitions || 1, budget: workflow.experiment?.budget || '', expectedFailures: workflow.experiment?.expectedFailures || [], execution: workflow.experiment?.execution, parameters: workflow.experiment?.parameters, seed: workflow.experiment?.seed, successCriteria: workflow.experiment?.successCriteria, artifacts: workflow.experiment?.artifacts, codePaths: workflow.experiment?.codePaths, resources: workflow.experiment?.resources, status: workflow.experiment?.status, metrics: workflow.experiment?.metrics || [] };
   const replicationResult = replicationResultSummary(replicationRun, evidenceEntries);
-  const writing: WritingEvidenceSummary = { paperCount: selectedPapers.length, innovationCount: selectedIdeas.length, metricCount: completedMetrics.length || experiment.metrics.length, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '', claimMatrix, replicationRun: replicationResult || workflow.writing?.replicationRun };
+  const experimentResult = runResultSummary(experimentRun, evidenceEntries, 'experiment');
+  const writing: WritingEvidenceSummary = { paperCount: selectedPapers.length, innovationCount: selectedIdeas.length, metricCount: experimentRun ? (experimentRun.status === 'completed' ? experimentRun.metrics?.length || 0 : 0) : 0, ready: Boolean(workflow.writing?.ready), outline: workflow.writing?.outline || workflow.writing?.evidence?.outline || '', claimMatrix, replicationRun: replicationResult, experimentRun: experimentResult };
   return { direction, search, replication, replicationResult, method, experiment, writing, selectedPapers, selectedIdeas };
 }

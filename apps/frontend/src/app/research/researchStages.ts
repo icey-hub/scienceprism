@@ -149,6 +149,8 @@ export interface MethodDraft {
   hypothesis: string;
   baselines: string[];
   ablations: string[];
+  metrics: string[];
+  expectedFailures: string[];
 }
 
 export interface ExperimentMetric {
@@ -161,6 +163,10 @@ export interface ExperimentPlan {
   dataset: string;
   datasetVersion: string;
   protocol: string;
+  methodId?: string;
+  repetitions?: number;
+  budget?: string;
+  expectedFailures?: string[];
   command?: string;
   execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
   parameters?: Record<string, unknown>;
@@ -190,7 +196,7 @@ export interface ReplicationResultSummary {
   evidenceConfirmed?: boolean;
   supportsSuccessfulFinding?: boolean;
   verificationNote?: string;
-  provenance: import('../../api/client').ReplicationProvenance;
+  provenance: import('../../api/client').ReplicationProvenance | NonNullable<NonNullable<import('../../api/client').ExperimentRun['manifest']>['researchPlan']>;
   codeVersion: string;
   codeSnapshotHash: string;
   dataset: { id: string; version: string };
@@ -214,6 +220,7 @@ export interface WritingEvidenceSummary {
     rows: import('../../api/client').ClaimEvidenceRow[];
   };
   replicationRun?: ReplicationResultSummary;
+  experimentRun?: ReplicationResultSummary;
 }
 
 export type ProjectSkillSource = 'built-in' | 'project';
