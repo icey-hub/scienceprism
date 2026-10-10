@@ -311,6 +311,7 @@
 .research-metric-table > div:first-child { padding-top: 0; color: #66746c; font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .research-metric-table > div:last-child { border-bottom: 0; }
 .research-metric-table strong { color: var(--research-text); }
+.research-metric-table > div > * { min-width: 0; overflow-wrap: anywhere; }
 .research-run-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; }
 .research-run-summary > div { min-width: 0; padding: 11px 12px; background: #f5f7f4; border: 1px solid var(--research-border); }
 .research-run-summary dt { color: var(--research-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
