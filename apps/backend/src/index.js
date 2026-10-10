@@ -24,7 +24,7 @@ import { registerObservabilityRoutes } from './routes/observability.js';
 import { registerConstraintProposalRoutes } from './routes/constraintProposals.js';
 import { registerConstraintPolicyRoutes } from './routes/constraintPolicy.js';
 import { tryStartTunnel } from './services/tunnel.js';
-import { requireAuthIfRemote } from './utils/authUtils.js';
+import { registerApiAuth } from './utils/authUtils.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -38,19 +38,7 @@ await fastify.register(multipart, {
   }
 });
 await fastify.register(websocket);
-fastify.decorateRequest('collabAuth', null);
-
-fastify.addHook('preHandler', async (req, reply) => {
-  if (!req.url.startsWith('/api')) return;
-  if (req.method === 'OPTIONS') return;
-  if (req.url.startsWith('/api/health')) return;
-  if (req.url.startsWith('/api/collab')) return;
-  const auth = requireAuthIfRemote(req);
-  if (!auth.ok) {
-    reply.code(401).send({ ok: false, error: 'Unauthorized' });
-  }
-  req.collabAuth = auth.payload || null;
-});
+registerApiAuth(fastify);
 
 registerHealthRoutes(fastify);
 registerArxivRoutes(fastify);

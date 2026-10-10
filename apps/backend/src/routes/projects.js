@@ -17,12 +17,13 @@ import { withHarnessRunLock } from '../services/harnessRuntime/repository.js';
 import { contentHash, readFileState, sameVersion } from '../services/harnessRuntime/fileVersions.js';
 
 export function registerProjectRoutes(fastify) {
-  fastify.get('/api/projects', async () => {
+  fastify.get('/api/projects', async (req) => {
     await ensureDir(DATA_DIR);
     const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
     const projects = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith('.restore-')) continue;
+      if (req.collabAuth && entry.name !== req.collabAuth.projectId) continue;
       const metaPath = path.join(DATA_DIR, entry.name, 'project.json');
       try {
         const meta = await readJson(metaPath);
