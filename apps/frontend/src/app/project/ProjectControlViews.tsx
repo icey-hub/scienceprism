@@ -155,7 +155,7 @@ export function HarnessConsole({ projectId }: { projectId: string }) {
         </button>
         {expanded && <div className="harness-run-detail">
           <div className="harness-run-meta"><span>Run ID <code>{run.id.slice(0, 12)}</code></span><span>Context <code>{run.contextHash?.slice(0, 12) || '未记录'}</code></span><span>创建于 {formatTime(run.createdAt)}</span></div>
-          {run.status === 'running' && <ProgressBar value={60} label="Harness 正在运行" />}
+          {run.status === 'running' && <p role="status">Harness 正在运行 · 未报告进度</p>}
           {run.error?.message && <p className="hub-error">{run.error.message}</p>}
           {run.outputValidation && <div className="validation-note">输出校验：{run.outputValidation.ok === false ? '未通过' : '通过'}{run.outputValidation.warnings?.length ? ` · ${run.outputValidation.warnings.length} 条提示` : ''}</div>}
           {run.patches?.length ? <div className="patch-summary">待确认 Patch：{run.patches.length} 个文件 <a href={`/editor/${projectId}?right=diff`}>打开编辑器 Diff</a></div> : null}

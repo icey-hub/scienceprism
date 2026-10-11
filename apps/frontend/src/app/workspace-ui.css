@@ -140,7 +140,7 @@
 }
 
 .project-hub-shell .hub-tools-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 12px; margin-bottom: 24px; }
-.project-hub-shell .hub-tool-entry { display: flex; align-items: flex-start; gap: 14px; padding: 20px; border: 1px solid var(--workspace-border); border-radius: 8px; color: var(--workspace-text); background: white; text-decoration: none; }
+.project-hub-shell .hub-tool-entry { display: flex; align-items: flex-start; gap: 14px; padding: 20px; border: 1px solid var(--workspace-line); border-radius: 8px; color: var(--workspace-ink); background: white; text-decoration: none; }
 .project-hub-shell .hub-tool-entry:hover { background: #fafafa; border-color: #bbb; }
 .project-hub-shell .hub-tool-entry svg { flex-shrink: 0; }
 .project-hub-shell .hub-tool-entry p { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: var(--workspace-muted); }

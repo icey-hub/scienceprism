@@ -27,6 +27,11 @@ export function normalizeTokenUsage(value) {
   return { input, output, total };
 }
 
+function hasUsage(value) {
+  return value && typeof value === 'object' && ['input', 'inputTokens', 'promptTokens', 'prompt_tokens', 'output', 'outputTokens', 'completionTokens', 'completion_tokens', 'total', 'totalTokens', 'total_tokens']
+    .some(key => typeof value[key] === 'number' && Number.isFinite(value[key]) && value[key] >= 0);
+}
+
 function summarizeHarnessRun(run) {
   const tokens = normalizeTokenUsage(run.tokenUsage);
   return {
@@ -39,6 +44,7 @@ function summarizeHarnessRun(run) {
     durationMs: durationMs(run.startedAt, run.finishedAt),
     tokens,
     tokenUsage: run.tokenUsage || null,
+    usageReported: Boolean(hasUsage(run.tokenUsage)),
     contextHash: run.contextHash || null,
     contextManifest: run.contextManifest || null,
     eventCount: Array.isArray(run.events) ? run.events.length : 0,
@@ -59,6 +65,7 @@ function summarizeExperimentRun(run) {
     durationMs: durationMs(run.execution?.startedAt || run.startedAt, run.execution?.finishedAt || (TERMINAL_HARNESS_RUN_STATUSES.includes(run.status) ? run.updatedAt : null)),
     tokens: { input: 0, output: 0, total: 0 },
     tokenUsage: null,
+    usageReported: false,
     contextHash: null,
     contextManifest: null,
     eventCount: 0,
@@ -93,6 +100,9 @@ function summarizeRuns(runs) {
     averageDurationMs: average(durations),
     totalDurationMs: durations.reduce((sum, value) => sum + value, 0),
     tokens,
+    usageReports: terminal.filter(run => run.usageReported).length,
+    unreportedUsage: terminal.filter(run => run.type === 'harness' && !run.usageReported).length,
+    durationSamples: durations.length,
     humanDecisions: decisions.length,
     humanRejected: rejected,
     humanRejectionRate: decisions.length ? rejected / decisions.length : 0
@@ -119,6 +129,7 @@ export async function getProjectObservability(projectId, { limit = 50 } = {}) {
   return {
     generatedAt: new Date().toISOString(),
     projectId,
+    scope: { harnessLimit: 100, experimentLimit: 500, recentLimit: boundedLimit, oldestAt: runs.at(-1)?.updatedAt || null, newestAt: runs[0]?.updatedAt || null },
     featureFlags,
     runs: summarizeRuns(runs),
     harness: summarizeRuns(harness),

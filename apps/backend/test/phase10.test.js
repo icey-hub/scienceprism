@@ -485,3 +485,24 @@ test('sensitive directories have one owner and the filter covers all of them', a
   assert.equal(isSensitivePath('sections/method.tex'), false);
   assert.equal(isSensitivePath('main.tex'), false);
 });
+
+test('observability distinguishes reported zero usage from missing usage and bounds its scope', async () => {
+  const projectId = 'observability-usage-presence';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism', 'harness-runs.json'), JSON.stringify({
+    schemaVersion: 1, projectId, runs: [
+      { id: 'zero', projectId, adapter: 'fake', status: 'completed', tokenUsage: { totalTokens: 0 }, updatedAt: '2026-10-11T00:00:00.000Z' },
+      { id: 'missing', projectId, adapter: 'fake', status: 'completed', tokenUsage: null, updatedAt: '2026-10-10T00:00:00.000Z' },
+      { id: 'invalid', projectId, adapter: 'fake', status: 'failed', tokenUsage: { other: 20 }, updatedAt: '2026-10-09T00:00:00.000Z' }
+    ]
+  }));
+  const result = await getProjectObservability(projectId, { limit: 1 });
+  assert.equal(result.harness.usageReports, 1);
+  assert.equal(result.harness.unreportedUsage, 2);
+  assert.equal(result.recentRuns[0].usageReported, true);
+  assert.equal(result.harness.durationSamples, 0);
+  assert.equal(result.scope.harnessLimit, 100);
+  assert.equal(result.scope.oldestAt, '2026-10-09T00:00:00.000Z');
+  assert.equal(result.recentRuns.length, 1);
+});

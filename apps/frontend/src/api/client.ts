@@ -636,12 +636,27 @@ export interface PaperLibraryRecord {
   updatedAt: string;
 }
 
+export interface RunStatistics {
+  total: number; terminal: number; completed: number; failed: number; cancelled: number;
+  tokens: { input: number; output: number; total: number };
+  usageReports: number; unreportedUsage: number; durationSamples: number; averageDurationMs: number;
+}
+export interface ProjectObservability {
+  generatedAt: string;
+  scope: { harnessLimit: number; experimentLimit: number; recentLimit: number; oldestAt: string | null; newestAt: string | null };
+  harness: RunStatistics; experiments: RunStatistics; runs: RunStatistics;
+  recentRuns: { type: string; runId: string; stage: string; status: string; adapter: string; usageReported: boolean; tokens: { input: number; output: number; total: number }; error?: { message?: string } | null }[];
+}
+export function getProjectObservability(id: string) {
+  return request<{ ok: boolean; observability: ProjectObservability }>(`/api/projects/${encodeURIComponent(id)}/observability`);
+}
+
 export interface ProjectTask {
   id: string;
   kind: string;
   title: string;
   status: 'queued' | 'running' | 'paused' | 'awaiting_approval' | 'approved' | 'completed' | 'failed' | 'cancelled' | 'rejected' | string;
-  progress: number;
+  progress: number | null;
   stage?: string | null;
   log: string[];
   error?: { message?: string } | null;
