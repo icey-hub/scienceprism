@@ -9,7 +9,7 @@ process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 
 const { importPaper, listPapers, updatePaper } = await import('../src/services/projectHub/paperLibrary.js');
 const { initializeProject, getProjectDashboard } = await import('../src/services/projectHub/dashboard.js');
-const { createTask, getTaskSummary, listTasks } = await import('../src/services/projectHub/taskCenter.js');
+const { createTask, getTask, getTaskSummary, listTasks } = await import('../src/services/projectHub/taskCenter.js');
 const { getWritingQuality } = await import('../src/services/projectHub/writingQuality.js');
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
 const { createStageTask, markStageTaskDecision } = await import('../src/services/researchWorkflow/stageTask.js');
@@ -154,4 +154,28 @@ test('writing quality reports empty claims and source checks without inventing a
   assert.equal(quality.claims.totalClaims, 0);
   assert.deepEqual(quality.citations.missingKeys, ['missing']);
   assert.equal(quality.overall, 'needs-review');
+});
+
+
+test('task projection groups explicit stage Run references and can locate archived source details', async () => {
+  const projectId = 'task-source-detail';
+  const root = await createProject(projectId);
+  const workflow = createWorkflowDocument(projectId);
+  const stage = workflow.stages.find(stage => stage.id === 'direction');
+  stage.data.task = createStageTask({ stage: 'direction' });
+  stage.data.task.harness = { runId: 'linked' };
+  await writeWorkflowFile(root, workflow);
+  await writeFile(path.join(root, '.scienceprism', 'harness-runs.json'), JSON.stringify({
+    schemaVersion: 1, projectId, runs: [
+      { id: 'linked', projectId, status: 'completed', adapter: 'fake', updatedAt: '2026-10-11T00:00:00.000Z' },
+      { id: 'independent', projectId, status: 'created', adapter: 'fake', updatedAt: '2026-10-11T00:00:00.000Z' }
+    ], archivedRuns: [{ id: 'old', projectId, status: 'completed', archived: true }]
+  }));
+  const tasks = await listTasks(projectId);
+  assert.equal(tasks.filter(task => task.metadata?.harnessRunId === 'linked').length, 1);
+  assert.equal(tasks.some(task => task.id === 'harness:linked'), false);
+  assert.equal(tasks.find(task => task.id === 'harness:independent').progress, null);
+  assert.equal((await getTask(projectId, 'harness:linked')).metadata.runId, 'linked');
+  assert.equal((await getTask(projectId, 'harness:old')).status, 'completed');
+  await assert.rejects(getTask(projectId, 'harness:missing'), /not found/i);
 });

@@ -1,5 +1,6 @@
 export {
   cancelExperimentRun,
+  getExperimentRun,
   createExperimentRun,
   createReplicationExperimentRun,
   decideExperimentRun,

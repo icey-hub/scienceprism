@@ -415,6 +415,10 @@ export interface HarnessRun {
   parentRunId?: string | null;
   delegationTask?: string | null;
   delegationDepth?: number;
+  role?: string | null;
+  attempt?: number;
+  replayOf?: string | null;
+  adapterHistory?: { adapter: string; error?: string; at?: string }[];
   archived?: boolean;
   stage: HarnessResearchStageId | string | null;
   task: string;
@@ -649,6 +653,12 @@ export interface ProjectObservability {
 }
 export function getProjectObservability(id: string) {
   return request<{ ok: boolean; observability: ProjectObservability }>(`/api/projects/${encodeURIComponent(id)}/observability`);
+}
+export function getProjectTask(id: string, taskId: string) {
+  return request<{ ok: boolean; task: ProjectTask }>(`/api/projects/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}`);
+}
+export function getExperimentRun(id: string, runId: string) {
+  return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${encodeURIComponent(id)}/experiment-runs/${encodeURIComponent(runId)}`);
 }
 
 export interface ProjectTask {

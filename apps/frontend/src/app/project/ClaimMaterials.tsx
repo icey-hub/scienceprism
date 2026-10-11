@@ -9,7 +9,7 @@ function safeProjectPath(value: unknown) {
   return candidate;
 }
 
-function SourceLocation({ projectId, source, historical = false }: { projectId: string; source: EvidenceRecord['source']; historical?: boolean }) {
+export function EvidenceSourceLocation({ projectId, source, historical = false }: { projectId: string; source: EvidenceRecord['source']; historical?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const filePath = safeProjectPath(source?.path);
@@ -64,14 +64,14 @@ export function ClaimMaterials({ projectId, claim }: { projectId: string; claim:
       {citation.excerpt ? <blockquote>{citation.excerpt}</blockquote> : <p>未记录引用片段</p>}
       <p>{citation.section ? `章节：${citation.section}` : '未记录章节'} · {citation.page ? `页码：${citation.page}` : '未记录页码'}{citation.locator ? ` · 定位：${citation.locator}` : ''}</p>
       <p>记录来源版本：{citation.sourceVersion} · 人工记录：{citation.recordedAt}</p>
-      <SourceLocation key={`${projectId}:${citation.sourceSnapshot?.path || ''}`} projectId={projectId} source={citation.sourceSnapshot} historical />
+      <EvidenceSourceLocation key={`${projectId}:${citation.sourceSnapshot?.path || ''}`} projectId={projectId} source={citation.sourceSnapshot} historical />
     </section>)}
     {(claim.evidence || []).map((entry) => <section className="claim-material-card" key={entry.id}>
       <strong>{claim.contradictingEvidenceIds?.includes(entry.id) ? '反例材料' : '当前材料'} · {entry.title || entry.id}</strong>
       <p>{entry.summary || '未记录材料摘要'}</p>
       <p>Evidence：{entry.id} · 版本：{entry.version || entry.sha256 || '未记录外部版本'}</p>
       <p>{claim.staleEvidenceIds.includes(entry.id) ? '材料已变化 · 请复核引用' : claim.unverifiedEvidenceIds.includes(entry.id) ? '来源待核验' : '来源已确认（不等于主张已获科学验证）'}</p>
-      <SourceLocation key={`${projectId}:${entry.source?.path || ''}`} projectId={projectId} source={entry.source} />
+      <EvidenceSourceLocation key={`${projectId}:${entry.source?.path || ''}`} projectId={projectId} source={entry.source} />
     </section>)}
     {claim.missingEvidenceIds.map((id) => <p className="claim-material-warning" key={id}>来源缺失：{id}。保留的引用记录不代表当前来源可用。</p>)}
     {!claim.evidenceIds.length && <p>尚未关联来源。</p>}

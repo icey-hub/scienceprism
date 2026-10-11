@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { cancelActiveCompile } from '../compileCancellation.js';
-import { listHarnessRuns, cancelHarnessRun, replayHarnessRun } from '../harnessRuntime/index.js';
+import { listHarnessRuns, getHarnessRun, cancelHarnessRun, replayHarnessRun } from '../harnessRuntime/index.js';
 import { cancelExperimentRun, listExperimentRuns, retryExperimentRun } from '../experimentRunner/index.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
 import { clone, readHubJson, withHubLock, writeHubJson } from './repository.js';
@@ -160,7 +160,9 @@ export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
     const runs = await listExperimentRuns(projectId, { limit: 100 });
     for (const run of runs) taskMap.set(`experiment-run:${run.id}`, experimentRunTask(run));
   } catch {}
-  let tasks = [...taskMap.values()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const linkedRuns = new Set([...taskMap.values()].map(task => task.metadata?.harnessRunId).filter(Boolean));
+  let tasks = [...taskMap.values()].filter(task => task.kind !== 'harness' || !linkedRuns.has(task.metadata?.runId))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   if (status) tasks = tasks.filter((task) => task.status === status);
   if (kind) tasks = tasks.filter((task) => task.kind === kind);
   return tasks.slice(0, Math.max(1, Math.min(MAX_TASKS, Number(limit) || 100))).map(clone);
@@ -169,6 +171,7 @@ export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
 export async function getTask(projectId, taskId) {
   const tasks = await listTasks(projectId, { limit: MAX_TASKS });
   const task = tasks.find((item) => item.id === taskId);
+  if (!task && taskId.startsWith('harness:')) return harnessTask(await getHarnessRun(projectId, taskId.slice('harness:'.length)));
   if (!task) throw new Error('Task not found.');
   return task;
 }

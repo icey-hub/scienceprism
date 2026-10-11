@@ -4,6 +4,7 @@ import LandingPage from './LandingPage';
 import ProjectPage from './ProjectPage';
 import CollabJoinPage from './CollabJoinPage';
 import ProjectDashboardPage from './ProjectDashboardPage';
+import TaskDetailPage from './project/TaskDetailPage';
 
 import { researchHref } from './research/researchLocation';
 
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/projects" element={<ProjectPage />} />
       <Route path="/project/:projectId" element={<ProjectDashboardPage />} />
       <Route path="/project/:projectId/:view" element={<ProjectDashboardPage />} />
+      <Route path="/project/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
       <Route path="/editor/:projectId" element={<EditorPage />} />
       <Route path="/editor/:projectId/research" element={<LegacyResearchRedirect />} />
       <Route path="/editor/:projectId/research/:stage" element={<EditorPage />} />

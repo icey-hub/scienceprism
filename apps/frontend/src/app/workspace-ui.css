@@ -150,3 +150,14 @@
 .workspace-shell .assistant-tool-menu summary::-webkit-details-marker { display: none; }
 .workspace-shell .assistant-tool-menu:not([open]) .assistant-tool-popover { display: none; }
 .workspace-shell .assistant-tool-menu[open] .assistant-tool-popover { display: grid; }
+.project-hub-shell .task-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+.project-hub-shell .task-detail-tabs { display: flex; gap: 20px; overflow-x: auto; border-bottom: 1px solid var(--workspace-line); margin-bottom: 24px; }
+.project-hub-shell .task-detail-tabs button { flex-shrink: 0; border: 0; border-bottom: 2px solid transparent; padding: 12px 4px; color: var(--workspace-muted); background: none; cursor: pointer; }
+.project-hub-shell .task-detail-tabs button.is-active { border-color: var(--workspace-ink); color: var(--workspace-ink); }
+.project-hub-shell .task-record { white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--workspace-line); border-radius: 6px; padding: 16px; font-size: 12px; line-height: 1.7; max-height: 60vh; overflow: auto; }
+.project-hub-shell .task-message { border: 1px solid var(--workspace-line); border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+.project-hub-shell .task-message.is-user { background: #fafafa; }
+.project-hub-shell .task-message p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.project-hub-shell .task-message small { color: var(--workspace-muted); }
+.project-hub-shell .task-artifact { display: grid; gap: 8px; padding: 16px 0; border-bottom: 1px solid var(--workspace-line); overflow-wrap: anywhere; }
+.project-hub-shell .task-detail-heading code { overflow-wrap: anywhere; }
