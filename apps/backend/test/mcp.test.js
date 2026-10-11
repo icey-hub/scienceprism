@@ -34,3 +34,16 @@ test('actual Streamable HTTP discovery uses the same bounded catalogue contract'
 test('MCP HTTP routes preserve project scope, command errors and masked DTOs',async()=>{
  const {default:Fastify}=await import('fastify');const {registerMcpRoutes}=await import('../src/routes/mcp.js');const app=Fastify();registerMcpRoutes(app);try{await project('routes');let response=await app.inject({method:'PUT',url:'/api/projects/routes/mcp/notes',payload:config});assert.equal(response.statusCode,200);assert.ok(!response.body.includes('private-fixture-key'));response=await app.inject({method:'POST',url:'/api/projects/routes/mcp/notes/discover'});assert.equal(response.json().servers[0].discovery.state,'discovered');response=await app.inject({method:'PUT',url:'/api/projects/routes/mcp/notes',payload:{...config,expectedVersion:0}});assert.equal(response.statusCode,409);assert.equal((await app.inject({method:'GET',url:'/api/projects/missing/mcp'})).statusCode,404);}finally{await app.close();}
 });
+
+test('real Runtime MCP adapter dispatches bound tools, records calls, rejects denied tools before side effects',async()=>{
+ const {createHarnessRun,startHarnessRun,getHarnessRun}=await import('../src/services/harnessRuntime/index.js');
+ const {assertDshMcpPolicy}=await import('../src/services/mcp/execution.js');
+ const root=await project('execution'),marker=path.join(root,'called.txt');await saveMcpServer('execution',{...config,args:[...config.args,marker],tasks:['mcp-check']});await discoverMcpTools('execution','notes');
+ async function run(toolName,adapter='mcp'){const created=await createHarnessRun('execution',{adapter,role:'project-agent',task:'mcp-check',capabilities:['project.read'],mcpCall:{serverId:'notes',toolName,arguments:{label:'verified actual transport'}}});await startHarnessRun('execution',created.id);for(let i=0;i<200;i++){const result=await getHarnessRun('execution',created.id);if(['completed','failed','cancelled'].includes(result.status))return result;await new Promise(resolve=>setTimeout(resolve,10));}throw new Error('Run timed out');}
+ let result=await run('unknown_tool');assert.equal(result.status,'failed');await assert.rejects(readFile(marker),error=>error.code==='ENOENT');
+ result=await run('read_note');assert.equal(result.status,'completed');assert.equal(await readFile(marker,'utf8'),'called');assert.match(result.reply,/verified actual transport/);assert.equal(result.tokenUsage,null);assert.equal(result.events.find(event=>event.type==='tool/start').name,'mcp__notes__read_note');assert.equal(result.events.find(event=>event.type==='tool/end').capability,'project.read');assert.equal(result.humanDecision.status,'none');
+ await saveMcpServer('execution',{...config,args:[...config.args,marker],tasks:['mcp-check'],enabled:false});await writeFile(marker,'unchanged');result=await run('read_note');assert.equal(result.status,'failed');assert.equal(await readFile(marker,'utf8'),'unchanged');
+ result=await run('read_note','deepseek');assert.equal(result.status,'failed');assert.equal(result.error.code,'MCP_DSH_RESTRICTED');assert.equal(await readFile(marker,'utf8'),'unchanged');
+ assert.throws(()=>assertDshMcpPolicy({mcpToolIds:['notes/read_note']}),error=>error.code==='MCP_DSH_RESTRICTED');
+ assert.deepEqual(await readdir(path.join(root,'.scienceprism/mcp-runtime')),[]);
+});

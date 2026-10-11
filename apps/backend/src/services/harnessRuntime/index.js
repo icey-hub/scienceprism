@@ -13,6 +13,7 @@ import {
 } from './capabilities.js';
 import { HarnessRuntimeError } from './errors.js';
 import { clone, readHarnessRuns, resolveHarnessProjectRoot, withHarnessRunLock, writeHarnessRuns } from './repository.js';
+import { mcpCheckAdapter } from '../mcp/execution.js';
 import { deepseekHarnessAdapter } from './adapters/deepseekAdapter.js';
 import { legacyHarnessAdapter } from './adapters/legacyAdapter.js';
 import { fakeHarnessAdapter } from './adapters/fakeAdapter.js';
@@ -37,7 +38,8 @@ export const TERMINAL_HARNESS_RUN_STATUSES = Object.freeze(['completed', 'failed
 const adapters = new Map([
   ['deepseek', deepseekHarnessAdapter],
   ['legacy', legacyHarnessAdapter],
-  ['fake', fakeHarnessAdapter]
+  ['fake', fakeHarnessAdapter],
+  ['mcp', mcpCheckAdapter]
 ]);
 const activeRuns = new Map();
 const pendingRequests = new Map();
@@ -57,6 +59,7 @@ function normalizeAdapter(value) {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'harness' || normalized === 'deepseek-harness' || normalized === 'deepseek') return 'deepseek';
   if (normalized === 'langchain' || normalized === 'legacy') return 'legacy';
+  if (normalized === 'mcp') return 'mcp';
   if (normalized === 'fake' || normalized === 'test') return 'fake';
   return 'deepseek';
 }

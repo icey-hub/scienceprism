@@ -9,6 +9,7 @@ import { copyBundledResearchSkills, restrictWorkspaceResearchSkills } from '../r
 import { fileVersion } from './fileVersions.js';
 import { finalizeAssistantReply } from '../assistantReply.js';
 
+import { assertDshMcpPolicy } from '../mcp/execution.js';
 import { summarizeEvent, appendRuntimeEvents, sumEventUsage } from './runtimeEvents.js';
 export { summarizeEvent } from './runtimeEvents.js';
 const now = () => new Date().toISOString();
@@ -84,6 +85,8 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
     let eventWrite = Promise.resolve();
     const emit = (event) => {
       const summary = summarizeEvent(event);
+      // Only this adapter emits the exact identity of its pre-authorized call.
+      if (run.adapter === 'mcp' && summary.name === `mcp__${request.mcpCall?.serverId}__${request.mcpCall?.toolName}`) summary.capability = 'project.read';
       eventWrite = eventWrite.then(() => persistEvents(projectId, runId, [summary])).catch(() => {});
       const capability = summary.capability;
       const toolName = summary.name || summary.tool;
@@ -100,6 +103,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
 
     try {
       if (run.adapter === 'deepseek') {
+        assertDshMcpPolicy(request);
         const unenforceable = run.capabilities.granted.filter((capability) => ['research.search', 'experiment.execute'].includes(capability));
         if (unenforceable.length) {
           throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The DeepSeek Harness SDK has no pre-tool policy hook for network or command execution. Use the legacy Adapter for these capabilities.', { capabilities: unenforceable });
