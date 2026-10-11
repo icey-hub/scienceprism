@@ -4,6 +4,7 @@ import { readExperimentRuns } from '../experimentRunner/repository.js';
 import { readEvidenceLedger } from '../evidenceLedger/repository.js';
 import { evidenceVersion, sourceForEvidence } from '../evidenceLedger/schema.js';
 import { claimRows, checkClaimEvidence, collectEvidenceReferences } from '../evidenceLedger/index.js';
+import { RESEARCH_WORKFLOW_STAGES } from '../researchWorkflow/stageContracts.js';
 
 const taskHref = (projectId, taskId) => `/project/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`;
 const stageHref = (projectId, stage) => `/editor/${encodeURIComponent(projectId)}/research/${stage === 'ideation' ? 'innovation' : stage}`;
@@ -69,6 +70,13 @@ export async function getProjectExploration(projectId, { lens = 'execution', roo
       const id=`harness:${stage.data.task.harness.runId}`;if(!nodes.has(id)) ensureNode(id,'harness',stage.data.task.harness.runId);
       addEdge(`stage:${stage.id}`,id,'runs',source('stage',stage.id,'data.task.harness.runId'));
     }
+    // Older attempts remain associated by their saved stage, even after a stage's
+    // latest task pointer changes. No inference from titles, roles or timestamps.
+    const stageRunLinks=new Set([...edges.values()].filter(edge=>edge.type==='runs').map(edge=>`${edge.from}>${edge.to}`));
+    for (const run of runs) if (run.stage && nodes.has(`stage:${run.stage}`)) {
+      const from=`stage:${run.stage}`,to=`harness:${run.id}`;
+      if (!stageRunLinks.has(`${from}>${to}`)) addEdge(from,to,'runs',source('harness',run.id,'stage'));
+    }
   }
   for (const run of experiments.runs.slice(0,500)) {
     const id=`experiment:${run.id}`;
@@ -95,5 +103,6 @@ export async function getProjectExploration(projectId, { lens = 'execution', roo
   const selectedEdges = [...edges.values()].filter(edge => ids.has(edge.from) && ids.has(edge.to));
   if (selected.length < totalNodes) warnings.push('仅展示选定范围；可按节点邻接或提高上限继续查看。');
   if (selected.some(node => !node.retained)) warnings.push('含归档、陈旧引用或缺失源记录；详情以保留范围为准。');
-  return {schemaVersion:1,projectId,lens,nodes:selected,edges:selectedEdges,generatedAt:new Date().toISOString(),warnings,scope:{totalNodes,totalEdges,displayedNodes:selected.length,displayedEdges:selectedEdges.length,nodeLimit:bounded(limit,400,1000),harnessLimit:500,experimentLimit:500,callsPerRun:20,ledgerVersion:ledger.version,workflowVersion:workflow?.version || null}};
+  const workflowContext=workflow ? {currentStage:workflow.currentStage,status:workflow.status,stageOrder:RESEARCH_WORKFLOW_STAGES.filter(stage=>nodes.has(`stage:${stage.id}`)).map(stage=>stage.id),optionalStageIds:['replication']} : null;
+  return {schemaVersion:1,projectId,lens,nodes:selected,edges:selectedEdges,workflow:workflowContext,generatedAt:new Date().toISOString(),warnings,scope:{totalNodes,totalEdges,displayedNodes:selected.length,displayedEdges:selectedEdges.length,nodeLimit:bounded(limit,400,1000),harnessLimit:500,experimentLimit:500,callsPerRun:20,ledgerVersion:ledger.version,workflowVersion:workflow?.version || null}};
 }

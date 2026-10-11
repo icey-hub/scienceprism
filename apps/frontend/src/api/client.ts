@@ -441,6 +441,7 @@ export interface ExplorationNode {
 }
 export interface ExplorationGraph {
   schemaVersion: 1; projectId: string; lens: 'execution' | 'evidence'; generatedAt: string;
+  workflow?: { currentStage: string; status: string; stageOrder: string[]; optionalStageIds: string[] } | null;
   nodes: ExplorationNode[]; edges: { id: string; from: string; to: string; type: string; sourceRef: ExplorationSourceRef }[];
   warnings: string[];
   scope: { totalNodes: number; totalEdges: number; displayedNodes: number; displayedEdges: number; nodeLimit: number; harnessLimit: number; experimentLimit: number; callsPerRun: number; ledgerVersion: number; workflowVersion: number | null };

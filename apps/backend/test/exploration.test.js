@@ -9,6 +9,7 @@ const {getProjectExploration}=await import('../src/services/projectHub/explorati
 const {registerExplorationRoutes}=await import('../src/routes/exploration.js');
 const {createWorkflowDocument}=await import('../src/services/researchWorkflow/stateMachine.js');
 const {getEvidenceGraph}=await import('../src/services/evidenceLedger/index.js');
+const {RESEARCH_WORKFLOW_STAGES}=await import('../src/services/researchWorkflow/stageContracts.js');
 test.after(()=>rm(dataDir,{recursive:true,force:true}));
 async function snapshot(root) {
  const result={};
@@ -75,4 +76,28 @@ test('replication graph edges cite the actual replication manifest field', async
  const graph = await getProjectExploration('replication-source');
  const edge = graph.edges.find(edge => edge.from === 'stage:replication' && edge.to === 'experiment:replication-run');
  assert.equal(edge.sourceRef.field, 'manifest.replication.sourceStage');
+});
+
+test('workflow context exposes eight ordered stages while execution edges stay sourced and read-only',async()=>{
+ const id='stage-spine',root=await fixture(id);
+ const file=path.join(root,'.scienceprism/harness-runs.json'),runs=JSON.parse(await readFile(file,'utf8'));
+ runs.runs[1].stage='direction';runs.archivedRuns[0].stage='replication';
+ runs.runs.push({id:'unbound',task:'writing',status:'completed',events:[]});
+ await writeFile(file,JSON.stringify(runs));
+ const before=await snapshot(root),graph=await getProjectExploration(id);
+ assert.deepEqual(graph.workflow.stageOrder,RESEARCH_WORKFLOW_STAGES.map(stage=>stage.id));
+ assert.deepEqual(graph.workflow.optionalStageIds,['replication']);
+ assert.equal(graph.workflow.currentStage,'direction');
+ assert.equal(graph.nodes.filter(node=>node.kind==='stage').length,8);
+ assert.equal(graph.nodes.find(node=>node.id==='stage:search').status,'pending');
+ const direct=graph.edges.filter(edge=>edge.from==='stage:direction' && edge.to==='harness:parent');
+ assert.equal(direct.length,1);assert.equal(direct[0].sourceRef.field,'data.task.harness.runId');
+ assert.equal(graph.edges.find(edge=>edge.from==='stage:direction' && edge.to==='harness:child').sourceRef.field,'stage');
+ assert.equal(graph.edges.find(edge=>edge.from==='stage:replication' && edge.to==='harness:archived').sourceRef.field,'stage');
+ assert.equal(graph.edges.some(edge=>edge.from.startsWith('stage:') && edge.to==='harness:unbound'),false,'task title must not infer a stage');
+ assert.equal(graph.edges.some(edge=>edge.from.startsWith('stage:') && edge.to.startsWith('stage:')),false,'stage order is presentation context, not a stored execution');
+ assert.deepEqual(await snapshot(root),before);
+ await rm(path.join(root,'.openprism/research-workflow.json'));
+ const missing=await getProjectExploration(id);
+ assert.equal(missing.workflow,null);assert.equal(missing.nodes.some(node=>node.kind==='stage'),false);
 });

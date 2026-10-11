@@ -5,7 +5,7 @@ import { transpileModule, ModuleKind, ScriptTarget } from 'typescript';
 // Use the existing frontend compiler, keeping the test runnable on Node 20 too.
 const source = await readFile(new URL('../../frontend/src/app/project/explorationLayout.ts', import.meta.url), 'utf8');
 const compiled = transpileModule(source, { compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2020 } }).outputText;
-const { horizontalExplorationLayout } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { horizontalExplorationLayout, researchExecutionLayout } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 const viewSource = await readFile(new URL('../../frontend/src/app/project/explorationView.ts', import.meta.url), 'utf8');
 const viewCompiled = transpileModule(viewSource, { compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2020 } }).outputText;
 const { normalizeExplorationView } = await import(`data:text/javascript;base64,${Buffer.from(viewCompiled).toString('base64')}`);
@@ -77,4 +77,27 @@ test('malformed cached positions and viewport cannot corrupt the graph', () => {
   assert.deepEqual(view.collapsed, ['run']);
   assert.equal(view.viewport, undefined);
   assert.deepEqual(normalizeExplorationView(null).positions, {});
+});
+
+test('eight stages stay on one horizontal spine and their execution strips do not overlap',()=>{
+ const stages=['direction','search','selection','replication','ideation','method','experiment','writing'];
+ const records=nodes(...stages.map(id=>`stage:${id}`),'run-a','call-a','artifact-a','run-b','artifact-b','loose');
+ const links=[edge('stage:direction','run-a'),edge('run-a','call-a'),edge('call-a','artifact-a'),edge('stage:experiment','run-b'),edge('run-b','artifact-b')];
+ const layout=researchExecutionLayout(records,links,stages);
+ assert.equal(new Set(stages.map(id=>layout[`stage:${id}`].y)).size,1);
+ for(let i=1;i<stages.length;i++)assert.ok(layout[`stage:${stages[i]}`].x>layout[`stage:${stages[i-1]}`].x);
+ assert.equal(layout['run-a'].x,layout['stage:direction'].x);assert.ok(layout['run-a'].y>layout['stage:direction'].y+120);
+ assert.ok(layout['call-a'].x>layout['run-a'].x && layout['artifact-a'].x>layout['call-a'].x);
+ assert.ok(layout['artifact-a'].x+240<layout['stage:search'].x);
+ assert.ok(layout.loose.y>layout['run-b'].y+120);
+ assert.equal(new Set(Object.values(layout).map(point=>`${point.x}:${point.y}`)).size,records.length);
+});
+test('shared or cyclic execution stays present and partial stage queries do not invent missing phases',()=>{
+ const records=nodes('stage:direction','stage:experiment','a','b','shared');
+ const links=[edge('stage:direction','a'),edge('a','b'),edge('b','a'),edge('b','shared'),edge('stage:experiment','shared')];
+ const snapshot=JSON.stringify(links),layout=researchExecutionLayout(records,links,['direction','search','experiment']);
+ assert.equal(Object.keys(layout).length,records.length);assert.equal(layout['stage:search'],undefined);
+ assert.equal(new Set(Object.values(layout).map(point=>`${point.x}:${point.y}`)).size,records.length);
+ assert.equal(JSON.stringify(links),snapshot);
+ assert.deepEqual(researchExecutionLayout(nodes('run'),[],[]),horizontalExplorationLayout(nodes('run'),[]));
 });

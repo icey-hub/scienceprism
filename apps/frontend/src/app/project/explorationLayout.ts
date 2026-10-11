@@ -90,3 +90,40 @@ export function horizontalExplorationLayout(nodes: LayoutNode[], edges: LayoutEd
   isolated.forEach((id, column) => { result[id] = { x: column * COLUMN, y: offset }; });
   return result;
 }
+
+/** Stage spine above independent execution strips. Stage membership follows
+ * stored edges; shared descendants keep one position and all their real edges. */
+export function researchExecutionLayout(nodes: LayoutNode[], edges: LayoutEdge[], stageOrder: string[]): Record<string, GraphPoint> {
+  const ids=new Set(nodes.map(node=>node.id));
+  const stages=stageOrder.map(id=>`stage:${id}`).filter(id=>ids.has(id));
+  if(!stages.length) return horizontalExplorationLayout(nodes,edges);
+  const stageIds=new Set(stages),owner=new Map(stages.map(id=>[id,id]));
+  const outgoing=new Map(nodes.map(node=>[node.id,[] as string[]]));
+  for(const edge of edges) if(ids.has(edge.from) && ids.has(edge.to)) outgoing.get(edge.from)!.push(edge.to);
+  const queue=[...stages];
+  for(let i=0;i<queue.length;i++) for(const child of outgoing.get(queue[i])!) {
+    if(stageIds.has(child) || owner.has(child)) continue;
+    owner.set(child,owner.get(queue[i])!);queue.push(child);
+  }
+  const result:Record<string,GraphPoint>={};let cursor=0,bottom=0;
+  for(const stage of stages) {
+    const members=nodes.filter(node=>owner.get(node.id)===stage);
+    const local=horizontalExplorationLayout(members,edges);
+    result[stage]={x:cursor,y:0};
+    const children=members.filter(node=>node.id!==stage);
+    const firstColumn=children.length ? Math.min(...children.map(node=>local[node.id].x)) : COLUMN;
+    const starts=new Map<number,number>();
+    for(const node of children) starts.set(local[node.id].x,Math.min(starts.get(local[node.id].x) ?? Infinity,local[node.id].y));
+    let width=COLUMN;
+    for(const node of children) {
+      const point=local[node.id];
+      result[node.id]={x:cursor+point.x-firstColumn,y:ROW*1.5+point.y-starts.get(point.x)!};
+      width=Math.max(width,point.x-firstColumn+COLUMN);bottom=Math.max(bottom,result[node.id].y);
+    }
+    cursor+=width;
+  }
+  const unrelated=nodes.filter(node=>!owner.has(node.id));
+  const extra=horizontalExplorationLayout(unrelated,edges);
+  for(const node of unrelated) result[node.id]={x:extra[node.id].x,y:extra[node.id].y+bottom+ROW*2};
+  return result;
+}

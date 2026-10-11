@@ -17,23 +17,27 @@ export const RELATION_META: Record<string, { label: string; color: string }> = {
   references: { label: '引用', color: '#0e7490' }, reports: { label: '报告', color: '#b45309' },
   produces: { label: '产出', color: '#b45309' }, contradicts: { label: '反例', color: '#be123c' },
   supports: { label: '支持', color: '#15803d' },
+  'stage-order': { label: '阶段顺序', color: '#64748b' },
 };
 const STATUS_LABELS: Record<string, string> = {
-  pending: '待处理', queued: '排队中', running: '运行中', completed: '已完成', failed: '失败',
+  pending: '待处理', created:'待运行', queued: '排队中', running: '运行中', completed: '已完成', failed: '失败',
   cancelled: '已取消', paused: '已暂停', approved: '已批准', rejected: '已拒绝', draft: '草稿',
   unverified: '未核验', unsupported: '缺少支持', 'stale-reference': '旧版本引用',
   'human-confirmed': '人工确认', 'missing-source': '来源缺失', archived: '已归档',
+  in_progress: '进行中', awaiting_approval: '待审批', skipped: '已跳过',
 };
 export const statusLabel = (status: string) => STATUS_LABELS[status] || status;
 export const nodeMeta = (kind: string) => NODE_META[kind as keyof typeof NODE_META] || NODE_META.artifact;
-export type ExplorationFlowNode = Node<{ record: ExplorationNode; select: (id: string) => void }, 'record'>;
+export type ExplorationFlowNode = Node<{ record: ExplorationNode; select: (id: string) => void; stageIndex?:number; isCurrent?:boolean; optional?:boolean; stageChild?:boolean }, 'record'>;
 export function ExplorationRecord({ data, selected }: NodeProps<ExplorationFlowNode>) {
   const record = data.record, meta = nodeMeta(record.kind), Icon = meta.icon;
-  return <div className={`exploration-node ${selected ? 'is-selected' : ''}`}>
+  return <div className={`exploration-node ${selected ? 'is-selected' : ''} ${data.isCurrent ? 'is-current-stage' : ''}`}>
     <Handle type="target" position={Position.Left} />
-    <div className="exploration-node-heading"><span className="exploration-type-icon" style={{ color: meta.color, backgroundColor: `${meta.color}12` }}><Icon size={15} aria-hidden="true" /></span><strong>{meta.label}</strong><small title={String(record.version ?? '')}>{record.retention === 'summary' ? '归档' : record.version != null ? `v${String(record.version).slice(0,8)}` : ''}</small></div>
+    {data.stageChild && <Handle type="target" id="stage" position={Position.Top} />}
+    <div className="exploration-node-heading"><span className="exploration-type-icon" style={{ color: meta.color, backgroundColor: `${meta.color}12` }}><Icon size={15} aria-hidden="true" /></span><strong>{data.stageIndex ? `第 ${data.stageIndex} 阶段` : meta.label}</strong><small title={String(record.version ?? '')}>{data.isCurrent ? '当前' : data.optional ? '可选' : record.retention === 'summary' ? '归档' : record.version != null ? `v${String(record.version).slice(0,8)}` : ''}</small></div>
     <button className="nodrag exploration-node-title" title={record.title} onClick={() => data.select(record.id)}>{record.title}</button>
     <div className="exploration-node-footer"><span className={`exploration-status is-${record.status}`}><i aria-hidden="true" />{record.kind==='stage' && record.status==='pending' ? '待开始' : statusLabel(record.status)}</span><code title={record.id}>{record.id.slice(-8)}</code></div>
     <Handle type="source" position={Position.Right} />
+    {data.stageIndex && <Handle type="source" id="execution" position={Position.Bottom} />}
   </div>;
 }
