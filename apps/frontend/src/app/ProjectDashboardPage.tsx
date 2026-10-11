@@ -27,6 +27,7 @@ import { WorkspaceToolsView } from './project/WorkspaceToolsView';
 import { taskHref } from './project/taskLocation';
 import { ProjectRunSignals } from './project/ProjectRunSignals';
 import { ApprovalsInbox, ConstraintsPanel, EvidenceView, HarnessConsole } from './project/ProjectControlViews';
+import { ResearchAutomationPanel } from './project/ResearchAutomationPanel';
 
 type View = 'overview' | 'library' | 'tasks' | 'quality' | 'approvals' | 'runs' | 'evidence' | 'settings' | 'tools';
 
@@ -310,7 +311,7 @@ export default function ProjectDashboardPage() {
           : view === 'approvals' ? <ApprovalsInbox projectId={projectId} approvals={dashboard.approvals} />
             : view === 'runs' ? <HarnessConsole projectId={projectId} />
               : view === 'evidence' ? <EvidenceView projectId={projectId} />
-                : view === 'settings' ? <ConstraintsPanel projectId={projectId} constraints={dashboard.constraints} />
+                : view === 'settings' ? <><ResearchAutomationPanel projectId={projectId} expanded/><ConstraintsPanel projectId={projectId} constraints={dashboard.constraints} /></>
           : <Overview dashboard={dashboard} projectId={projectId} />;
   return <Layout projectId={projectId} projectName={dashboard.project.name} view={view}>
     {content}

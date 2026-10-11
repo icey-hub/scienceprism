@@ -148,7 +148,7 @@ export function ResearchStageLayout({
             <strong>研究流程</strong>
           </div>
           <ResearchStageNavigation activeStage={stage} stageStatuses={stageStatuses} onNavigate={onNavigate} />
-          <p className="research-human-note"><b>H</b> 每个阶段都需要人工确认，Skill 不能越过审批。</p>
+          <p className="research-human-note"><b>H</b> 各阶段按项目确认策略推进；可保留人工确认，或授权自动研究继续。</p>
           {roleSummary}
         </aside>
 

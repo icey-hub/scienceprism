@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { requireAutomatic } from '../researchAutomation/policy.js';
 import { isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
 import { getHarnessRun } from '../harnessRuntime/index.js';
@@ -247,6 +248,22 @@ export async function decideExperimentRun(projectId, runId, { decision, actor = 
     run.approval = { decision, actor: text(actor) || 'human', note: text(note), at: now() };
     run.updatedAt = now();
     return run;
+  });
+}
+
+export function automaticallyApproveExperiment(projectId, runId, sessionId) {
+  return withWorkflowLock(projectId, async () => {
+    const authorization = await requireAutomatic(projectId, 'execution', sessionId);
+    return updateRun(projectId, runId, run => {
+      if (run.status !== 'awaiting_approval') throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_NOT_REVIEWABLE', '实验已被处理。');
+      run.status = 'approved';
+      run.phase = 'approval';
+      run.approval = { decision: 'approve', actor: 'system', authorization, at: now(), note: '按项目自动研究授权执行。' };
+      run.manifest.permissions.approval = 'user-policy-authorized';
+      run.manifest.permissions.execution = 'user-policy-and-project-capability';
+      run.updatedAt = now();
+      return run;
+    });
   });
 }
 
@@ -552,6 +569,7 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
     if (activeRuns.has(runId)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_ACTIVE', 'The Experiment Run is already executing.');
     const next = clone(document.runs[index]);
     if (next.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
+    if (next.approval?.authorization) await requireAutomatic(projectId, 'execution', next.approval.authorization.sessionId);
     assertExecutionAllowed(constraints, next, rolloutEnabled);
     if (next.manifest?.replication) {
       if (!workflow) throw new ExperimentRunnerError(409, 'REPLICATION_WORKFLOW_REQUIRED', 'The replication workflow must be available before execution.');

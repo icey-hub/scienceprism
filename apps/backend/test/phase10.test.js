@@ -339,10 +339,12 @@ test('project constraint defaults have a single source of truth', async () => {
 
 test('the research stage contract vocabulary is locked', () => {
   assert.deepEqual([...RESEARCH_STAGES].sort(), [
+    'execution_proposal',
     'experiment_plan',
     'experiment_results',
     'innovation_ideas',
     'method_proposals',
+    'paper_selection',
     'reproduction_plan',
     'search_strategy',
     'writing_brief'

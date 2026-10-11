@@ -52,7 +52,7 @@ export function markStageTaskDecision(task, { decision, actor = 'human', note = 
   return {
     ...clone(task),
     status: decision === 'approve' || decision === 'skip' ? 'approved' : decision === 'reject' ? 'rejected' : task.status,
-    humanDecision: { decision, actor, note: String(note || '').trim(), at },
+    ...(actor === 'system' ? { automaticDecision: { decision, actor, note: String(note || '').trim(), at }, humanDecision: null } : { humanDecision: { decision, actor, note: String(note || '').trim(), at } }),
     updatedAt: at
   };
 }

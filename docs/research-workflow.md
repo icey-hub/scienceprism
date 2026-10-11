@@ -12,6 +12,14 @@ The Phase 1 domain and architecture contracts are documented in
 [workflow migration contract](./research-workflow-contract.md). Architectural
 decisions are recorded in [docs/adr](./adr/).
 
+## Configurable automatic research
+
+The manual confirmation flow below remains the default. A versioned project policy can authorize automatic stage decisions, controlled experiment execution and new conversation Patch application independently. The overall switch supplies the default; per-part overrides select inheritance, automatic continuation or manual confirmation. Saving a policy does not start a chain.
+
+The project workspace's automatic-research controls start a persistent, serial chain ending at a selected stage. The default target is limitation/innovation analysis after literature selection and reproduction. Seven specialist roles produce validated plans and analysis; the coordinator records `system` authorization with policy/session identity and rechecks it before continuing. The existing Experiment Runner still enforces project capability, rollout flags, structured entrypoints and snapshots. Missing code, versioned data or valid model output blocks continuation; completed experiments do not establish scientific validity. Automatic paper selection retains pending Evidence.
+
+See [project workspace](./project-workspace.md#自动研究与确认策略) for controls and recovery, and [ADR-0010](./adr/0010-configurable-research-confirmation.md) for the extension to the original human-confirmation contract.
+
 ## Stages
 
 1. Direction: human-owned research question and scope.

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowUp, MessageSquare, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -14,6 +14,8 @@ import { workspaceModel } from './workspaceModel';
 import { ProjectDocumentTarget } from './ProjectDocumentTarget';
 import { taskHref } from '../project/taskLocation';
 import './WorkspacePages.css';
+import { ResearchAutomationPanel } from '../project/ResearchAutomationPanel';
+import { automationApi } from '../../api/automationAdapter';
 
 export default function ChatPage(){const {projectId=''}=useParams();return <ProjectChat key={projectId} projectId={projectId}/>;}
 function ProjectChat({projectId}:{projectId:string}) {
@@ -21,6 +23,16 @@ function ProjectChat({projectId}:{projectId:string}) {
  const changes=useChangeReview(projectId,assistant.runs,assistant.remember);
  const [prompt,setPrompt]=useState(''),[edit,setEdit]=useState(false);
  const [reviewOpen,setReviewOpen]=useState(false);
+ const attemptedAutomatic = useRef(new Set<string>());
+ useEffect(()=>{
+  const run=assistant.runs.find(run=>assistant.startedHere.has(run.id)&&run.status==='completed'&&run.patches?.length&&!run.appliedPatches?.length&&!attemptedAutomatic.current.has(run.id));
+  if(!run||docs.busy||changes.busy)return;
+  attemptedAutomatic.current.add(run.id);
+  void automationApi.load(projectId).then(state=>{
+   const mode=state.policy.overrides.patches||'inherit';
+   if(mode==='auto'||(mode==='inherit'&&state.policy.enabled))return docs.perform(async()=>{assistant.remember((await automationApi.applyPatches(projectId,run.id)).run);});
+  }).catch(error=>docs.report(error));
+ },[assistant.runs,docs.busy,changes.busy]);
  const submit=async()=>{
   if(!prompt.trim()||docs.busy||changes.busy)return;
   if(await assistant.start({task:'custom',prompt:prompt.trim(),permission:edit?'edit':'read',activePath:docs.path||undefined,history:assistant.history,skillNames:assistant.skillNames,llmConfig:workspaceModel()},docs.versions))setPrompt('');
@@ -33,6 +45,7 @@ function ProjectChat({projectId}:{projectId:string}) {
  return <ProjectWorkspaceFrame projectId={projectId} projectName={docs.name} active="chat" title="对话">
   <div className="project-chat">
    <div className="workspace-page-heading"><div><h1>项目对话</h1><p>围绕资料、研究问题和文稿展开讨论。</p></div><button className="hub-small-button" aria-expanded={reviewOpen} onClick={()=>setReviewOpen(!reviewOpen)}>审阅修改{changes.pending.length?` (${changes.pending.length})`:''}</button></div>
+   <ResearchAutomationPanel projectId={projectId}/>
    {docs.error&&<p role="alert">{docs.error}</p>}
    <div className="project-conversation" aria-label="项目对话历史" aria-live="polite">
     {assistant.loading&&<p role="status">正在恢复会话…</p>}

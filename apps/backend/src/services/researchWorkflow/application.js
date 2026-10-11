@@ -145,7 +145,7 @@ export async function runUiAction(projectId, body, actor) {
     const query = String(body.query || direction.question || '').trim();
     if (!query) throw new ResearchWorkflowError(400, 'MISSING_QUERY', 'A search query or research question is required.');
     const registeredSources = listResearchSourceAdapters().map((adapter) => adapter.id);
-    const strategy = await runResearchStage({ stage: 'search_strategy', projectId, input: { researchQuestion: direction.question || query, humanDirection: JSON.stringify(direction), seedQuery: query, availableSources: registeredSources }, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const strategy = await runResearchStage({ stage: 'search_strategy', projectId, input: { researchQuestion: direction.question || query, humanDirection: JSON.stringify(direction), seedQuery: query, availableSources: registeredSources }, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const queries = strategy.ok && strategy.output?.queries?.length ? [...new Set([query, ...strategy.output.queries.map(String)])].slice(0, 4) : [query];
     // A model names sources in prose ("arXiv (cs.CL) - preprint server") unless it
     // is told the registered ids, so keep only ids the Source Adapter seam can
@@ -179,7 +179,7 @@ export async function runUiAction(projectId, body, actor) {
   if (action === 'generate-ideas') {
     const selectedIds = Array.isArray(body.paperIds) ? body.paperIds : [...selectedPaperIdsFrom(workflow)];
     const papers = (stageData(workflow, 'selection').selectedPapers || stageData(workflow, 'search').papers || []).filter((paper) => selectedIds.includes(String(paper.id)) || selectedIds.includes(paper.id));
-    const harness = await runResearchStage({ stage: 'innovation_ideas', projectId, input: { papers, direction: body.direction || stageData(workflow, 'direction') }, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const harness = await runResearchStage({ stage: 'innovation_ideas', projectId, input: { papers, direction: body.direction || stageData(workflow, 'direction'), ...(body.replicationResults ? { replicationResults: body.replicationResults } : {}) }, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     // No fabricated fallback: a failed Harness Run leaves the stage empty so the
     // readiness gate blocks approval. Manufacturing placeholder ideas in code
     // produced content that looked like AI output but had no Run, model, context,
@@ -194,7 +194,7 @@ export async function runUiAction(projectId, body, actor) {
   if (action === 'generate-method') {
     const ideas = stageData(workflow, 'ideation').ideas || [];
     const selected = ideas.filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
-    const harness = await runResearchStage({ stage: 'method_proposals', projectId, input: { ideas: selected }, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const harness = await runResearchStage({ stage: 'method_proposals', projectId, input: { ideas: selected }, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const proposals = harness.ok && harness.output?.proposals?.length ? harness.output.proposals : [];
     const method = proposals[0] ? { ...proposals[0], title: proposals[0].name } : {};
     const task = createStageTask({ stage: 'method', input: { selectedIdeaIds: selected.map((idea) => idea.id) }, output: { stage: harness.output, proposals }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'human-decision'] });
@@ -252,8 +252,8 @@ export async function runUiAction(projectId, body, actor) {
       evidenceLedger: citableEvidence
     };
     const harness = body.agentMode === 'multi-agent'
-      ? await runWritingDelegation({ projectId, input, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeReviewResponses: body.fakeReviewResponses, adapter: body.adapter })
-      : await runResearchStage({ stage: 'writing', projectId, input, humanInstructions, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+      ? await runWritingDelegation({ projectId, input, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeReviewResponses: body.fakeReviewResponses, adapter: body.adapter })
+      : await runResearchStage({ stage: 'writing', projectId, input, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger', ...(harness.delegation ? ['multi-agent-review'] : [])], error: harness.delegation ? harness.error : null });
     if (!harness.ok || !harness.output) {
       if (completedWorkflow) {

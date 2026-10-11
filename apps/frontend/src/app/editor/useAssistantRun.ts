@@ -22,6 +22,7 @@ export function useAssistantRun(projectId: string) {
   scope.current = projectId;
   const revision = useRef(0);
   const submitting = useRef(false);
+  const startedHere = useRef(new Set<string>());
   const uncertain = useRef<AssistantRunInput | null>(null);
   const activeRun = runs.find(isRunActive);
 
@@ -111,6 +112,7 @@ export function useAssistantRun(projectId: string) {
       const { run } = await startAssistantRun(owner, request);
       if (scope.current !== owner) return false;
       uncertain.current = null;
+      startedHere.current.add(run.id);
       remember(run);
       return true;
     } catch (cause) {
@@ -139,6 +141,7 @@ export function useAssistantRun(projectId: string) {
   ]).slice(-8);
 
   return { runs, history, activeRun, loading, starting, stopping, error, start, stop, remember,
+    startedHere: startedHere.current,
     skills, skillsLoading, skillsError, skillNames, setSkillNames,
     refreshSkills: () => setSkillsRevision(value => value + 1),
     busy: loading || starting || Boolean(activeRun) };

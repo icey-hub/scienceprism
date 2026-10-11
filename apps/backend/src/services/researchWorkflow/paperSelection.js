@@ -27,7 +27,7 @@ async function confirmPaperEvidence(projectId, paper, actor) {
     id: evidenceId, kind: 'paper', title: paper.title || 'Untitled paper',
     summary: paper.abstract || 'Paper metadata was selected by a human and requires source-level review.',
     sourceUrl: paper.url || null, acquiredAt: paper.retrievedAt || new Date().toISOString(),
-    verificationStatus: 'human-confirmed', version: paper.metadataUpdatedAt || paper.retrievedAt || 'retrieved',
+    verificationStatus: actor === 'human' ? 'human-confirmed' : 'pending', version: paper.metadataUpdatedAt || paper.retrievedAt || 'retrieved',
     metadata: {
       paperId: paper.id, doi: paper.doi, authors: paper.authors, year: paper.year,
       venue: paper.venue, publicationType: paper.publicationType, source: paper.source,
@@ -38,8 +38,9 @@ async function confirmPaperEvidence(projectId, paper, actor) {
 }
 
 // Called under the workflow command lock, after version and replay checks.
-export async function applyPaperSelection(projectId, workflow, { paperIds = [], reviews, actor, note }) {
-  if (actor !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', 'Only a human may save paper selection.');
+export async function applyPaperSelection(projectId, workflow, { paperIds = [], reviews, actor, note, automatic = false }) {
+  // automatic is supplied only by the server policy command, never request projection.
+  if (actor !== 'human' && !(automatic && actor === 'system')) throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', 'Only a human may save paper selection.');
   if (!Array.isArray(paperIds) || paperIds.some((id) => typeof id !== 'string' || !id) || new Set(paperIds).size !== paperIds.length) invalid('paperIds must contain unique nonempty strings.');
   const search = getStageData(workflow, 'search');
   const previous = getStageData(workflow, 'selection');
@@ -67,7 +68,7 @@ export async function applyPaperSelection(projectId, workflow, { paperIds = [], 
       next = { paperId, decision: selected.has(paperId) ? 'include' : 'undecided', reason: '', criterion: '' };
     }
     if (!next || (old && ['decision', 'reason', 'criterion'].every((key) => old[key] === next[key]))) continue;
-    const record = { ...next, actor: 'human', at: now, workflowVersion: workflow.version };
+    const record = { ...next, actor, at: now, workflowVersion: workflow.version };
     savedReviews.set(paperId, record);
     history.push({ ...record, paper: structuredClone(evaluation.candidate), context: {
       queries: search.queries || [], policy: search.policy || {},
@@ -81,7 +82,7 @@ export async function applyPaperSelection(projectId, workflow, { paperIds = [], 
   const data = {
     selectedPaperIds: paperIds, selectedPapers: selectedPapers.map((paper, index) => ({ ...paper, evidenceId: evidenceIds[index] })),
     evidenceIds, policy: search.policy || {}, reviews: [...savedReviews.values()], reviewHistory: history,
-    task: createStageTask({ stage: 'selection', input: { requestedPaperIds: paperIds, qualityPolicy: search.policy || {}, reviews: [...savedReviews.values()] }, output: { selectedPaperIds: paperIds, evidenceIds }, adapters: ['quality-gate', 'evidence-ledger', 'human-input'] })
+    task: createStageTask({ stage: 'selection', input: { requestedPaperIds: paperIds, qualityPolicy: search.policy || {}, reviews: [...savedReviews.values()] }, output: { selectedPaperIds: paperIds, evidenceIds }, adapters: ['quality-gate', 'evidence-ledger', automatic ? 'authorized-automation' : 'human-input'] })
   };
   // Validate stage, completion and note before any cross-file side effect.
   applyStageUpdate(workflow, { stageId: 'selection', data, status: 'in_progress', actor, note });

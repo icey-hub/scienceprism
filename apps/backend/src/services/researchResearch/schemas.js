@@ -160,6 +160,16 @@ const writingBriefSchema = z.object({
 }).strict();
 
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
+  paper_selection: z.object({ stage: stage('paper_selection'), paperIds: z.array(nonEmpty).min(1).max(5), rationale: nonEmpty }).strict(),
+  execution_proposal: z.object({
+    stage: stage('execution_proposal'), missing: z.array(nonEmpty),
+    plan: z.object({
+      dataset: nonEmpty, datasetVersion: nonEmpty, protocol: nonEmpty,
+      execution: z.object({ adapter: z.enum(['node', 'python']), entrypoint: nonEmpty, args: z.array(z.string()).max(30) }).strict(),
+      seed: z.number().int(), successCriteria: z.array(nonEmpty).min(1),
+      artifacts: z.array(z.object({ path: nonEmpty, kind: z.enum(['metric', 'output', 'chart', 'table']) }).strict()).max(20)
+    }).strict().nullable()
+  }).strict(),
   search_strategy: searchStrategySchema,
   reproduction_plan: reproductionPlanSchema,
   innovation_ideas: innovationIdeasSchema,

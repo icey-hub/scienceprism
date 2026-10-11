@@ -8,6 +8,7 @@ import {
 } from './schemas.js';
 import { getResearchStageSkills, researchSkillPrompt } from './researchSkills.js';
 import { validateStageEvidence } from '../evidenceLedger/index.js';
+import { getRole } from '../agentRoles/index.js';
 
 function asText(value) {
   return value === null || value === undefined ? '' : String(value).trim();
@@ -32,8 +33,8 @@ export function buildResearchHarnessPrompt({ stage, input, humanInstructions, co
   const contractRules = Array.isArray(contract?.rules) ? contract.rules : [];
   const contractNotes = Array.isArray(contract?.notes) ? contract.notes : [];
   return [
-    'You are an assistant in a human-led research workflow.',
-    'The human owns the research direction, paper selection, innovation choice, method approval, and final claims.',
+    'You are an assistant in a user-configured research workflow.',
+    'The user owns the research direction and confirmation policy. Return structured advice; the coordinator handles authorization and stage continuation. Never claim to have personally approved or executed an experiment.',
     // "Provide analysis and structured suggestions only" used to sit here as
     // prompt text. It is now enforced by the role: the research stage runs as
     // `research-stage-assistant`, whose only capability is project.read, so the
@@ -95,6 +96,8 @@ export async function runResearchHarnessStage({
   fakeResponse,
   fakeError,
   existingRunId,
+  role = 'research-stage-assistant',
+  workflowStage,
   runHarness = runHarnessRequest
 } = {}) {
   const normalizedStage = normalizeResearchStage(stage);
@@ -120,13 +123,13 @@ export async function runResearchHarnessStage({
     };
   }
 
-  const activeSkills = projectId ? await getResearchStageSkills(projectId, normalizedStage) : [];
+  const activeSkills = projectId ? await getResearchStageSkills(projectId, workflowStage || normalizedStage) : [];
   const baseRequest = {
     projectId,
-    stage: normalizedStage,
+    stage: workflowStage || normalizedStage,
     activePath,
     task: `research:${normalizedStage}`,
-    role: 'research-stage-assistant',
+    role,
     humanInstructions,
     input,
     context,
@@ -147,7 +150,7 @@ export async function runResearchHarnessStage({
       ...baseRequest,
       ...(!repair && existingRunId ? { existingRunId } : {}),
       ...(repair && existingRunId ? { replayOf: existingRunId } : {}),
-      prompt: buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills, repair })
+      prompt: `${getRole(role)?.purpose || ''}\n\n${buildResearchHarnessPrompt({ stage: normalizedStage, input, humanInstructions, context, skills: activeSkills, repair })}`
     });
     const parsedValidation = parseResearchStageOutput(normalizedStage, harnessResult?.reply || '');
     const evidenceValidation = projectId && parsedValidation.ok

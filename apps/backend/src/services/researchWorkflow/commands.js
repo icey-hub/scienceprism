@@ -219,4 +219,4 @@ export function updateResearchSkillBindings(projectId, { bindings, actor, note, 
   });
 }
 
-export { commandKey, fingerprint };
+export { commandKey, fingerprint, mutateWorkflow };

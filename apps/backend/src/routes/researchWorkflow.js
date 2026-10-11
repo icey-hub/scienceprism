@@ -17,6 +17,8 @@ import {
   updateSkillsFromRequest,
   uiStageId
 } from '../services/researchWorkflow/application.js';
+import { getAutomation, startAutomation, resumeAutomation, stopAutomation, automaticallyApplyPatches } from '../services/researchAutomation/index.js';
+import { saveAutomationPolicy } from '../services/researchAutomation/policy.js';
 
 const BASE_PATH = '/api/projects/:id/research-workflow';
 
@@ -86,6 +88,16 @@ function valueRoute(handler) {
 }
 
 export function registerResearchWorkflowRoutes(fastify) {
+  fastify.get(`${BASE_PATH}/automation`, valueRoute((req) => getAutomation(req.params.id)));
+  fastify.patch(`${BASE_PATH}/automation`, valueRoute((req) => saveAutomationPolicy(req.params.id, bodyOf(req))));
+  for (const [action, handler] of Object.entries({ start: startAutomation, resume: resumeAutomation, stop: stopAutomation })) {
+    fastify.post(`${BASE_PATH}/automation/${action}`, valueRoute(async req => {
+      const body = bodyOf(req);
+      // Provider secrets live only in the worker, never in persisted policy/session.
+      return handler(req.params.id, { actor: actorFromRequest(req, body), question: body.question, targetStage: body.targetStage, skipReplication: body.skipReplication, executionPlan: body.executionPlan }, { llmConfig: body.llmConfig });
+    }));
+  }
+  fastify.post(`${BASE_PATH}/automation/patches/:runId/apply`, valueRoute(async req => ({ run: await automaticallyApplyPatches(req.params.id, req.params.runId) })));
   fastify.get(BASE_PATH, workflowRoute((req) => getResearchWorkflow(req.params.id)));
 
   fastify.get(`${BASE_PATH}/stages/:stageId`, valueRoute(async (req) => ({ stage: await getResearchStageDetails(req.params.id, uiStageId(req.params.stageId)) })));

@@ -19,6 +19,7 @@
 .project-hub-shell .conversation-answer details{margin:12px 0;font-size:12px;color:#858690}
 .project-hub-shell .conversation-answer pre{white-space:pre-wrap;max-width:100%;overflow:auto}
 .project-hub-shell .conversation-composer{position:sticky;bottom:16px;background:#fff;border:1px solid #e3e3ea;border-radius:16px;padding:15px 18px;box-shadow:0 5px 28px #27243d08;margin:0 0 16px;z-index:2}
+.project-hub-shell .project-chat:has(.research-automation[open],.conversation-review) .conversation-composer{position:relative;bottom:auto}
 .project-hub-shell .conversation-composer>textarea{width:100%;border:0;outline:none;resize:vertical;min-height:66px;max-height:220px;font:inherit;font-size:14px;line-height:1.7;background:transparent;color:#353641}
 .project-hub-shell .conversation-composer textarea::placeholder{color:#a0a1aa}
 .project-hub-shell .conversation-compose-options{display:flex;align-items:center;flex-wrap:wrap;gap:16px;font-size:12px;color:#858690}

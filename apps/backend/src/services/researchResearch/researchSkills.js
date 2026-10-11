@@ -26,6 +26,9 @@ export const readEnabledResearchSkillDocument = readEnabledSkillDocument;
 export { HARNESS_EXECUTED_STAGES } from '../researchWorkflow/executedStages.js';
 
 export const DEFAULT_RESEARCH_SKILL_BINDINGS = Object.freeze({
+  selection: Object.freeze(['paper-card']),
+  replication: Object.freeze(['paper-card', 'dataset-audit']),
+  experiment: Object.freeze(['statistics-audit', 'experiment-design-audit']),
   search: Object.freeze(['literature-search']),
   ideation: Object.freeze(['paper-card', 'ccf-idea-review']),
   method: Object.freeze(['paper-card', 'dataset-audit', 'statistics-audit', 'experiment-design-audit']),
