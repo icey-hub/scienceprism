@@ -95,6 +95,7 @@ export default function ProjectPage() {
   const { t, i18n } = useTranslation();
 
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [templates, setTemplates] = useState<TemplateMeta[]>([]);
   const [categories, setCategories] = useState<TemplateCategory[]>([]);
   const [status, setStatus] = useState('');
@@ -154,12 +155,19 @@ export default function ProjectPage() {
     if (action === 'import') setImportOpen(true);
     if (action === 'templates') setTemplateGalleryOpen(true);
     if (action === 'settings') setSettingsOpen(true);
+    if (action === 'transfer') {
+      if (!projectsLoaded) return;
+      const source = projects.find(project => project.id === searchParams.get('project'));
+      if (source) { setTransferSource({ id: source.id, name: source.name }); setTransferOpen(true); }
+      else setStatus(t('未找到要迁移的项目'));
+    }
     if (action) setSearchParams({}, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, projects, projectsLoaded, t]);
 
   const loadProjects = useCallback(async () => {
     const res = await listProjects();
     setProjects(res.projects || []);
+    setProjectsLoaded(true);
   }, []);
   const backups = useProjectBackups({ onStatus: setStatus, onRestored: async () => { setImportOpen(false); await loadProjects(); } });
 

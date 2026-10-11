@@ -1,12 +1,15 @@
-import { Activity, BookOpenText, FolderOpen, LayoutDashboard, ListChecks, Network, Settings2 } from 'lucide-react';
+import { Activity, BookOpenText, FolderOpen, LayoutDashboard, ListChecks, MessageSquare, Network, Radio, Settings2, Wrench } from 'lucide-react';
 import { researchHref } from '../research/researchLocation';
 
 export const WORKSPACE_GROUPS = [
   { label: '功能', items: [
     { id: 'overview', label: '仪表盘', icon: LayoutDashboard, path: '' },
+    { id: 'chat', label: '对话', icon: MessageSquare, path: 'chat' },
     { id: 'activity', label: '任务与会话', icon: Activity, path: 'tasks' },
     { id: 'library', label: '资料库', icon: BookOpenText, path: 'library' },
     { id: 'evidence', label: '探索与证据', icon: Network, path: 'evidence' },
+    { id: 'tools', label: '工具执行', icon: Wrench, path: 'tools' },
+    { id: 'runs', label: '运行记录', icon: Radio, path: 'runs' },
     { id: 'writing', label: '工作空间', icon: FolderOpen, path: 'writing' }
   ] },
   { label: '系统', items: [
@@ -21,5 +24,6 @@ export function workspaceHref(projectId: string, path: string, stage?: string) {
   const id = encodeURIComponent(projectId);
   if (path === 'research') return researchHref(projectId, stage);
   if (path === 'writing') return `/editor/${id}`;
+  if (path === 'chat') return `/editor/${id}?tool=agent`;
   return `/project/${id}${path ? `/${path}` : ''}`;
 }

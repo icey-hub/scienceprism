@@ -38,6 +38,7 @@ import type { HarnessRun } from '../api/assistantAdapter';
 import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
 import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
+import { isWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceTool } from './components/workspaceTools';
 import { researchHref } from './research/researchLocation';
 import { rememberEditorFile, restoredEditorFile } from './editor/editorLocation';
 import {
@@ -402,7 +403,7 @@ function ProjectEditorSession() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { projectId: routeProjectId, stage: researchStage } = useParams<{ projectId: string; stage?: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const projectId = routeProjectId || '';
   const researchMode = Boolean(researchStage);
   const activeResearchStage: ResearchStageId = isResearchStageId(researchStage) ? researchStage : 'direction';
@@ -567,6 +568,18 @@ function ProjectEditorSession() {
     }
     setActiveSidebar((current) => current === 'research' ? 'files' : current);
   }, [researchMode, researchStage]);
+
+  useEffect(() => {
+    const tool = searchParams.get('tool');
+    if (!researchMode && isWorkspaceTool(tool)) { setActiveSidebar(tool); setSidebarOpen(true); }
+  }, [searchParams, researchMode]);
+
+  const selectWorkspaceTool = (tool: WorkspaceTool) => {
+    setActiveSidebar(tool); setSidebarOpen(true);
+    const params = new URLSearchParams(searchParams);
+    params.set('tool', tool);
+    setSearchParams(params, { replace: true });
+  };
 
   useEffect(() => {
     if (collabServer) {
@@ -2514,7 +2527,7 @@ function ProjectEditorSession() {
 
   return (
     <div className={`app-shell workspace-shell${researchMode ? ' is-research' : ' is-writing'}`}>
-      <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active={researchMode ? 'research' : 'writing'} />
+      <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active={researchMode ? 'research' : activeSidebar === 'agent' ? 'chat' : ['vision', 'search', 'websearch', 'plot', 'review'].includes(activeSidebar) ? 'tools' : 'writing'} />
       {researchMode ? <header className="research-command-bar"><span>{t('研究工作区')}</span><div><button className="btn ghost" onClick={() => navigate(`/project/${projectId}/tasks`)}>{t('任务进度')}</button><button className="btn ghost" aria-pressed={researchContextOpen} onClick={() => setResearchContextOpen((open) => !open)}><PanelRight size={16} />{t('研究上下文')}</button></div></header> : <header className="top-bar">
         <div className="editor-titlebar">
           <button className="icon-btn" onClick={() => setSidebarOpen((prev) => !prev)} title={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')} aria-label={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')}>
@@ -2603,14 +2616,14 @@ function ProjectEditorSession() {
                     setSidebarOpen(true);
                     if (!researchMode) navigate(researchHref(projectId));
                   }}
-                  title="研究流程"
+                  title="项目进展"
                 >
                   <span className="tab-icon"><FlaskConical size={15} /></span>
-                  <span className="tab-text">研究流程</span>
+                  <span className="tab-text">项目进展</span>
                 </button>
                 <button
                   className={`tab-btn ${activeSidebar === 'files' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('files')}
+                  onClick={() => selectWorkspaceTool('files')}
                   title={t('Files')}
                 >
                   <span className="tab-icon"><FolderTree size={15} /></span>
@@ -2618,32 +2631,27 @@ function ProjectEditorSession() {
                 </button>
                 <button
                   className={`tab-btn ${activeSidebar === 'agent' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('agent')}
+                  onClick={() => selectWorkspaceTool('agent')}
                   title={t('助手')}
                 >
                   <span className="tab-icon"><Bot size={15} /></span>
                   <span className="tab-text">{t('助手')}</span>
                 </button>
-                <div className="assistant-tool-menu">
-                  <button
+                <details className="assistant-tool-menu">
+                  <summary
                     className={`tab-btn ${['vision', 'search', 'websearch', 'plot', 'review'].includes(activeSidebar) ? 'active' : ''}`}
-                    type="button"
                     title={t('更多助手工具')}
                   >
                     <span className="tab-icon"><ChevronDown size={14} /></span>
                     <span className="tab-text">{t('更多')}</span>
-                  </button>
+                  </summary>
                   <div className="assistant-tool-popover">
-                    <button onClick={() => setActiveSidebar('vision')}><ImageIcon size={15} />{t('图像识别')}</button>
-                    <button onClick={() => setActiveSidebar('search')}><SearchIcon size={15} />{t('论文检索')}</button>
-                    <button onClick={() => setActiveSidebar('websearch')}><Globe2 size={15} />{t('网页检索')}</button>
-                    <button onClick={() => setActiveSidebar('plot')}><BarChart3 size={15} />{t('绘图')}</button>
-                    <button onClick={() => setActiveSidebar('review')}><CheckCircle2 size={15} />{t('评审')}</button>
+                    {WORKSPACE_TOOLS.filter(tool => ['vision', 'search', 'websearch', 'plot', 'review'].includes(tool.id)).map(tool => <button key={tool.id} onClick={event => { selectWorkspaceTool(tool.id); event.currentTarget.closest('details')?.removeAttribute('open'); }}><tool.icon size={15} />{t(tool.label)}</button>)}
                   </div>
-                </div>
+                </details>
                 <button
                   className={`tab-btn ${activeSidebar === 'collab' ? 'active' : ''}`}
-                  onClick={() => setActiveSidebar('collab')}
+                  onClick={() => selectWorkspaceTool('collab')}
                   title={t('协作')}
                 >
                   <span className="tab-icon"><Users size={15} /></span>

@@ -138,3 +138,15 @@
   .workspace-shell .research-stage-content { padding: 0 16px 24px; }
   .workspace-shell .research-stage-footer { padding: 12px 16px; }
 }
+
+.project-hub-shell .hub-tools-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 12px; margin-bottom: 24px; }
+.project-hub-shell .hub-tool-entry { display: flex; align-items: flex-start; gap: 14px; padding: 20px; border: 1px solid var(--workspace-border); border-radius: 8px; color: var(--workspace-text); background: white; text-decoration: none; }
+.project-hub-shell .hub-tool-entry:hover { background: #fafafa; border-color: #bbb; }
+.project-hub-shell .hub-tool-entry svg { flex-shrink: 0; }
+.project-hub-shell .hub-tool-entry p { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: var(--workspace-muted); }
+.project-hub-shell .hub-tool-entry > span { margin-left: auto; }
+.project-hub-shell .hub-tool-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.workspace-shell .assistant-tool-menu summary { list-style: none; cursor: pointer; }
+.workspace-shell .assistant-tool-menu summary::-webkit-details-marker { display: none; }
+.workspace-shell .assistant-tool-menu:not([open]) .assistant-tool-popover { display: none; }
+.workspace-shell .assistant-tool-menu[open] .assistant-tool-popover { display: grid; }
