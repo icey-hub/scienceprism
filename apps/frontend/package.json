@@ -17,6 +17,7 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.23.0",
     "@lezer/highlight": "^1.2.0",
+    "@xyflow/react": "12.12.0",
     "codemirror": "^6.0.1",
     "diff": "^5.2.0",
     "i18next": "^23.12.2",

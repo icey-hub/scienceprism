@@ -7,7 +7,7 @@ export const WORKSPACE_GROUPS = [
     { id: 'chat', label: '对话', icon: MessageSquare, path: 'chat' },
     { id: 'activity', label: '任务与会话', icon: Activity, path: 'tasks' },
     { id: 'library', label: '资料库', icon: BookOpenText, path: 'library' },
-    { id: 'evidence', label: '探索与证据', icon: Network, path: 'evidence' },
+    { id: 'evidence', label: '探索', icon: Network, path: 'explore' },
     { id: 'tools', label: '工具执行', icon: Wrench, path: 'tools' },
     { id: 'runs', label: '运行记录', icon: Radio, path: 'runs' },
     { id: 'writing', label: '工作空间', icon: FolderOpen, path: 'writing' }
