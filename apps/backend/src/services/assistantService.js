@@ -5,20 +5,33 @@ import { applyProjectConstraintPolicy, resolveCapabilityPolicy } from './harness
 import { resolveRoleCapabilities } from './agentRoles/index.js';
 import { HarnessRuntimeError } from './harnessRuntime/errors.js';
 import { resolveAgentRuntime } from './agentRuntime.js';
-import { listSkillCatalog } from './skillCatalog.js';
+import { listSkillCatalog, readEnabledSkillDocument } from './skillCatalog.js';
 
 const starts = new Map();
 const text = (value, limit) => typeof value === 'string' ? value.slice(0, limit) : '';
 
 /** Discovery uses the same project constraints and role ceiling as execution. */
-export async function listAssistantSkills(projectId) {
+async function assistantSkillPolicy(projectId) {
   const projectRoot = await getProjectRoot(projectId);
   const constraints = await readProjectConstraints(projectRoot);
   const policy = applyProjectConstraintPolicy(resolveCapabilityPolicy({
     requested: ['project.read'], configured: constraints.capabilities
   }), constraints);
   const { granted } = resolveRoleCapabilities('project-agent', policy);
-  return listSkillCatalog({ projectRoot, capabilityPolicy: { ...policy, granted } });
+  return { projectRoot, capabilityPolicy: { ...policy, granted } };
+}
+
+export async function listAssistantSkills(projectId) {
+  return listSkillCatalog(await assistantSkillPolicy(projectId));
+}
+
+export async function previewAssistantSkill(projectId, name) {
+  const { capabilityPolicy } = await assistantSkillPolicy(projectId);
+  const { skills } = await listAssistantSkills(projectId);
+  const skill = skills.find(item => item.name === name);
+  if (!skill?.available) throw new HarnessRuntimeError(skill?.reason === 'PERMISSION_DENIED' ? 403 : 404, 'SKILL_UNAVAILABLE', skill?.reason || 'NOT_FOUND');
+  const content = await readEnabledSkillDocument({ projectId, name, enabledSkillNames: [name], capabilityPolicy });
+  return { skill, content, truncated: content.includes('[Skill document truncated after 40,000 characters]') };
 }
 
 /** The editor owns task intent; the server owns capabilities and execution. */

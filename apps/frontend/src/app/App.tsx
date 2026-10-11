@@ -4,6 +4,7 @@ import LandingPage from './LandingPage';
 import ProjectPage from './ProjectPage';
 import CollabJoinPage from './CollabJoinPage';
 import ProjectDashboardPage from './ProjectDashboardPage';
+import SkillsPage from './project/SkillsPage';
 import ExplorationPage from './project/ExplorationPage';
 import TaskDetailPage from './project/TaskDetailPage';
 
@@ -21,6 +22,7 @@ export default function App() {
       <Route path="/projects" element={<ProjectPage />} />
       <Route path="/project/:projectId" element={<ProjectDashboardPage />} />
       <Route path="/project/:projectId/:view" element={<ProjectDashboardPage />} />
+      <Route path="/project/:projectId/skills" element={<SkillsPage />} />
       <Route path="/project/:projectId/explore" element={<ExplorationPage />} />
       <Route path="/project/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
       <Route path="/editor/:projectId" element={<EditorPage />} />

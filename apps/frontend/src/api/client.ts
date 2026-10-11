@@ -535,6 +535,9 @@ export interface AssistantSkill {
   shadows?: 'built-in';
 }
 
+export function previewAssistantSkill(projectId: string, name: string) {
+  return request<{ok:boolean;skill:AssistantSkill;content:string;truncated:boolean}>(`/api/projects/${encodeURIComponent(projectId)}/assistant-skills/${encodeURIComponent(name)}/document`);
+}
 export function getAssistantSkills(projectId: string) {
   return request<{ ok: boolean; skills: AssistantSkill[] }>(`/api/projects/${projectId}/assistant-skills`);
 }

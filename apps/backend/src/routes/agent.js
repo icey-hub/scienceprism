@@ -4,7 +4,7 @@ import { listRoles, roleCatalog } from '../services/agentRoles/index.js';
 import { getLang, t } from '../i18n/index.js';
 import { assertApprovedConstraint, createConstraintProposal, ConstraintProposalError } from '../services/constraintRegistry/proposals.js';
 import { parseConstraintChatEnvelope } from '../services/constraintRegistry/chatEnvelope.js';
-import { listAssistantSkills, startAssistantRun } from '../services/assistantService.js';
+import { listAssistantSkills, previewAssistantSkill, startAssistantRun } from '../services/assistantService.js';
 
 async function checkedReply(projectId, response) {
   if (!projectId || !response.ok) return response;
@@ -26,6 +26,10 @@ export function registerAgentRoutes(fastify, { callModel = callOpenAICompatible 
         code: 'SKILL_CATALOG_FAILED', message: 'The project Skill catalog could not be loaded.'
       } });
     }
+  });
+  fastify.get('/api/projects/:id/assistant-skills/:name/document', async (req, reply) => {
+    try { return { ok: true, ...(await previewAssistantSkill(req.params.id, req.params.name)) }; }
+    catch (error) { return reply.code(error.statusCode || 500).send({ ok: false, error: { code: error.code || 'SKILL_PREVIEW_FAILED', message: error.message } }); }
   });
   fastify.post('/api/projects/:id/assistant-runs', async (req, reply) => {
     try {

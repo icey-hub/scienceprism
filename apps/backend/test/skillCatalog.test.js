@@ -95,3 +95,20 @@ test('catalog and document enforce project paths, capability allowlists, Markdow
   await assert.rejects(readEnabledSkillDocument({ ...args, file: 'large.md' }), /TOO_LARGE/);
   await assert.rejects(readEnabledSkillDocument({ ...args, capabilityPolicy: { granted: ['project.read'], allowedPaths: ['main.tex'] } }), /Harness path denied/);
 });
+
+test('UI preview resolves the active override and respects the execution discovery policy', async () => {
+  const { previewAssistantSkill } = await import('../src/services/assistantService.js');
+  const root = await project('preview');
+  await skill(root, 'research-writing', 'stages: [writing]\n', 'Project-specific preview body');
+  const result = await previewAssistantSkill('preview', 'research-writing');
+  assert.equal(result.skill.source, 'project');
+  assert.equal(result.skill.shadows, 'built-in');
+  assert.match(result.content, /Project-specific preview body/);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism/project-constraints.json'), JSON.stringify({capabilities: []}));
+  await assert.rejects(previewAssistantSkill('preview', 'research-writing'), error => error.statusCode === 403);
+  await writeFile(path.join(root, '.scienceprism/project-constraints.json'), '{}');
+  await assert.rejects(previewAssistantSkill('preview', '../project.json'), error => error.statusCode === 404);
+  await writeFile(path.join(root, '.dsh/skills/research-writing/SKILL.md'), 'Invalid override');
+  await assert.rejects(previewAssistantSkill('preview', 'research-writing'), error => error.statusCode === 404 && /INVALID_METADATA/.test(error.message));
+});
