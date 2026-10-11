@@ -608,5 +608,12 @@
   "查看任务与重试": "View tasks and retry",
   "部分来源未能完成检索": "Some sources could not be searched",
   "研究流程管理": "Research Workflow Management",
-  "重置会清空已保存的阶段数据，请谨慎操作。": "Resetting clears saved stage data. Proceed with caution."
+  "重置会清空已保存的阶段数据，请谨慎操作。": "Resetting clears saved stage data. Proceed with caution.",
+  "页面资源未能加载": "Page resources could not be loaded",
+  "页面暂时无法打开": "This page could not be opened",
+  "页面可能刚更新了版本，或网络连接暂时中断。重新加载后可继续打开当前页面。": "The app may have been updated, or the network connection was interrupted. Reload to continue opening this page.",
+  "请重新加载当前页面；如果仍有问题，可返回项目列表。": "Reload this page. If the problem persists, return to the project list.",
+  "重新加载页面": "Reload page",
+  "返回项目列表": "Back to projects",
+  "错误详情": "Error details"
 }

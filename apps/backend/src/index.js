@@ -31,6 +31,7 @@ import { shutdownExperimentRuns } from './services/experimentRunner/index.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { registerFrontendStatic } from './utils/frontendStatic.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -71,21 +72,7 @@ const __dirname = dirname(__filename);
 const frontendDist = join(__dirname, '../../frontend/dist');
 
 if (existsSync(frontendDist)) {
-  const fastifyStatic = await import('@fastify/static');
-  await fastify.register(fastifyStatic.default, {
-    root: frontendDist,
-    prefix: '/',
-    wildcard: false,
-  });
-
-  // SPA fallback: serve index.html for non-API routes
-  fastify.setNotFoundHandler((req, reply) => {
-    if (req.url.startsWith('/api')) {
-      reply.code(404).send({ error: 'Not Found' });
-    } else {
-      reply.sendFile('index.html');
-    }
-  });
+  await registerFrontendStatic(fastify, frontendDist);
 }
 
 await ensureDir(DATA_DIR);
