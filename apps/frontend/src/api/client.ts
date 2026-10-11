@@ -409,6 +409,12 @@ export interface HarnessPatch {
   baseVersion?: FileVersion | null;
 }
 
+export interface RuntimeEvent {
+  schemaVersion?: number; id?: string; runId?: string; attempt?: number; sequence?: number;
+  type?: string; name?: string; callId?: string; capability?: string; text?: string; at?: string;
+  arguments?: string; output?: string; error?: string; outcome?: string; truncated?: boolean;
+  path?: string; version?: FileVersion; usage?: Record<string, number>;
+}
 export interface HarnessRun {
   id: string;
   projectId: string;
@@ -430,7 +436,8 @@ export interface HarnessRun {
   contextManifest?: Record<string, unknown>;
   capabilities?: { granted?: string[]; denied?: string[]; constraints?: Record<string, unknown> };
   limits?: { timeoutMs?: number; maxTokens?: number; maxConcurrent?: number; retryLimit?: number };
-  events?: { type?: string; name?: string; capability?: string; text?: string; at?: string }[];
+  events?: RuntimeEvent[];
+  eventRetention?: { limit: number; total: number; retained: number; dropped: number; priorRetentionUnknown: boolean };
   patches?: HarnessPatch[];
   request?: Partial<AssistantRunInput> & { source?: string };
   documentVersions?: (FileVersion & { path: string })[];

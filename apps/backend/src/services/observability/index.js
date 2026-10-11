@@ -21,7 +21,7 @@ function number(value) {
 
 export function normalizeTokenUsage(value) {
   if (!value || typeof value !== 'object') return { input: 0, output: 0, total: 0 };
-  const input = number(value.input ?? value.inputTokens ?? value.promptTokens ?? value.prompt_tokens);
+  const input = number(value.input ?? value.inputTokens ?? value.promptTokens ?? value.prompt_tokens) + number(value.cacheReadTokens) + number(value.cacheWriteTokens);
   const output = number(value.output ?? value.outputTokens ?? value.completionTokens ?? value.completion_tokens);
   const total = number(value.total ?? value.totalTokens ?? value.total_tokens) || input + output;
   return { input, output, total };

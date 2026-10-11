@@ -276,17 +276,17 @@ export async function runToolAgent({
   const executor = new AgentExecutor({ agent, tools, handleToolRuntimeErrors: (error) => { throw error; } });
   const usageTracker = createLLMUsageTracker();
   const toolEvents = BaseCallbackHandler.fromMethods({
-    handleToolStart(_tool, _input, callId, _parentId, _tags, _metadata, name) {
+    handleToolStart(_tool, input, callId, _parentId, _tags, _metadata, name) {
       signal?.throwIfAborted();
       assertCapability(effectiveCapabilityPolicy, capabilityForToolName(name));
-      emit({ type: 'tool/start', data: { name, callId } });
+      emit({ type: 'tool/start', data: { name, callId, arguments: input } });
       signal?.throwIfAborted();
     },
-    handleToolEnd(_output, callId) {
-      emit({ type: 'tool/end', data: { callId } });
+    handleToolEnd(output, callId) {
+      emit({ type: 'tool/end', data: { callId, output } });
     },
-    handleToolError(_error, callId) {
-      emit({ type: 'tool/error', data: { callId } });
+    handleToolError(error, callId) {
+      emit({ type: 'tool/error', data: { callId, error: { message: error?.message, code: error?.code } } });
     }
   });
   toolEvents.raiseError = true;

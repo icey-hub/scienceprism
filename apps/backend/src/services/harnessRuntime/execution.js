@@ -9,26 +9,9 @@ import { copyBundledResearchSkills, restrictWorkspaceResearchSkills } from '../r
 import { fileVersion } from './fileVersions.js';
 import { finalizeAssistantReply } from '../assistantReply.js';
 
-const MAX_EVENTS = 1000;
+import { summarizeEvent, appendRuntimeEvents, sumEventUsage } from './runtimeEvents.js';
+export { summarizeEvent } from './runtimeEvents.js';
 const now = () => new Date().toISOString();
-
-export function summarizeEvent(event = {}) {
-  const source = event?.params?.event || event;
-  const data = source?.data || event?.params || {};
-  return {
-    type: source?.type || event?.method || 'unknown',
-    name: data?.name,
-    callId: data?.callId,
-    tool: data?.tool,
-    capability: capabilityForToolName(data?.name || data?.tool),
-    usage: data?.usage || data?.tokenUsage,
-    ...(source?.type === 'file/read' ? { path: data.path, version: data.version } : {}),
-    text: source?.type === 'assistant/message'
-      ? source.data?.message?.content?.filter((block) => block?.type === 'text').map((block) => block.text).join('')
-      : undefined,
-    at: now()
-  };
-}
 
 function patchListFromResult(result, policy, contextPack) {
   const patches = Array.isArray(result?.patches) ? result.patches : [];
@@ -79,7 +62,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
   async function persistEvents(projectId, runId, events) {
     if (!events.length) return;
     await updateRun(projectId, runId, (run) => {
-      run.events = [...(run.events || []), ...events].slice(-MAX_EVENTS);
+      appendRuntimeEvents(run, events);
       run.updatedAt = now();
       return run;
     });
@@ -173,7 +156,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         current.patches = patches;
         current.humanDecision = patches.length ? { status: 'pending' } : { status: 'none' };
         current.output = result?.output;
-        current.tokenUsage = result?.usage || result?.tokenUsage || current.events.map((event) => event.usage).find(Boolean) || null;
+        current.tokenUsage = result?.usage || result?.tokenUsage || sumEventUsage(current.events) || null;
         current.adapterResult = { ok: result?.ok !== false, fallback: current.fallback || false };
         return current;
       });

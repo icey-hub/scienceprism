@@ -9,6 +9,7 @@ import { PROJECT_CONSTRAINT_LIMITS } from '../../../config/projectConstraintDefa
 import { HarnessRuntimeError } from '../errors.js';
 import { capabilityPrompt } from '../capabilities.js';
 import { formatHarnessInput } from '../contextPackager.js';
+import { summarizeEvent, sumEventUsage } from '../runtimeEvents.js';
 
 async function pathExists(filePath) {
   try {
@@ -39,19 +40,6 @@ async function loadHarnessSdk() {
       { retryable: true }
     );
   }
-}
-
-function eventSummary(event) {
-  const source = event?.params?.event || event;
-  return {
-    type: source?.type || event?.method || 'unknown',
-    name: source?.data?.name,
-    callId: source?.data?.callId,
-    tool: source?.data?.tool,
-    text: source?.type === 'assistant/message'
-      ? source.data?.message?.content?.filter((block) => block?.type === 'text').map((block) => block.text).join('')
-      : undefined
-  };
 }
 
 function eventFailure(events = []) {
@@ -131,7 +119,7 @@ export const deepseekHarnessAdapter = Object.freeze({
       emit({ type: 'adapter/started', data: { adapter: 'deepseek', model: resolved.model || 'deepseek-flash' } });
       const result = await harness.run(buildInput(request, capabilityPolicy || { granted: capabilities }), {
         sessionId,
-        onNotification: (notification) => emit(eventSummary(notification))
+        onNotification: (notification) => emit(notification)
       });
       const failure = eventFailure(result.events);
       if (failure) {
@@ -139,10 +127,11 @@ export const deepseekHarnessAdapter = Object.freeze({
       }
       return {
         ok: true,
+        usage: sumEventUsage(result.events),
         finalResponse: result.finalResponse || '',
-        events: result.events.map(eventSummary),
+        events: result.events.map(summarizeEvent),
         sessionId: result.sessionId,
-        notifications: result.notifications?.map(eventSummary) || []
+        notifications: result.notifications?.map(summarizeEvent) || []
       };
     } finally {
       signal?.removeEventListener('abort', abort);

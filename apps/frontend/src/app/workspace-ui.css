@@ -161,3 +161,8 @@
 .project-hub-shell .task-message small { color: var(--workspace-muted); }
 .project-hub-shell .task-artifact { display: grid; gap: 8px; padding: 16px 0; border-bottom: 1px solid var(--workspace-line); overflow-wrap: anywhere; }
 .project-hub-shell .task-detail-heading code { overflow-wrap: anywhere; }
+.project-hub-shell .runtime-event { border-bottom: 1px solid var(--workspace-line); padding: 12px 0; }
+.project-hub-shell .runtime-event summary { display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 12px; overflow-wrap: anywhere; }
+.project-hub-shell .runtime-event summary > code { color: var(--workspace-muted); }
+.project-hub-shell .runtime-event small { margin-left: auto; color: var(--workspace-muted); }
+@media (max-width: 760px) { .project-hub-shell .runtime-event summary { flex-wrap: wrap; } .project-hub-shell .runtime-event small { width: 100%; margin: 0; } }

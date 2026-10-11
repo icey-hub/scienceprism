@@ -12,6 +12,8 @@ import {
 import { getEvidenceClaimMatrix, getEvidenceGraph, type ClaimEvidenceMatrix } from '../../api/evidenceAdapter';
 import type { ProjectDashboard } from '../../api/projectAdapter';
 import { getConstraintPolicy, setConstraintEnabled, type ConstraintPolicy } from '../../api/constraintAdapter';
+import { Link } from 'react-router-dom';
+import { taskHref } from './taskLocation';
 import { DecisionStatus } from '../components/DecisionStatus';
 import { ClaimMaterials } from './ClaimMaterials';
 import { ClaimCitationEditor } from './ClaimCitationEditor';
@@ -160,7 +162,7 @@ export function HarnessConsole({ projectId }: { projectId: string }) {
           {run.outputValidation && <div className="validation-note">输出校验：{run.outputValidation.ok === false ? '未通过' : '通过'}{run.outputValidation.warnings?.length ? ` · ${run.outputValidation.warnings.length} 条提示` : ''}</div>}
           {run.patches?.length ? <div className="patch-summary">待确认 Patch：{run.patches.length} 个文件 <a href={`/editor/${projectId}?right=diff`}>打开编辑器 Diff</a></div> : null}
           {run.events?.length ? <details className="run-events"><summary>事件日志（{run.events.length}）</summary><pre>{run.events.slice(-20).map((event) => `[${event.at || ''}] ${event.type || 'event'} ${event.name || event.capability || ''} ${event.text || ''}`).join('\n')}</pre></details> : null}
-          <div className="harness-run-actions">
+          <div className="harness-run-actions"><Link className="hub-small-button is-quiet" to={taskHref(projectId, `harness:${run.id}`)}>查看会话与完整保留事件</Link>
             {canStart && <button className="hub-small-button" disabled={Boolean(action)} onClick={() => void runAction(run, 'start')} type="button">{busy && action?.action === 'start' ? '启动中…' : '启动'}</button>}
             {run.status === 'running' && <><button className="hub-small-button is-quiet" disabled={Boolean(action)} onClick={() => void runAction(run, 'pause')} type="button">暂停</button><button className="hub-small-button is-danger" disabled={Boolean(action)} onClick={() => void runAction(run, 'cancel')} type="button">取消</button></>}
             {run.status === 'paused' && <button className="hub-small-button" disabled={Boolean(action)} onClick={() => void runAction(run, 'resume')} type="button">恢复</button>}
