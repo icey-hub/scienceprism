@@ -53,8 +53,8 @@ export function loadSettings(): AppSettings {
 }
 
 export function persistSettings(settings: AppSettings) {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* local storage can be unavailable */ }
+  if (typeof window === 'undefined') return false;
+  try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); return true; } catch { return false; }
 }
 
 export function loadCollabName() {
