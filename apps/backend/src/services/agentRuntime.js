@@ -1,3 +1,4 @@
+import { getRole } from './agentRoles/index.js';
 import { listHarnessAdapters, runHarnessRequest } from './harnessRuntime/index.js';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
@@ -24,10 +25,12 @@ export function getAgentRuntimeStatus(llmConfig) {
 
 export async function runAgentRuntime(params) {
   const runtime = resolveAgentRuntime(params.llmConfig);
+  const role = params.role ? getRole(params.role) : null;
+  const defaultCapabilities = ['project.read', 'patch.propose'].filter(capability => !role || role.allowedCapabilities.includes(capability));
   return runHarnessRequest({
     ...params,
     adapter: runtime === 'deepseek-harness' ? 'deepseek' : 'legacy',
-    capabilities: params.capabilities || ['project.read', 'patch.propose'],
+    capabilities: params.capabilities || defaultCapabilities,
     fallback: runtime === 'deepseek-harness' ? getEnv('HARNESS_FALLBACK') !== 'false' : false
   });
 }

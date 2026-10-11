@@ -3,6 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
+const { mkdir: makeCache, mkdtemp: temporaryData } = await import('node:fs/promises');
+await makeCache(path.resolve('.cache'), { recursive: true });
+process.env.SCIENCEPRISM_DATA_DIR = await temporaryData(path.resolve('.cache/agent-role-'));
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const srcRoot = path.join(here, '..', 'src');
 
@@ -153,4 +157,12 @@ test('the role registry is exposed for pre-run visibility', async () => {
   assert.deepEqual(unknown.json().roles, []);
 
   await app.close();
+});
+
+test('actual Legacy reviewer request uses the role ceiling before runtime denial and exposes no Patch tools',async()=>{
+ const {createServer}=await import('node:http');const {mkdtemp,mkdir,writeFile}=await import('node:fs/promises');const {default:path}=await import('node:path');
+ // Existing test modules may have loaded DATA_DIR; use its resolved directory.
+ const {DATA_DIR}=await import('../src/config/constants.js');const id='reviewer-boundary-'+Date.now(),root=path.join(DATA_DIR,id);await mkdir(root,{recursive:true});await writeFile(path.join(root,'project.json'),JSON.stringify({id}));await writeFile(path.join(root,'main.tex'),'Controlled reviewer input.');let observed;
+ const server=createServer(async(req,res)=>{let text='';for await(const chunk of req)text+=chunk;observed=JSON.parse(text);if(observed.stream){res.setHeader('Content-Type','text/event-stream');res.end('data: '+JSON.stringify({id:'fixture',object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{role:'assistant',content:'Controlled read-only review'},finish_reason:null}]})+'\n\ndata: '+JSON.stringify({id:'fixture',object:'chat.completion.chunk',created:1,model:'fixture',choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');}else{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({id:'fixture',object:'chat.completion',created:1,model:'fixture',choices:[{index:0,message:{role:'assistant',content:'Controlled read-only review'},finish_reason:'stop'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}}));}});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));try{const {runAgentRuntime}=await import('../src/services/agentRuntime.js');const result=await runAgentRuntime({projectId:id,role:'paper-reviewer',task:'peer_review',prompt:'Read-only review',llmConfig:{runtime:'legacy',endpoint:`http://127.0.0.1:${server.address().port}/v1/chat/completions`,apiKey:'fixture',model:'fixture'}});assert.equal(result.ok,true,JSON.stringify(result));assert.match(result.reply,/Controlled read-only review/);assert.ok(observed.tools.every(tool=>!['propose_patch','apply_patch'].includes(tool.function.name)));}finally{await new Promise(resolve=>server.close(resolve));const {rm}=await import('node:fs/promises');await rm(root,{recursive:true,force:true});}
 });

@@ -1,3 +1,8 @@
+import { useWebsearch } from './editor/useWebsearch';
+import { WebsearchPanel } from './editor/WebsearchPanel';
+import { usePaperReview } from './editor/usePaperReview';
+import { ReviewPanel } from './editor/ReviewPanel';
+import { appendLog, extractBibKey, extractJsonBlock, safeJsonParse } from './editor/modelText';
 import { CollaborationPanel } from './editor/CollaborationPanel';
 import { VisionPanel } from './editor/VisionPanel';
 import { LiteratureSearchPanel } from './editor/LiteratureSearchPanel';
@@ -60,15 +65,6 @@ import {
   Users,
   X
 } from 'lucide-react';
-
-interface WebsearchItem {
-  id: string;
-  title: string;
-  summary: string;
-  url: string;
-  bibtex: string;
-  citeKey: string;
-}
 
 type InlineEdit =
   | { kind: 'new-file' | 'new-folder'; parent: string; value: string }
@@ -303,79 +299,6 @@ function findCurrentEnvironment(text: string) {
   return stack.length > 0 ? stack[stack.length - 1] : '';
 }
 
-function extractJsonBlock(text: string) {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return '';
-  return text.slice(start, end + 1);
-}
-
-function sanitizeJsonString(raw: string) {
-  let inString = false;
-  let escaped = false;
-  let out = '';
-  for (let i = 0; i < raw.length; i += 1) {
-    const ch = raw[i];
-    if (inString) {
-      if (escaped) {
-        out += ch;
-        escaped = false;
-        continue;
-      }
-      if (ch === '\\') {
-        out += ch;
-        escaped = true;
-        continue;
-      }
-      if (ch === '"') {
-        out += ch;
-        inString = false;
-        continue;
-      }
-      if (ch === '\n') {
-        out += '\\n';
-        continue;
-      }
-      if (ch === '\r') {
-        out += '\\r';
-        continue;
-      }
-      if (ch === '\t') {
-        out += '\\t';
-        continue;
-      }
-      const code = ch.charCodeAt(0);
-      if (code >= 0 && code < 0x20) {
-        out += `\\u${code.toString(16).padStart(4, '0')}`;
-        continue;
-      }
-      out += ch;
-    } else {
-      if (ch === '"') {
-        inString = true;
-      }
-      out += ch;
-    }
-  }
-  return out;
-}
-
-function safeJsonParse<T>(raw: string): T | null {
-  try {
-    return JSON.parse(raw) as T;
-  } catch (err) {
-    try {
-      return JSON.parse(sanitizeJsonString(raw)) as T;
-    } catch (err2) {
-      return null;
-    }
-  }
-}
-
-function appendLog(setter: (val: string[] | ((prev: string[]) => string[])) => void, line: string) {
-  setter((prev) => [...prev, line]);
-}
-
 function findLineOffset(text: string, line: number) {
   if (line <= 1) return 0;
   let offset = 0;
@@ -428,8 +351,6 @@ function ProjectEditorSession() {
   const [engineDropdownOpen, setEngineDropdownOpen] = useState(false);
   const [langDropdownOpen, setLangDropdownOpen] = useState(false);
   const [topBarDropdownRect, setTopBarDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [wsBibDropdownOpen, setWsBibDropdownOpen] = useState(false);
-  const [wsTexDropdownOpen, setWsTexDropdownOpen] = useState(false);
   const [figureDropdownOpen, setFigureDropdownOpen] = useState(false);
   const pendingChanges = changeReview.pending;
   const { compile: compileDocument, abandonWait, waitingAbandoned, compileLog, compiledSources, compiledMainFile, inputSnapshot, diagnosticsVerified, pdfUrl, engineName, isCompiling, compileErrors } = useCompilation(projectId);
@@ -501,20 +422,7 @@ function ProjectEditorSession() {
   const [imageBusy, setImageBusy] = useState(false);
   const [imageStatus, setImageStatus] = useState('');
   const [imageAssetPath, setImageAssetPath] = useState('');
-  const [websearchQuery, setWebsearchQuery] = useState('');
-  const [websearchLog, setWebsearchLog] = useState<string[]>([]);
-  const [websearchBusy, setWebsearchBusy] = useState(false);
-  const [websearchResults, setWebsearchResults] = useState<WebsearchItem[]>([]);
-  const [websearchSelected, setWebsearchSelected] = useState<Record<string, boolean>>({});
-  const [websearchParagraph, setWebsearchParagraph] = useState('');
-  const [websearchItemNotes, setWebsearchItemNotes] = useState<Record<string, string>>({});
-  const [websearchTargetFile, setWebsearchTargetFile] = useState('');
-  const [websearchTargetBib, setWebsearchTargetBib] = useState('');
-  const [reviewNotes, setReviewNotes] = useState<{ title: string; content: string }[]>([]);
-  const [reviewReport, setReviewReport] = useState('');
-  const [reviewReportBusy, setReviewReportBusy] = useState(false);
   const diagnoseBusy = assistant.busy;
-  const [websearchSelectedAll, setWebsearchSelectedAll] = useState(false);
   const [collabEnabled, setCollabEnabled] = useState(() => Boolean(getCollabToken()));
   const [collabInviteBusy, setCollabInviteBusy] = useState(false);
   const [collabInviteLink, setCollabInviteLink] = useState('');
@@ -608,6 +516,10 @@ function ProjectEditorSession() {
     };
   }, [llmEndpoint, llmApiKey, llmModel, searchEndpoint, searchApiKey, searchModel]);
 
+  const websearch = useWebsearch(searchLlmConfig);
+  const {websearchQuery,setWebsearchQuery,websearchLog,setWebsearchLog,websearchBusy,setWebsearchBusy,websearchResults,setWebsearchResults,websearchSelected,setWebsearchSelected,websearchParagraph,setWebsearchParagraph,websearchItemNotes,setWebsearchItemNotes,websearchTargetFile,setWebsearchTargetFile,websearchTargetBib,setWebsearchTargetBib,websearchSelectedAll,setWebsearchSelectedAll,runWebsearch,stopWebsearch} = websearch;
+  const review = usePaperReview({projectId,activePath,compileLog,llmConfig,onReport:()=>setRightView('review')});
+  const {reviewReport} = review;
   const visionLlmConfig = useMemo(() => {
     const hasOverride = Boolean(visionEndpoint || visionApiKey || visionModel);
     return {
@@ -1058,7 +970,7 @@ function ProjectEditorSession() {
     };
   }, [activePath, editorValue, isDirty, saveActiveFile, collabEnabled]);
 
-  const createBibFile = async () => {
+  const createBibFile = async (open = true) => {
     if (!projectId) return;
     const parent = selectedPath && tree.find((item) => item.path === selectedPath && item.type === 'dir')
       ? selectedPath
@@ -1067,7 +979,7 @@ function ProjectEditorSession() {
     const content = '% Add BibTeX entries here\n';
     await writeFileCompat(path, content);
     await refreshTree();
-    await openFile(path);
+    if (open) await openFile(path);
     return path;
   };
 
@@ -1189,11 +1101,6 @@ function ProjectEditorSession() {
     const filesList = Array.from(visited).join(', ');
     return t('Project files: {{files}}\nOutline:\n{{summaries}}', { files: filesList, summaries: summaries.join('\n') });
   }, [activePath, ensureFileContent, mainFile, t]);
-
-  const extractBibKey = (bibtex: string) => {
-    const match = bibtex.match(/@\w+\s*{\s*([^,\s]+)\s*,/);
-    return match ? match[1].trim() : '';
-  };
 
   const handleArxivSearch = useCallback(async () => {
     const query = arxivQuery.trim();
@@ -1435,177 +1342,11 @@ function ProjectEditorSession() {
     }
   };
 
-  const runWebsearch = async () => {
-    const query = websearchQuery.trim();
-    if (!query) {
-      setWebsearchLog([t('请输入查询关键词。')]);
-      return;
-    }
-    setWebsearchBusy(true);
-    setWebsearchLog([]);
-    setWebsearchResults([]);
-    setWebsearchSelected({});
-    setWebsearchSelectedAll(false);
-    setWebsearchParagraph('');
-    setWebsearchItemNotes({});
-    try {
-      appendLog(setWebsearchLog, t('拆分查询...'));
-      const splitRes = await callLLM({
-        llmConfig: searchLlmConfig,
-        messages: [
-          { role: 'system', content: t('Split the query into 2-4 targeted search queries. Return JSON only: {"queries":["..."]}.') },
-          { role: 'user', content: t('用户问题: {{query}}', { query }) }
-        ]
-      });
-      if (!splitRes.ok || !splitRes.content) {
-        throw new Error(splitRes.error || t('Query split failed'));
-      }
-      const jsonBlock = extractJsonBlock(splitRes.content);
-      if (!jsonBlock) {
-        throw new Error(t('无法解析拆分结果 JSON。'));
-      }
-      const parsed = safeJsonParse<{ queries?: string[] }>(jsonBlock);
-      if (!parsed) {
-        throw new Error(t('拆分结果 JSON 解析失败。'));
-      }
-      const queries = (parsed.queries || []).filter(Boolean).slice(0, 4);
-      if (queries.length === 0) {
-        throw new Error(t('拆分结果为空。'));
-      }
-      appendLog(setWebsearchLog, t('逐项检索: {{queries}}', { queries: queries.join(' | ') }));
-      const aggregated: WebsearchItem[] = [];
-      for (const [idx, q] of queries.entries()) {
-          appendLog(setWebsearchLog, t('检索中: {{query}}', { query: q }));
-          const res = await callLLM({
-            llmConfig: searchLlmConfig,
-            messages: [
-              {
-                role: 'system',
-                content:
-                  t('You are a search assistant. Use the provider search. Return JSON only: {"results":[{"title":"","summary":"","url":"","bibtex":""}]}.')
-              },
-              { role: 'user', content: t('帮我检索: {{query}}', { query: q }) }
-            ]
-          });
-          if (!res.ok || !res.content) {
-            appendLog(setWebsearchLog, t('检索失败: {{query}}', { query: q }));
-            continue;
-          }
-          const block = extractJsonBlock(res.content);
-          if (!block) {
-            appendLog(setWebsearchLog, t('结果解析失败: {{query}}', { query: q }));
-            continue;
-          }
-          const parsedRes = safeJsonParse<{ results?: { title?: string; summary?: string; url?: string; bibtex?: string }[] }>(block);
-          if (!parsedRes) {
-            appendLog(setWebsearchLog, t('结果 JSON 解析失败: {{query}}', { query: q }));
-            continue;
-          }
-          const results = parsedRes.results || [];
-          results.forEach((item, i) => {
-            const bibtex = item.bibtex || '';
-            const citeKey = bibtex ? extractBibKey(bibtex.replace(/\\n/g, '\n')) : '';
-            aggregated.push({
-              id: `${idx}-${i}-${item.url || item.title || 'result'}`,
-              title: item.title || t('Untitled'),
-              summary: item.summary || '',
-              url: item.url || '',
-              bibtex,
-              citeKey
-            });
-          });
-          appendLog(setWebsearchLog, t('完成: {{query}} ({{count}})', { query: q, count: results.length }));
-      }
-      const deduped: WebsearchItem[] = [];
-      aggregated.forEach((item) => {
-        if (!deduped.find((d) => d.url && item.url && d.url === item.url) && !deduped.find((d) => d.title === item.title)) {
-          deduped.push(item);
-        }
-      });
-      setWebsearchResults(deduped);
-      appendLog(setWebsearchLog, t('聚合结果: {{count}} 条', { count: deduped.length }));
-      if (deduped.length === 0) {
-        setWebsearchBusy(false);
-        return;
-      }
-      appendLog(setWebsearchLog, t('生成逐条总结...'));
-      const summariesRes = await callLLM({
-        llmConfig: searchLlmConfig,
-        messages: [
-          {
-            role: 'system',
-            content:
-              t('你是论文检索助手。请为每篇论文写一条简短总结（1-2 句）。返回 JSON：{"summaries":[{"id":"","summary":""}]}.')
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              papers: deduped.map((p) => ({
-                id: p.id,
-                title: p.title,
-                summary: p.summary,
-                url: p.url,
-                citeKey: p.citeKey
-              }))
-            })
-          }
-        ]
-      });
-      if (summariesRes.ok && summariesRes.content) {
-        const summaryBlock = extractJsonBlock(summariesRes.content);
-        const parsedSummaries = summaryBlock
-          ? safeJsonParse<{ summaries?: { id: string; summary: string }[] }>(summaryBlock)
-          : null;
-        if (parsedSummaries?.summaries?.length) {
-          const notes: Record<string, string> = {};
-          parsedSummaries.summaries.forEach((item) => {
-            if (item.id && item.summary) {
-              notes[item.id] = item.summary.trim();
-            }
-          });
-          setWebsearchItemNotes(notes);
-          appendLog(setWebsearchLog, t('逐条总结已生成。'));
-        } else {
-          appendLog(setWebsearchLog, t('逐条总结解析失败。'));
-        }
-      } else {
-        appendLog(setWebsearchLog, t('逐条总结生成失败。'));
-      }
-
-      appendLog(setWebsearchLog, t('生成综合总结...'));
-      const citeKeys = deduped.map((item) => item.citeKey).filter(Boolean);
-      const paragraphRes = await callLLM({
-        llmConfig: searchLlmConfig,
-        messages: [
-          {
-            role: 'system',
-            content:
-              t('请根据提供论文生成 3-5 句中文综合总结（不要分条）。可以使用 \\cite{...} 引用。只返回总结文本。')
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({ query, papers: deduped.map((p) => ({ title: p.title, summary: p.summary, url: p.url })), citeKeys })
-          }
-        ]
-      });
-      if (paragraphRes.ok && paragraphRes.content) {
-        setWebsearchParagraph(paragraphRes.content.trim());
-        appendLog(setWebsearchLog, t('段落已生成。'));
-      } else {
-        appendLog(setWebsearchLog, t('段落生成失败。'));
-      }
-    } catch (err) {
-      appendLog(setWebsearchLog, t('错误: {{error}}', { error: String(err) }));
-    } finally {
-      setWebsearchBusy(false);
-    }
-  };
-
   const applyWebsearchInsert = async () => {
     if (!projectId) return;
     let targetBib = websearchTargetBib;
     if (!targetBib) {
-      const created = await createBibFile();
+      const created = await createBibFile(false);
       if (created) targetBib = created;
     }
     if (!targetBib) {
@@ -1654,7 +1395,8 @@ function ProjectEditorSession() {
     if (targetFile && targetFile.toLowerCase().endsWith('.tex')) {
       const targetContent = await ensureFileContent(targetFile);
       const insertText = insertBlock ? `\n${insertBlock}\n` : '\n';
-      const nextContent = `${targetContent}\n${insertText}`.replace(/\n{3,}/g, '\n\n');
+      const position = getLatexBodyInsertionRange(targetContent, targetContent.length, targetContent.length);
+      const nextContent = `${targetContent.slice(0,position.from)}${insertText}${targetContent.slice(position.to)}`.replace(/\n{3,}/g, '\n\n');
       await writeFileCompat(targetFile, nextContent);
       setFiles((prev) => ({ ...prev, [targetFile]: nextContent }));
       if (activePath === targetFile) {
@@ -2875,194 +2617,7 @@ function ProjectEditorSession() {
                 handleArxivApply={handleArxivApply}
               />
             ) : activeSidebar === 'websearch' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('Websearch')}</div>
-                </div>
-                <div className="tools-body">
-                  <div className="tool-section">
-                    <div className="tool-title">{t('多点检索')}</div>
-                    <div className="field">
-                      <label>{t('Query')}</label>
-                      <input
-                        className="input"
-                        value={websearchQuery}
-                        onChange={(event) => setWebsearchQuery(event.target.value)}
-                        placeholder={t('例如: diffusion editing for safety')}
-                      />
-                    </div>
-                    <div className="row">
-                      <button className="btn" onClick={runWebsearch} disabled={websearchBusy}>
-                        {websearchBusy ? t('检索中...') : t('开始检索')}
-                      </button>
-                    </div>
-                    <div className="websearch-log">
-                      {websearchLog.length === 0 ? (
-                        <div className="muted">{t('等待查询...')}</div>
-                      ) : (
-                        websearchLog.map((line, idx) => (
-                          <div key={idx} className="websearch-line">{line}</div>
-                        ))
-                      )}
-                    </div>
-                    {websearchResults.length > 0 && (
-                      <>
-                        <div className="row">
-                          <label className="checkbox-row">
-                            <input
-                              type="checkbox"
-                              checked={websearchSelectedAll}
-                              onChange={(event) => {
-                                const checked = event.target.checked;
-                                setWebsearchSelectedAll(checked);
-                                const next: Record<string, boolean> = {};
-                                websearchResults.forEach((item) => {
-                                  next[item.id] = checked;
-                                });
-                                setWebsearchSelected(next);
-                              }}
-                            />
-                            {t('全选')}
-                          </label>
-                          <button
-                            className="btn ghost small"
-                            onClick={() => {
-                              const keys = websearchResults
-                                .filter((item) => websearchSelected[item.id])
-                                .map((item) => item.citeKey)
-                                .filter(Boolean);
-                              if (keys.length > 0) {
-                                insertAtCursor(`\\cite{${keys.join(',')}}`);
-                                appendLog(setWebsearchLog, t('已插入选中引用到光标。'));
-                              }
-                            }}
-                          >
-                            {t('插入选中引用')}
-                          </button>
-                        </div>
-                        <div className="tool-list">
-                          {websearchResults.map((paper) => (
-                            <label key={paper.id} className="tool-item">
-                              <input
-                                type="checkbox"
-                                checked={Boolean(websearchSelected[paper.id])}
-                                onChange={(event) => {
-                                  const checked = event.target.checked;
-                                  setWebsearchSelected((prev) => ({ ...prev, [paper.id]: checked }));
-                                }}
-                              />
-                              <div>
-                                <div className="tool-item-title">{paper.title}</div>
-                                {paper.summary && <div className="muted">{paper.summary}</div>}
-                                {paper.url && <div className="muted">{paper.url}</div>}
-                                {paper.citeKey && <div className="muted">{t('cite')}: {paper.citeKey}</div>}
-                              </div>
-                              <button
-                                className="btn ghost small"
-                                onClick={() => {
-                                  if (paper.citeKey) {
-                                    insertAtCursor(`\\cite{${paper.citeKey}}`);
-                                    appendLog(setWebsearchLog, t('已插入: {{cite}}', { cite: paper.citeKey }));
-                                  }
-                                }}
-                              >
-                                {t('插入引用')}
-                              </button>
-                            </label>
-                          ))}
-                        </div>
-                        <div className="vision-result">
-                          <div className="muted">{t('逐条总结')}</div>
-                          <div className="tool-list">
-                            {websearchResults.map((paper) => (
-                              <div key={paper.id} className="tool-item summary-item">
-                                <div>
-                                  <div className="tool-item-title">{paper.title}</div>
-                                  {paper.citeKey && <div className="muted">{t('cite')}: {paper.citeKey}</div>}
-                                </div>
-                                <textarea
-                                  className="input"
-                                  value={websearchItemNotes[paper.id] ?? paper.summary ?? ''}
-                                  onChange={(event) =>
-                                    setWebsearchItemNotes((prev) => ({ ...prev, [paper.id]: event.target.value }))
-                                  }
-                                  rows={3}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    {websearchParagraph && (
-                      <div className="vision-result">
-                        <div className="muted">{t('综合总结')}</div>
-                        <textarea
-                          className="input"
-                          value={websearchParagraph}
-                          onChange={(event) => setWebsearchParagraph(event.target.value)}
-                          rows={6}
-                        />
-                      </div>
-                    )}
-                    <div className="field">
-                      <label>{t('Bib 文件')}</label>
-                      <div className="ios-select-wrapper">
-                        <button className="ios-select-trigger" onClick={() => setWsBibDropdownOpen(!wsBibDropdownOpen)}>
-                          <span>{websearchTargetBib || t('(新建/选择 Bib 文件)')}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={wsBibDropdownOpen ? 'rotate' : ''}><path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </button>
-                        {wsBibDropdownOpen && (
-                          <div className="ios-dropdown dropdown-down">
-                            <div className={`ios-dropdown-item ${!websearchTargetBib ? 'active' : ''}`} onClick={() => { setWebsearchTargetBib(''); setWsBibDropdownOpen(false); }}>
-                              {t('(新建/选择 Bib 文件)')}
-                              {!websearchTargetBib && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                            </div>
-                            {bibFiles.map((p) => (
-                              <div key={p} className={`ios-dropdown-item ${websearchTargetBib === p ? 'active' : ''}`} onClick={() => { setWebsearchTargetBib(p); setWsBibDropdownOpen(false); }}>
-                                {p}
-                                {websearchTargetBib === p && <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button className="btn ghost small" onClick={async () => {
-                        const created = await createBibFile();
-                        if (created) setWebsearchTargetBib(created);
-                      }}>{t('新建 Bib')}</button>
-                    </div>
-                    <div className="field">
-                      <label>{t('插入目标 TeX')}</label>
-                      <div className="ios-select-wrapper">
-                        <button className="ios-select-trigger" onClick={() => { setWsTexDropdownOpen(!wsTexDropdownOpen); setWsBibDropdownOpen(false); }}>
-                          <span>{websearchTargetFile || '—'}</span>
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={wsTexDropdownOpen ? 'rotate' : ''}>
-                            <path d="M3 5L6 8L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                        {wsTexDropdownOpen && (
-                          <div className="ios-dropdown dropdown-down">
-                            {texFiles.map((p) => (
-                              <div key={p} className={`ios-dropdown-item ${websearchTargetFile === p ? 'active' : ''}`} onClick={() => { setWebsearchTargetFile(p); setWsTexDropdownOpen(false); }}>
-                                {p}
-                                {websearchTargetFile === p && (
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="row">
-                      <button className="btn" onClick={applyWebsearchInsert} disabled={websearchBusy}>
-                        {t('一键写入 Bib + 插入总结')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </>
+              <WebsearchPanel controller={websearch} bibFiles={bibFiles} texFiles={texFiles} createBibFile={createBibFile} insertAtCursor={insertAtCursor} applyWebsearchInsert={applyWebsearchInsert} />
             ) : activeSidebar === 'plot' ? (
               <PlotPanel
                 projectId={projectId}
@@ -3095,186 +2650,7 @@ function ProjectEditorSession() {
                 insertFigureSnippet={insertFigureSnippet}
               />
             ) : activeSidebar === 'review' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('Review')}</div>
-                </div>
-                <div className="tools-body">
-                  <div className="tool-section">
-                    <div className="tool-title">{t('质量检查')}</div>
-                    <div className="tool-desc">{t('AI 辅助检查论文质量，发现潜在问题')}</div>
-                    <div className="review-buttons">
-                      <button
-                        className="review-btn"
-                        onClick={async () => {
-                          if (reviewReportBusy) return;
-                          setReviewReportBusy(true);
-                          setReviewReport(t('生成中...'));
-                          setRightView('review');
-                          try {
-                            const res = await runAgent({
-                              task: 'peer_review',
-                              role: 'paper-reviewer',
-                              prompt: t('Read all .tex files in the project (start from the main file and any included sections). Use list_files and read_file tools to inspect content. Write a detailed reviewer-style report. Include: Summary, Strengths, Weaknesses, Questions, Missing Experiments, Writing/Clarity, Suggestions, Score (1-10), and Confidence. Output report text only; do not propose patches or code.'),
-                              selection: '',
-                              content: '',
-                              mode: 'tools',
-                              projectId,
-                              activePath,
-                              compileLog,
-                              llmConfig,
-                              interaction: 'agent',
-                              history: []
-                            });
-                            setReviewReport(res.reply || t('无结果'));
-                          } catch (err) {
-                            setReviewReport(t('生成失败: {{error}}', { error: String(err) }));
-                          } finally {
-                            setReviewReportBusy(false);
-                          }
-                        }}
-                      >
-                        <span className="review-btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
-                        <span className="review-btn-label">{t('详细评审报告')}</span>
-                        <span className="review-btn-desc">{t('阅读项目并输出完整审稿意见')}</span>
-                      </button>
-                      <button
-                        className="review-btn"
-                        onClick={async () => {
-                          const res = await runAgent({
-                            task: 'consistency_check',
-                            role: 'paper-reviewer',
-                            prompt: `Read all .tex files in the project using list_files and read_file tools. Perform a thorough consistency check across the entire paper. Check the following dimensions:
-
-1. **Terminology consistency**: Identify terms that refer to the same concept but use different wording (e.g., "feature extraction" vs "feature engineering", "model" vs "network" vs "architecture" used interchangeably).
-
-2. **Notation consistency**: Check if mathematical symbols and notation are used consistently (e.g., bold for vectors vs non-bold, x vs X for the same variable, inconsistent subscript/superscript conventions).
-
-3. **Data and results consistency**: Verify that numbers, statistics, and experimental results mentioned in the abstract, introduction, method, and conclusion sections are consistent with those in tables and figures.
-
-4. **Logic and claim consistency**: Check if claims made in the introduction/conclusion are actually supported by the experiments. Flag contradictions between sections.
-
-5. **Reference consistency**: Check for undefined abbreviations, references to figures/tables/sections that don't exist, or mislabeled cross-references.
-
-6. **Tense and style consistency**: Flag inconsistent use of tense (e.g., mixing past and present when describing experiments) or perspective (e.g., "we" vs "the authors" vs passive voice).
-
-For each issue found, report in this format:
-
----
-**[Category]** Terminology / Notation / Data / Logic / Reference / Style
-**[Location]** file and approximate line or section
-**[Issue]** Describe the inconsistency
-**[Suggestion]** How to fix it
----
-
-Here are examples of good findings:
-
-Example 1:
-**[Terminology]**
-**[Location]** sections/method.tex, Section 3.1 vs sections/experiments.tex, Section 4
-**[Issue]** The method section calls the module "Spatial Attention Block" but the experiments section refers to it as "Spatial Attention Module".
-**[Suggestion]** Unify to one term throughout the paper, e.g., "Spatial Attention Module".
-
-Example 2:
-**[Data]**
-**[Location]** sections/abstract.tex vs sections/experiments.tex, Table 2
-**[Issue]** The abstract claims "93.2% accuracy on CIFAR-10" but Table 2 reports 92.8%.
-**[Suggestion]** Update the abstract to match the actual result in Table 2.
-
-Example 3:
-**[Logic]**
-**[Location]** sections/introduction.tex, paragraph 3 vs sections/conclusion.tex, paragraph 1
-**[Issue]** The introduction states the method "does not require pre-training" but the conclusion mentions "after pre-training on ImageNet".
-**[Suggestion]** Clarify whether pre-training is used and make both sections consistent.
-
-Example 4:
-**[Notation]**
-**[Location]** sections/method.tex, Eq. (3) vs Eq. (7)
-**[Issue]** Eq. (3) uses bold lowercase h for hidden states, but Eq. (7) uses non-bold italic h for the same variable.
-**[Suggestion]** Use bold h consistently for hidden state vectors.
-
-Be thorough. Read ALL .tex files before reporting. Group findings by category. If no issues are found in a category, state that explicitly.`,
-                            selection: '',
-                            content: '',
-                            mode: 'tools',
-                            projectId,
-                            activePath,
-                            compileLog,
-                            llmConfig,
-                            interaction: 'agent',
-                            history: []
-                          });
-                          setReviewNotes((prev) => [{ title: t('一致性检查'), content: res.reply || t('无结果') }, ...prev]);
-                        }}
-                      >
-                        <span className="review-btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
-                        <span className="review-btn-label">{t('一致性检查')}</span>
-                        <span className="review-btn-desc">{t('检查术语、符号一致性')}</span>
-                      </button>
-                      <button
-                        className="review-btn"
-                        onClick={async () => {
-                          const res = await runAgent({
-                            task: 'missing_citations',
-                            role: 'paper-reviewer',
-                            prompt: t('Find claims that likely need citations and list them.'),
-                            selection: '',
-                            content: '',
-                            mode: 'tools',
-                            projectId,
-                            activePath,
-                            compileLog,
-                            llmConfig,
-                            interaction: 'agent',
-                            history: []
-                          });
-                          setReviewNotes((prev) => [{ title: t('引用缺失'), content: res.reply || t('无结果') }, ...prev]);
-                        }}
-                      >
-                        <span className="review-btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
-                        <span className="review-btn-label">{t('引用缺失')}</span>
-                        <span className="review-btn-desc">{t('查找需要引用的论述')}</span>
-                      </button>
-                      <button
-                        className="review-btn"
-                        onClick={async () => {
-                          const res = await runAgent({
-                            task: 'compile_summary',
-                            prompt: t('Summarize compile log errors and suggested fixes.'),
-                            selection: compileLog,
-                            content: '',
-                            mode: 'direct',
-                            projectId,
-                            activePath,
-                            compileLog,
-                            llmConfig,
-                            interaction: 'agent',
-                            history: []
-                          });
-                          setReviewNotes((prev) => [{ title: t('编译日志总结'), content: res.reply || t('无结果') }, ...prev]);
-                        }}
-                      >
-                        <span className="review-btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
-                        <span className="review-btn-label">{t('编译日志总结')}</span>
-                        <span className="review-btn-desc">{t('总结错误并给出修复建议')}</span>
-                      </button>
-                    </div>
-                  </div>
-                  {reviewNotes.length > 0 && (
-                    <div className="tool-section">
-                      <div className="tool-title">{t('结果')}</div>
-                      {reviewNotes.map((note, idx) => (
-                        <div key={`${note.title}-${idx}`} className="review-item">
-                          <div className="review-title">{note.title}</div>
-                          <div className="review-content markdown-body">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.content}</ReactMarkdown>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
+              <ReviewPanel controller={review} />
             ) : null}
           </aside>
         )}
