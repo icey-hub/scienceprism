@@ -1,4 +1,4 @@
-import { Activity, BookOpenText, FolderOpen, LayoutDashboard, ListChecks, MessageSquare, Network, Radio, Settings2, Wrench, Sparkles, Bot, Cpu } from 'lucide-react';
+import { Activity, BookOpenText, FolderOpen, LayoutDashboard, ListChecks, MessageSquare, Network, Radio, Settings2, Wrench, Sparkles, Bot, Cpu, Plug } from 'lucide-react';
 import { researchHref } from '../research/researchLocation';
 
 export const WORKSPACE_GROUPS = [
@@ -13,6 +13,7 @@ export const WORKSPACE_GROUPS = [
     { id: 'writing', label: '工作空间', icon: FolderOpen, path: 'writing' }
   ] },
   { label: '系统', items: [
+    { id: 'mcp', label: 'MCP', icon: Plug, path: 'mcp' },
     { id: 'models', label: '模型', icon: Cpu, path: 'models' },
     { id: 'agents', label: 'Agents', icon: Bot, path: 'agents' },
     { id: 'skills', label: 'Skills', icon: Sparkles, path: 'skills' },

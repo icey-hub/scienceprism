@@ -415,6 +415,18 @@ export interface RuntimeEvent {
   arguments?: string; output?: string; error?: string; outcome?: string; truncated?: boolean;
   path?: string; version?: FileVersion; usage?: Record<string, number>;
 }
+export interface McpServer {
+  id:string;name:string;transport:'stdio'|'streamable-http';enabled:boolean;command:string;args:string[];url:string;
+  envKeys:string[];headerKeys:string[];roles:string[];tasks:string[];tools:string[];capability:string;
+  discovery?:{state:'discovered'|'failed';at:string;limit?:number;error?:string;tools:{id:string;name:string;publicName:string;description:string;inputSchema:Record<string,unknown>|null;readOnlyHint:boolean}[]}|null;
+  execution:{state:string;reason:string};
+}
+export function getMcpCatalogue(projectId:string){return request<{ok:boolean;version:number;servers:McpServer[]}>(`/api/projects/${encodeURIComponent(projectId)}/mcp`);}
+export function saveMcpServer(projectId:string,id:string,input:Record<string,unknown>){return request<{ok:boolean;version:number;servers:McpServer[]}>(`/api/projects/${encodeURIComponent(projectId)}/mcp/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify(input)});}
+export function discoverMcpTools(projectId:string,id:string){return request<{ok:boolean;version:number;servers:McpServer[]}>(`/api/projects/${encodeURIComponent(projectId)}/mcp/${encodeURIComponent(id)}/discover`,{method:'POST'});}
+export function deleteMcpServer(projectId:string,id:string){return request<{ok:boolean;version:number;servers:McpServer[]}>(`/api/projects/${encodeURIComponent(projectId)}/mcp/${encodeURIComponent(id)}`,{method:'DELETE'});}
+export function checkMcpTool(projectId:string,id:string,toolName:string,args:Record<string,unknown>){return request<{ok:boolean;run:HarnessRun}>(`/api/projects/${encodeURIComponent(projectId)}/mcp/${encodeURIComponent(id)}/check`,{method:'POST',body:JSON.stringify({toolName,arguments:args})});}
+
 export interface ExplorationSourceRef { kind: string; id: string; field?: string; version?: string | number | null }
 export interface ExplorationNode {
   id: string; kind: string; title: string; status: string; retained: boolean; retention?: string;
