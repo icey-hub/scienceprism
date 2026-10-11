@@ -415,6 +415,22 @@ export interface RuntimeEvent {
   arguments?: string; output?: string; error?: string; outcome?: string; truncated?: boolean;
   path?: string; version?: FileVersion; usage?: Record<string, number>;
 }
+export interface ExplorationSourceRef { kind: string; id: string; field?: string; version?: string | number | null }
+export interface ExplorationNode {
+  id: string; kind: string; title: string; status: string; retained: boolean; retention?: string;
+  sourceRef: ExplorationSourceRef; href: string | null; version?: string | number | null;
+  source?: EvidenceRecord['source'] | null; summary?: string; adapter?: string; decision?: string; bytes?: number;
+}
+export interface ExplorationGraph {
+  schemaVersion: 1; projectId: string; lens: 'execution' | 'evidence'; generatedAt: string;
+  nodes: ExplorationNode[]; edges: { id: string; from: string; to: string; type: string; sourceRef: ExplorationSourceRef }[];
+  warnings: string[];
+  scope: { totalNodes: number; totalEdges: number; displayedNodes: number; displayedEdges: number; nodeLimit: number; harnessLimit: number; experimentLimit: number; callsPerRun: number; ledgerVersion: number; workflowVersion: number | null };
+}
+export function getProjectExploration(projectId: string, query: Record<string,string> = {}) {
+  const params = new URLSearchParams(query);
+  return request<{ ok: boolean; graph: ExplorationGraph }>(`/api/projects/${encodeURIComponent(projectId)}/exploration?${params}`);
+}
 export interface HarnessRun {
   id: string;
   projectId: string;

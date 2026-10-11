@@ -20,9 +20,9 @@ function now() {
   return new Date().toISOString();
 }
 
-async function readLedger(projectId) {
+async function readLedger(projectId, options) {
   const root = await resolveEvidenceProjectRoot(projectId);
-  return { root, ledger: await readEvidenceLedger(root, projectId) };
+  return { root, ledger: await readEvidenceLedger(root, projectId, options) };
 }
 
 function ensureExpectedVersion(ledger, expectedVersion) {
@@ -159,7 +159,7 @@ function claimsFromWorkflow(workflow) {
   })).filter((claim) => claim.text);
 }
 
-function claimRows(ledger, workflow, suppliedClaims) {
+export function claimRows(ledger, workflow, suppliedClaims) {
   const ledgerClaims = ledger.entries.filter((entry) => entry.kind === 'paper-claim').map(claimFromEntry);
   const workflowClaims = suppliedClaims || claimsFromWorkflow(workflow);
   const byId = new Map(ledgerClaims.map((claim) => [claim.id, claim]));
@@ -226,7 +226,7 @@ export function checkClaimEvidence(ledger, claims = []) {
   };
 }
 
-function collectEvidenceReferences(value, path = 'output', result = []) {
+export function collectEvidenceReferences(value, path = 'output', result = []) {
   if (Array.isArray(value)) {
     value.forEach((item, index) => collectEvidenceReferences(item, `${path}.${index}`, result));
     return result;
@@ -304,10 +304,10 @@ export async function validateStageEvidence(projectId, stage, output) {
 }
 
 export async function getEvidenceGraph(projectId, { rootId, maxDepth = 4 } = {}) {
-  const { ledger } = await readLedger(projectId);
+  const { ledger } = await readLedger(projectId, { readOnly: true });
   let workflow = null;
   try {
-    workflow = await readWorkflowFile(await resolveProjectRoot(projectId), projectId);
+    workflow = await readWorkflowFile(await resolveProjectRoot(projectId), projectId, { readOnly: true });
   } catch (error) {
     if (error?.code !== 'WORKFLOW_NOT_FOUND') throw error;
   }

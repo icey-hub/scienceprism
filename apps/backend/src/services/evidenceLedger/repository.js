@@ -37,11 +37,11 @@ async function findLedgerPath(projectRoot) {
   return ledgerPath(projectRoot);
 }
 
-function migrateLedger(value, projectId) {
+function migrateLedger(value, projectId, { readOnly = false } = {}) {
   const input = Array.isArray(value) ? { entries: value } : value && typeof value === 'object' ? value : {};
   const entries = Array.isArray(input.entries) ? input.entries : [];
   const relations = Array.isArray(input.relations) ? input.relations : Array.isArray(input.relationships) ? input.relationships : [];
-  const timestamp = input.updatedAt || now();
+  const timestamp = input.updatedAt || (readOnly ? 'unknown' : now());
   const normalizedRelations = [];
   for (const relation of relations) {
     try {
@@ -69,12 +69,12 @@ export async function resolveEvidenceProjectRoot(projectId) {
   }
 }
 
-export async function readEvidenceLedger(projectRoot, projectId) {
+export async function readEvidenceLedger(projectRoot, projectId, { readOnly = false } = {}) {
   const storedPath = await findLedgerPath(projectRoot);
   try {
     const value = JSON.parse(await fs.readFile(storedPath, 'utf8'));
-    const ledger = migrateLedger(value, projectId);
-    if (storedPath !== ledgerPath(projectRoot)) await writeEvidenceLedger(projectRoot, ledger);
+    const ledger = migrateLedger(value, projectId, { readOnly });
+    if (!readOnly && storedPath !== ledgerPath(projectRoot)) await writeEvidenceLedger(projectRoot, ledger);
     return ledger;
   } catch (error) {
     if (error?.code === 'ENOENT') return emptyLedger(projectId);

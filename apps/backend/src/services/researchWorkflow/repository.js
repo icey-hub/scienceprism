@@ -35,13 +35,13 @@ async function existingWorkflowPath(projectRoot) {
   return workflowPath(projectRoot);
 }
 
-export async function readWorkflowFile(projectRoot, projectId) {
+export async function readWorkflowFile(projectRoot, projectId, { readOnly = false } = {}) {
   try {
     const storedPath = await existingWorkflowPath(projectRoot);
     const raw = await fs.readFile(storedPath, 'utf8');
     const { workflow, migrated } = migrateStoredWorkflow(JSON.parse(raw), projectId);
     validateStoredWorkflow(workflow, projectId);
-    if (migrated || storedPath !== workflowPath(projectRoot)) await writeWorkflowFile(projectRoot, workflow);
+    if (!readOnly && (migrated || storedPath !== workflowPath(projectRoot))) await writeWorkflowFile(projectRoot, workflow);
     return workflow;
   } catch (error) {
     if (error instanceof ResearchWorkflowError) throw error;
