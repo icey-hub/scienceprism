@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { cancelHarnessRun, getAssistantSkills, listHarnessRuns, startAssistantRun } from '../../api/assistantAdapter';
 import type { AssistantRunInput, AssistantSkill, HarnessRun } from '../../api/assistantAdapter';
 
+export type AssistantIntent = Pick<AssistantRunInput, 'prompt' | 'task' | 'permission' | 'selection' | 'skillNames'>;
+
 export const isRunActive = (run: HarnessRun) => ['created', 'running', 'paused'].includes(run.status);
 
 /** Server Runs own history and execution; leaving the page only stops polling. */

@@ -99,6 +99,7 @@ export default function ResearchWorkspacePage({ embedded = false, onStateChange,
         {!error && workflow.task?.status === 'failed' && <div className="research-callout research-callout-warning" role="alert"><strong>任务执行失败</strong><p>{workflow.task.error?.message || '请检查配置后重试。'}</p><button className="research-button research-button-quiet" onClick={() => navigate(`/project/${projectId}/tasks`)}>查看任务与重试</button></div>}
         {workflow.sourceFailures?.length ? <div className="research-callout research-callout-warning" role="status"><strong>部分来源未能完成检索</strong><ul>{workflow.sourceFailures.map((failure, index) => <li key={index}>{failure.source}：{failure.message || '检索失败'}</li>)}</ul></div> : null}
         {renderStage()}
+        {embedded && <details className="research-maintenance"><summary>研究上下文</summary>{context}</details>}
         <details className="research-maintenance"><summary>研究流程管理</summary><p>重置会清空已保存的阶段数据，请谨慎操作。</p><button className="research-button research-button-quiet research-reset-button" disabled={busy} onClick={() => void resetWorkflow()} type="button">重置研究流程</button></details>
       </div>
     </ResearchStageLayout>

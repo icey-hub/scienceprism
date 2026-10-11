@@ -1,0 +1,13 @@
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { createCollabInvite,getCollabServer,getCollabStatus,setCollabServer } from '../../api/collaborationAdapter';
+import { loadCollabName,normalizeServerUrl,persistCollabName } from '../editor/editorSettings';
+import type { useProjectDocuments } from './useProjectDocuments';
+export function CollaborationWorkspace({docs}:{docs:ReturnType<typeof useProjectDocuments>}) {
+ const [server,setServer]=useState(()=>getCollabServer()||location.origin),[name,setName]=useState(()=>loadCollabName()||'Guest'),[link,setLink]=useState(''),[busy,setBusy]=useState(false);
+ const [status,setStatus]=useState<Awaited<ReturnType<typeof getCollabStatus>>['diagnostics']>(null);
+ useEffect(()=>{if(!docs.path){setStatus(null);return;}let disposed=false;const poll=()=>getCollabStatus(docs.projectId,docs.path).then(value=>{if(!disposed)setStatus(value.diagnostics);}).catch(cause=>{if(!disposed)docs.report(cause);});void poll();const timer=setInterval(poll,3000);return()=>{disposed=true;clearInterval(timer);};},[docs.projectId,docs.path]);
+ const save=()=>{const url=normalizeServerUrl(server);try{if(!['http:','https:'].includes(new URL(url).protocol))throw new Error();setCollabServer(url);persistCollabName(name);}catch{throw new Error('请填写有效的协作服务器地址。');}return url.replace(/\/$/,'');};
+ const invite=async()=>{if(busy)return;setBusy(true);try{const base=save(),result=await createCollabInvite(docs.projectId);if(!result.ok||!result.token)throw new Error('邀请生成失败。');setLink(`${base}/collab?token=${encodeURIComponent(result.token)}`);}catch(cause){docs.report(cause);}finally{setBusy(false);}};
+ return <section className="workspace-collaboration"><h2>共享项目</h2><p>生成邀请链接，查看所选文件的协作连接。实时编辑在写作页进行。</p><label>协作服务器<input className="input" value={server} onChange={event=>setServer(event.target.value)}/></label><label>显示名称<input className="input" value={name} onChange={event=>setName(event.target.value)}/></label><div className="workspace-actions"><button className="hub-small-button" disabled={busy} onClick={()=>void invite()}>{busy?'生成中…':'生成邀请链接'}</button><button className="hub-small-button is-quiet" disabled={!link} onClick={()=>void navigator.clipboard.writeText(link).catch(docs.report)}>复制链接</button></div>{link&&<input className="input" aria-label="邀请链接" readOnly value={link}/>}<p role="status">{docs.path||'未选择文件'} · {status?`${status.conns} 个协作连接`:'暂无协作连接'}</p>{status?.lastError&&<p role="alert">{status.lastError}</p>}<Link className="hub-small-button" to={`/editor/${docs.projectId}?collab=on${docs.path?`&file=${encodeURIComponent(docs.path)}`:''}`} onClick={event=>{try{save();}catch(cause){event.preventDefault();docs.report(cause);}}}>进入协作写作</Link></section>;
+}

@@ -102,15 +102,15 @@ export function LiteratureSearchPanel({
         </label>
         {arxivStatus && <div className="muted">{arxivStatus}</div>}
         {llmSearchOutput && (
-          <div className="vision-result">
-            <div className="muted">{t('LLM 原始输出')}</div>
+          <details className="vision-result">
+            <summary>{t('LLM 原始输出')}</summary>
             <textarea
               className="input"
               value={llmSearchOutput}
-              onChange={(event) => setLlmSearchOutput(event.target.value)}
+              readOnly
               rows={5}
             />
-          </div>
+          </details>
         )}
         {arxivResults.length > 0 && (
           <div className="tool-list">
@@ -166,7 +166,7 @@ export function LiteratureSearchPanel({
             checked={autoInsertCite}
             onChange={(event) => setAutoInsertCite(event.target.checked)}
           />
-          {t('自动插入引用到当前 TeX')}
+          {t('将引用保存到目标 TeX')}
         </label>
         <label className="checkbox-row">
           <input

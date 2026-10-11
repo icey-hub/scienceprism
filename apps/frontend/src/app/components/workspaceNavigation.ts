@@ -10,7 +10,7 @@ export const WORKSPACE_GROUPS = [
     { id: 'evidence', label: '探索', icon: Network, path: 'explore' },
     { id: 'tools', label: '工具执行', icon: Wrench, path: 'tools' },
     { id: 'runs', label: '运行记录', icon: Radio, path: 'runs' },
-    { id: 'writing', label: '工作空间', icon: FolderOpen, path: 'writing' }
+    { id: 'writing', label: '写作', icon: FolderOpen, path: 'writing' }
   ] },
   { label: '系统', items: [
     { id: 'mcp', label: 'MCP', icon: Plug, path: 'mcp' },
@@ -28,6 +28,5 @@ export function workspaceHref(projectId: string, path: string, stage?: string) {
   const id = encodeURIComponent(projectId);
   if (path === 'research') return researchHref(projectId, stage);
   if (path === 'writing') return `/editor/${id}`;
-  if (path === 'chat') return `/editor/${id}?tool=agent`;
   return `/project/${id}${path ? `/${path}` : ''}`;
 }

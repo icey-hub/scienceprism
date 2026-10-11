@@ -72,7 +72,7 @@ export function PlotPanel({
       <div className="tools-body">
         <div className="tool-section">
           <div className="tool-title">{t('表格 → 图表')}</div>
-          <div className="muted">{t('从选区表格生成图表（seaborn）')}</div>
+          <div className="muted">{t('从提供的 LaTeX 表格生成图表（seaborn）')}</div>
           <div className="field">
             <label>{t('图表类型')}</label>
             <div className="ios-select-wrapper">

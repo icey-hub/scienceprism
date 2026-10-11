@@ -1,17 +1,7 @@
-import { useWebsearch } from './editor/useWebsearch';
-import { WebsearchPanel } from './editor/WebsearchPanel';
-import { usePaperReview } from './editor/usePaperReview';
-import { ReviewPanel } from './editor/ReviewPanel';
-import { appendLog, extractBibKey, extractJsonBlock, safeJsonParse } from './editor/modelText';
-import { CollaborationPanel } from './editor/CollaborationPanel';
-import { VisionPanel } from './editor/VisionPanel';
-import { LiteratureSearchPanel } from './editor/LiteratureSearchPanel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, MouseEvent as ReactMouseEvent, DragEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Compartment } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { searchKeymap } from '@codemirror/search';
@@ -19,45 +9,29 @@ import { toggleComment } from '@codemirror/commands';
 import { setDiagnostics } from '@codemirror/lint';
 import { foldKeymap } from '@codemirror/language';
 import { createFolder as createFolderApi, deleteFile, getFile, getProjectTree, listProjects, renamePath, updateFileOrder, uploadFiles, writeFile } from '../api/projectAdapter';
-import { createCollabInvite, getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
-import { arxivBibtex, arxivSearch, callLLM, generateGptImage, plotFromTable, runAgent, visionToLatex } from '../api/editorAdapter';
-import type { ArxivPaper } from '../api/editorAdapter';
+import { getCollabServer, getCollabToken, setCollabServer } from '../api/collaborationAdapter';
+import { callLLM, runAgent } from '../api/editorAdapter';
 import { createTwoFilesPatch } from 'diff';
 import { useCompilation } from './editor/useCompilation';
-import { PlotPanel } from './editor/PlotPanel';
 import { useEditorSession } from './editor/useEditorSession';
 import { editorExtensions, setGhostEffect } from './editor/editorExtensions';
 import { useCollaborationSession } from './editor/useCollaborationSession';
-import ResearchWorkspacePage, { type ResearchWorkspaceState } from './ResearchWorkspacePage';
-import { ResearchStageNavigation } from './research/ResearchStageNavigation';
-import { getResearchStage, isResearchStageId, type ResearchStageId } from './research/researchStages';
 import { buildSplitDiff, SplitDiffView } from './editor/EditorDiff';
 import { PdfPreview } from './editor/PdfPreview';
 import { getLatexBodyInsertionRange } from './editor/latexSnippetInsertion';
 import { compileDiagnostics, resolveCompileFile, type CompileError } from './editor/compileDiagnostics';
-import { AssistantPanel, type AssistantIntent } from './editor/AssistantPanel';
+import type { AssistantIntent } from './editor/useAssistantRun';
 import { useAssistantRun } from './editor/useAssistantRun';
 import { useChangeReview, type PendingChange } from './editor/useChangeReview';
 import { useDocumentDrafts } from './editor/useDocumentDrafts';
-import type { HarnessRun } from '../api/assistantAdapter';
-import { loadCollabName, loadSettings, normalizeServerUrl, persistCollabName, persistSettings } from './editor/editorSettings';
+import { loadCollabName, loadSettings, persistCollabName, persistSettings } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
 import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
-import { isWorkspaceTool, WORKSPACE_TOOLS, type WorkspaceTool } from './components/workspaceTools';
-import { researchHref } from './research/researchLocation';
 import { rememberEditorFile, restoredEditorFile } from './editor/editorLocation';
 import {
-  BarChart3,
-  Bot,
-  CheckCircle2,
   ChevronDown,
-  FlaskConical,
-  FolderTree,
-  Globe2,
-  Image as ImageIcon,
   Languages,
   PanelLeft,
-  PanelRight,
   Play,
   Save,
   Search as SearchIcon,
@@ -70,22 +44,12 @@ type InlineEdit =
   | { kind: 'new-file' | 'new-folder'; parent: string; value: string }
   | { kind: 'rename'; path: string; value: string };
 
-const DEFAULT_TASKS = (t: (key: string) => string) => [
-  { value: 'polish', label: t('润色') },
-  { value: 'rewrite', label: t('改写') },
-  { value: 'structure', label: t('结构调整') },
-  { value: 'translate', label: t('翻译') },
-  { value: 'websearch', label: t('检索 (arXiv)') },
-  { value: 'custom', label: t('自定义') }
-];
-
 const RIGHT_VIEW_OPTIONS = (t: (key: string) => string) => [
   { value: 'pdf', label: 'PDF' },
   { value: 'toc', label: t('目录') },
   { value: 'figures', label: 'FIG' },
   { value: 'diff', label: 'DIFF' },
-  { value: 'log', label: 'LOG' },
-  { value: 'review', label: t('评审报告') }
+  { value: 'log', label: 'LOG' }
 ];
 
 const FIGURE_EXTS = ['.png', '.jpg', '.jpeg', '.pdf', '.svg', '.eps'];
@@ -325,13 +289,10 @@ export default function EditorPage() {
 function ProjectEditorSession() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
-  const { projectId: routeProjectId, stage: researchStage } = useParams<{ projectId: string; stage?: string }>();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { projectId: routeProjectId } = useParams<{ projectId: string }>();
+  const [searchParams] = useSearchParams();
   const projectId = routeProjectId || '';
-  const researchMode = Boolean(researchStage);
-  const activeResearchStage: ResearchStageId = isResearchStageId(researchStage) ? researchStage : 'direction';
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
   const [tree, setTree] = useState<{ path: string; type: string }[]>([]);
   const [fileOrder, setFileOrder] = useState<Record<string, string[]>>({});
@@ -365,13 +326,10 @@ function ProjectEditorSession() {
   const [isDirty, setIsDirty] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
   const [status, setStatus] = useState<string>('');
-  const [rightView, setRightView] = useState<'pdf' | 'figures' | 'diff' | 'log' | 'toc' | 'review'>('pdf');
+  const [rightView, setRightView] = useState<'pdf' | 'figures' | 'diff' | 'log' | 'toc'>('pdf');
   const [selectedFigure, setSelectedFigure] = useState<string>('');
   const [diffFocus, setDiffFocus] = useState<PendingChange | null>(null);
-  const [activeSidebar, setActiveSidebar] = useState<'files' | 'agent' | 'vision' | 'search' | 'websearch' | 'plot' | 'review' | 'collab' | 'research'>('files');
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 760);
-  const [researchContextOpen, setResearchContextOpen] = useState(false);
-  const [researchWorkspaceState, setResearchWorkspaceState] = useState<ResearchWorkspaceState | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [columnSizes, setColumnSizes] = useState({ sidebar: 260, editor: 640, right: 420 });
   const [editorSplit, setEditorSplit] = useState(0.7);
   const [selectedPath, setSelectedPath] = useState('');
@@ -386,48 +344,12 @@ function ProjectEditorSession() {
   const [fileContextMenu, setFileContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [editorFontSize, setEditorFontSize] = useState(11);
-  const [visionMode, setVisionMode] = useState<'equation' | 'table' | 'figure' | 'algorithm' | 'ocr'>('equation');
-  const [visionFile, setVisionFile] = useState<File | null>(null);
-  const [visionPrompt, setVisionPrompt] = useState('');
-  const [visionResult, setVisionResult] = useState('');
-  const [visionBusy, setVisionBusy] = useState(false);
-  const [visionPreviewUrl, setVisionPreviewUrl] = useState('');
-  const [arxivQuery, setArxivQuery] = useState('');
-  const [arxivMaxResults, setArxivMaxResults] = useState(5);
-  const [arxivResults, setArxivResults] = useState<ArxivPaper[]>([]);
-  const [arxivSelected, setArxivSelected] = useState<Record<string, boolean>>({});
-  const [arxivBusy, setArxivBusy] = useState(false);
-  const [arxivStatus, setArxivStatus] = useState('');
-  const [useLlmSearch, setUseLlmSearch] = useState(false);
-  const [llmSearchOutput, setLlmSearchOutput] = useState('');
-  const [arxivBibtexCache, setArxivBibtexCache] = useState<Record<string, string>>({});
-  const [bibTarget, setBibTarget] = useState('');
-  const [autoInsertCite, setAutoInsertCite] = useState(true);
-  const [autoInsertToMain, setAutoInsertToMain] = useState(false);
-  const [citeTargetFile, setCiteTargetFile] = useState('');
   const [outlineText, setOutlineText] = useState('');
   const [currentHeading, setCurrentHeading] = useState<{ title: string; level: string } | null>(null);
-  const [plotType, setPlotType] = useState<'bar' | 'line' | 'heatmap'>('bar');
-  const [plotTitle, setPlotTitle] = useState('');
-  const [plotFilename, setPlotFilename] = useState('');
-  const [plotPrompt, setPlotPrompt] = useState('');
-  const [plotRetries, setPlotRetries] = useState(2);
-  const [plotBusy, setPlotBusy] = useState(false);
-  const [plotStatus, setPlotStatus] = useState('');
-  const [plotAssetPath, setPlotAssetPath] = useState('');
-  const [plotAutoInsert, setPlotAutoInsert] = useState(true);
-  const [imagePrompt, setImagePrompt] = useState('');
-  const [imageSize, setImageSize] = useState<'1024x1024' | '1536x1024' | '1024x1536'>('1536x1024');
-  const [imageQuality, setImageQuality] = useState<'low' | 'medium' | 'high'>('medium');
-  const [imageBusy, setImageBusy] = useState(false);
-  const [imageStatus, setImageStatus] = useState('');
-  const [imageAssetPath, setImageAssetPath] = useState('');
   const diagnoseBusy = assistant.busy;
-  const [collabEnabled, setCollabEnabled] = useState(() => Boolean(getCollabToken()));
-  const [collabInviteBusy, setCollabInviteBusy] = useState(false);
-  const [collabInviteLink, setCollabInviteLink] = useState('');
-  const [collabServer, setCollabServerState] = useState(() => getCollabServer() || (typeof window === 'undefined' ? '' : window.location.origin));
-  const [collabName, setCollabName] = useState(() => loadCollabName() || 'Guest');
+  const [collabEnabled, setCollabEnabled] = useState(() => Boolean(getCollabToken()) || searchParams.get('collab') === 'on');
+  const [collabServer] = useState(() => getCollabServer() || (typeof window === 'undefined' ? '' : window.location.origin));
+  const [collabName] = useState(() => loadCollabName() || 'Guest');
   const [collabToken] = useState(() => getCollabToken());
   const editorAreaRef = useRef<HTMLDivElement | null>(null);
   const activePathRef = useRef<string>('');
@@ -447,47 +369,17 @@ function ProjectEditorSession() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimerRef = useRef<number | null>(null);
   const collabCompartment = useMemo(() => new Compartment(), []);
-  const handleResearchStateChange = useCallback((next: ResearchWorkspaceState) => {
-    setResearchWorkspaceState(next);
-  }, []);
-
   const {
     llmEndpoint,
     llmApiKey,
     llmModel,
     agentRuntime,
-    searchEndpoint,
-    searchApiKey,
-    searchModel,
-    visionEndpoint,
-    visionApiKey,
-    visionModel,
     compileEngine
   } = settings;
 
   useEffect(() => {
     persistSettings(settings);
   }, [settings]);
-
-  useEffect(() => {
-    if (researchMode) {
-      setActiveSidebar('research');
-      return;
-    }
-    setActiveSidebar((current) => current === 'research' ? 'files' : current);
-  }, [researchMode, researchStage]);
-
-  useEffect(() => {
-    const tool = searchParams.get('tool');
-    if (!researchMode && isWorkspaceTool(tool)) { setActiveSidebar(tool); setSidebarOpen(true); }
-  }, [searchParams, researchMode]);
-
-  const selectWorkspaceTool = (tool: WorkspaceTool) => {
-    setActiveSidebar(tool); setSidebarOpen(true);
-    const params = new URLSearchParams(searchParams);
-    params.set('tool', tool);
-    setSearchParams(params, { replace: true });
-  };
 
   useEffect(() => {
     if (collabServer) {
@@ -506,28 +398,6 @@ function ProjectEditorSession() {
     }),
     [agentRuntime, llmEndpoint, llmApiKey, llmModel]
   );
-
-  const searchLlmConfig = useMemo(() => {
-    const hasOverride = Boolean(searchEndpoint || searchApiKey || searchModel);
-    return {
-      endpoint: (hasOverride ? searchEndpoint : llmEndpoint) || llmEndpoint,
-      apiKey: (hasOverride ? searchApiKey : llmApiKey) || undefined,
-      model: (hasOverride ? searchModel : llmModel) || llmModel
-    };
-  }, [llmEndpoint, llmApiKey, llmModel, searchEndpoint, searchApiKey, searchModel]);
-
-  const websearch = useWebsearch(searchLlmConfig);
-  const {websearchQuery,setWebsearchQuery,websearchLog,setWebsearchLog,websearchBusy,setWebsearchBusy,websearchResults,setWebsearchResults,websearchSelected,setWebsearchSelected,websearchParagraph,setWebsearchParagraph,websearchItemNotes,setWebsearchItemNotes,websearchTargetFile,setWebsearchTargetFile,websearchTargetBib,setWebsearchTargetBib,websearchSelectedAll,setWebsearchSelectedAll,runWebsearch,stopWebsearch} = websearch;
-  const review = usePaperReview({projectId,activePath,compileLog,llmConfig,onReport:()=>setRightView('review')});
-  const {reviewReport} = review;
-  const visionLlmConfig = useMemo(() => {
-    const hasOverride = Boolean(visionEndpoint || visionApiKey || visionModel);
-    return {
-      endpoint: (hasOverride ? visionEndpoint : llmEndpoint) || llmEndpoint,
-      apiKey: (hasOverride ? visionApiKey : llmApiKey) || undefined,
-      model: (hasOverride ? visionModel : llmModel) || llmModel
-    };
-  }, [llmEndpoint, llmApiKey, llmModel, visionEndpoint, visionApiKey, visionModel]);
 
   useEffect(() => {
     if (!projectId) {
@@ -551,39 +421,6 @@ function ProjectEditorSession() {
     activePathRef.current = activePath;
   }, [activePath]);
 
-  const handleCreateInvite = useCallback(async () => {
-    if (!projectId) return;
-    setCollabInviteBusy(true);
-    try {
-      const res = await createCollabInvite(projectId);
-      if (!res.ok || !res.token) {
-        throw new Error(t('邀请生成失败'));
-      }
-      const baseInput = normalizeServerUrl(collabServer) || (typeof window === 'undefined' ? '' : window.location.origin);
-      const base = baseInput.replace(/\/$/, '');
-      const link = `${base}/collab?token=${encodeURIComponent(res.token)}`;
-      setCollabInviteLink(link);
-      if (!collabEnabled) {
-        setCollabEnabled(true);
-      }
-      setStatus(t('邀请链接已生成'));
-    } catch (err) {
-      setStatus(t('生成邀请失败: {{error}}', { error: String(err) }));
-    } finally {
-      setCollabInviteBusy(false);
-    }
-  }, [collabServer, projectId, t]);
-
-  const copyInviteLink = useCallback(async () => {
-    if (!collabInviteLink) return;
-    try {
-      await navigator.clipboard.writeText(collabInviteLink);
-      setStatus(t('邀请链接已复制'));
-    } catch (err) {
-      setStatus(t('复制失败: {{error}}', { error: String(err) }));
-    }
-  }, [collabInviteLink, t]);
-
   const refreshTree = async (keepActive = true) => {
     if (!projectId) return;
     const res = await getProjectTree(projectId);
@@ -591,7 +428,7 @@ function ProjectEditorSession() {
     setTree(visibleItems);
     setFileOrder(res.fileOrder || {});
     if (!keepActive || !activePath || !visibleItems.find((item) => item.path === activePath)) {
-      const requested = searchParams.get('open');
+      const requested = searchParams.get('file') || searchParams.get('open');
       const filePaths = visibleItems.filter((item) => item.type === 'file').map((item) => item.path);
       const requestedPath = requested && filePaths.includes(requested) ? requested : '';
       const restoredPath = restoredEditorFile(projectId, filePaths);
@@ -701,7 +538,7 @@ function ProjectEditorSession() {
     }
   });
 
-  const { activeRef: collabActiveRef, status: collabStatus, peers: collabPeers,
+  const { activeRef: collabActiveRef, status: collabStatus,
     flush: flushCollaboration, replace: replaceCollaborativeDocument } = useCollaborationSession({
     projectId, path: activePath, enabled: collabEnabled, supported: isTextPath(activePath),
     server: collabServer, token: collabToken, name: collabName,
@@ -970,19 +807,6 @@ function ProjectEditorSession() {
     };
   }, [activePath, editorValue, isDirty, saveActiveFile, collabEnabled]);
 
-  const createBibFile = async (open = true) => {
-    if (!projectId) return;
-    const parent = selectedPath && tree.find((item) => item.path === selectedPath && item.type === 'dir')
-      ? selectedPath
-      : getParentPath(selectedPath || activePath || '');
-    const path = parent ? `${parent}/references.bib` : 'references.bib';
-    const content = '% Add BibTeX entries here\n';
-    await writeFileCompat(path, content);
-    await refreshTree();
-    if (open) await openFile(path);
-    return path;
-  };
-
   const insertAtCursor = (text: string, opts?: { block?: boolean }) => {
     if (!activePath) return;
     const view = cmViewRef.current;
@@ -1065,402 +889,11 @@ function ProjectEditorSession() {
     [drafts, projectId]
   );
 
-  const buildProjectContext = useCallback(async () => {
-    const root = mainFile || activePath;
-    if (!root) return '';
-    const visited = new Set<string>();
-    const queue: string[] = [root];
-    const summaries: string[] = [];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (!current || visited.has(current)) continue;
-      visited.add(current);
-      if (!current.toLowerCase().endsWith('.tex')) continue;
-      let content = '';
-      try {
-        content = await ensureFileContent(current);
-      } catch {
-        continue;
-      }
-      const outline = parseOutline(content).slice(0, 12);
-      const headings = outline.map((item) => `${'  '.repeat(item.level - 1)}- ${item.title}`);
-      summaries.push(t('File: {{file}}\n{{headings}}', { file: current, headings: headings.join('\n') }));
-      const baseDir = getParentPath(current);
-      const includes = extractIncludeTargets(content);
-      includes.forEach((raw) => {
-        let target = raw.replace(/^\//, '');
-        if (!target.endsWith('.tex')) {
-          target = `${target}.tex`;
-        }
-        const resolved = baseDir ? `${baseDir}/${target}` : target;
-        if (!visited.has(resolved)) {
-          queue.push(resolved);
-        }
-      });
-    }
-    const filesList = Array.from(visited).join(', ');
-    return t('Project files: {{files}}\nOutline:\n{{summaries}}', { files: filesList, summaries: summaries.join('\n') });
-  }, [activePath, ensureFileContent, mainFile, t]);
-
-  const handleArxivSearch = useCallback(async () => {
-    const query = arxivQuery.trim();
-    if (!query) {
-      setArxivStatus(t('请输入检索关键词。'));
-      return;
-    }
-    setArxivBusy(true);
-    setArxivStatus('');
-    try {
-      if (useLlmSearch) {
-        setLlmSearchOutput('');
-        const res = await runAgent({
-          task: 'websearch',
-          prompt: [
-            t('Search arXiv for the user query.'),
-            t('Return at most {{max}} papers.', { max: arxivMaxResults }),
-            t('Use arxiv_search and arxiv_bibtex tools.'),
-            t('Return JSON ONLY in this schema:'),
-            t('{"papers":[{"title":"","authors":[],"arxivId":"","bibtex":""}]}.')
-          ].join(' '),
-          selection: '',
-          content: query,
-          mode: 'tools',
-          projectId,
-          activePath,
-          compileLog,
-          llmConfig: searchLlmConfig,
-          interaction: 'agent',
-          history: []
-        });
-        const raw = res.reply || '';
-        if (raw) {
-          setLlmSearchOutput(raw);
-        }
-        const jsonBlock = extractJsonBlock(raw);
-        if (!jsonBlock) {
-          throw new Error(t('LLM 输出无法解析为 JSON。'));
-        }
-        const parsed = safeJsonParse<{ papers?: { title: string; authors?: string[]; arxivId: string; bibtex?: string }[] }>(jsonBlock);
-        if (!parsed) {
-          throw new Error(t('LLM 输出 JSON 解析失败。'));
-        }
-        const papers = parsed.papers || [];
-        setArxivResults(
-          papers.map((paper) => ({
-            title: paper.title || t('(untitled)'),
-            abstract: '',
-            authors: paper.authors || [],
-            url: paper.arxivId ? `https://arxiv.org/abs/${paper.arxivId}` : '',
-            arxivId: paper.arxivId
-          }))
-        );
-        const cache: Record<string, string> = {};
-        papers.forEach((paper) => {
-          if (paper.arxivId && paper.bibtex) {
-            cache[paper.arxivId] = paper.bibtex;
-          }
-        });
-        setArxivBibtexCache(cache);
-        setArxivSelected({});
-        if (papers.length === 0) {
-          setArxivStatus(t('没有匹配结果。'));
-        }
-      } else {
-        const res = await arxivSearch({ query, maxResults: arxivMaxResults });
-        if (!res.ok) {
-          throw new Error(res.error || t('检索失败'));
-        }
-        setArxivResults(res.papers || []);
-        setArxivSelected({});
-        if ((res.papers || []).length === 0) {
-          setArxivStatus(t('没有匹配结果。'));
-        }
-      }
-    } catch (err) {
-      setArxivStatus(t('检索失败: {{error}}', { error: String(err) }));
-    } finally {
-      setArxivBusy(false);
-    }
-  }, [arxivQuery, arxivMaxResults, useLlmSearch, projectId, activePath, compileLog, searchLlmConfig, t]);
-
-  const handleArxivApply = useCallback(async () => {
-    if (!projectId) return;
-    const selected = arxivResults.filter((paper) => arxivSelected[paper.arxivId]);
-    if (selected.length === 0) {
-      setArxivStatus(t('请选择要导入的论文。'));
-      return;
-    }
-    let targetBib = bibTarget;
-    if (!targetBib) {
-      const created = await createBibFile();
-      if (created) {
-        targetBib = created;
-        setBibTarget(created);
-      }
-    }
-    if (!targetBib) {
-      setArxivStatus(t('请先创建 Bib 文件。'));
-      return;
-    }
-    setArxivBusy(true);
-    setArxivStatus(t('正在写入 Bib...'));
-    try {
-      let content = await ensureFileContent(targetBib);
-      const keys: string[] = [];
-      for (const paper of selected) {
-        let bibtexSource = arxivBibtexCache[paper.arxivId] || '';
-        if (!bibtexSource) {
-          const res = await arxivBibtex({ arxivId: paper.arxivId });
-          if (!res.ok || !res.bibtex) {
-            throw new Error(res.error || t('生成 BibTeX 失败: {{id}}', { id: paper.arxivId }));
-          }
-          bibtexSource = res.bibtex;
-        }
-        const normalizedBibtex = bibtexSource.replace(/\\n/g, '\n');
-        const key = extractBibKey(normalizedBibtex);
-        if (key) {
-          const exists = new RegExp(`@\\w+\\s*{\\s*${key}\\s*,`, 'i').test(content);
-          if (exists) {
-            keys.push(key);
-            continue;
-          }
-          keys.push(key);
-        }
-        if (content && !content.endsWith('\n')) content += '\n';
-        content += `${normalizedBibtex.trim()}\n`;
-      }
-      await writeFileCompat(targetBib, content);
-      setFiles((prev) => ({ ...prev, [targetBib]: content }));
-      if (activePath === targetBib) {
-        setEditorValue(content);
-        if (!collabActiveRef.current) {
-          setEditorDoc(content);
-        }
-      }
-      if (autoInsertCite && keys.length > 0) {
-        if (activePath && activePath.toLowerCase().endsWith('.tex')) {
-          insertAtCursor(`\\cite{${keys.join(',')}}`);
-        } else {
-          setArxivStatus(t('Bib 已写入。打开 TeX 文件后可插入引用。'));
-          setArxivBusy(false);
-          return;
-        }
-      }
-      if (autoInsertToMain && keys.length > 0) {
-        const targetFile = citeTargetFile || mainFile;
-        if (!targetFile) {
-          setArxivStatus(t('未选择引用插入文件。'));
-          setArxivBusy(false);
-          return;
-        }
-        const citePayload = arxivResults
-          .filter((paper) => keys.includes(extractBibKey(arxivBibtexCache[paper.arxivId] || '') || ''))
-          .map((paper) => ({
-            title: paper.title,
-            arxivId: paper.arxivId
-          }));
-        const prompt = [
-          t('Insert citations into the target TeX file.'),
-          t('Target file: {{file}}.', { file: targetFile }),
-          t('Use \\\\cite{{{keys}}}.', { keys: keys.join(',') }),
-          t('If a Related Work section exists, add the citations there.'),
-          t('Otherwise add a Related Work subsection near the end and cite the papers.'),
-          t('Keep edits minimal and preserve formatting.'),
-          citePayload.length > 0 ? t('Papers: {{payload}}', { payload: JSON.stringify(citePayload) }) : ''
-        ].filter(Boolean).join(' ');
-        try {
-          await ensureFileContent(targetFile);
-          const started = await assistant.start({ task: 'insert_citations', prompt, permission: 'edit',
-            activePath: targetFile, llmConfig: searchLlmConfig, history: assistant.history }, prepareAssistantDocuments);
-          if (started) { setActiveSidebar('agent'); setSidebarOpen(true); }
-          setArxivStatus(started ? t('引用任务已启动，请在助手中查看和审阅。') : t('引用任务未启动，请查看助手提示。'));
-        } catch (err) {
-          setArxivStatus(t('引用插入失败: {{error}}', { error: String(err) }));
-        }
-      } else {
-        setArxivStatus(t('已写入 Bib。'));
-      }
-    } catch (err) {
-      setArxivStatus(t('写入失败: {{error}}', { error: String(err) }));
-    } finally {
-      setArxivBusy(false);
-    }
-  }, [activePath, arxivResults, arxivSelected, autoInsertCite, autoInsertToMain, bibTarget, projectId, createBibFile, ensureFileContent, setEditorDoc, arxivBibtexCache, compileLog, searchLlmConfig, mainFile, files, citeTargetFile, t]);
-
-  const handlePlotGenerate = async () => {
-    if (!projectId) return;
-    if (!selectionText || (!selectionText.includes('\\begin{tabular') && !selectionText.includes('\\begin{table'))) {
-      setPlotStatus(t('请在编辑器中选择一个 LaTeX 表格 (tabular)。'));
-      return;
-    }
-    setPlotBusy(true);
-    setPlotStatus('');
-    try {
-      const res = await plotFromTable({
-        projectId,
-        tableLatex: selectionText,
-        chartType: plotType,
-        title: plotTitle.trim() || undefined,
-        prompt: plotPrompt.trim() || undefined,
-        filename: plotFilename.trim() || undefined,
-        retries: plotRetries,
-        llmConfig
-      });
-      if (!res.ok || !res.assetPath) {
-        throw new Error(res.error || t('图表生成失败'));
-      }
-      setPlotAssetPath(res.assetPath);
-      setPlotStatus(t('图表已生成'));
-      await refreshTree();
-      if (plotAutoInsert) {
-        insertFigureSnippet(res.assetPath);
-      }
-    } catch (err) {
-      setPlotStatus(t('生成失败: {{error}}', { error: String(err) }));
-    } finally {
-      setPlotBusy(false);
-    }
-  };
-
-  const handleGptImageGenerate = async () => {
-    if (!projectId || !imagePrompt.trim()) {
-      setImageStatus(t('请输入图像描述。'));
-      return;
-    }
-    setImageBusy(true);
-    setImageStatus('');
-    try {
-      const result = await generateGptImage({ projectId, prompt: imagePrompt.trim(), size: imageSize, quality: imageQuality, llmConfig });
-      if (!result.ok || !result.assetPath) throw new Error(result.error || t('图像生成失败'));
-      setImageAssetPath(result.assetPath);
-      setImageStatus(t('图像已生成'));
-      await refreshTree();
-    } catch (error) {
-      setImageStatus(t('生成失败: {{error}}', { error: String(error) }));
-    } finally {
-      setImageBusy(false);
-    }
-  };
-
-  const applyWebsearchInsert = async () => {
-    if (!projectId) return;
-    let targetBib = websearchTargetBib;
-    if (!targetBib) {
-      const created = await createBibFile(false);
-      if (created) targetBib = created;
-    }
-    if (!targetBib) {
-      setWebsearchLog((prev) => [...prev, t('缺少 Bib 文件。')]);
-      return;
-    }
-    let content = await ensureFileContent(targetBib);
-    const keys: string[] = [];
-    const selectedItems = websearchResults.filter((item) => websearchSelected[item.id]);
-    if (selectedItems.length === 0) {
-      appendLog(setWebsearchLog, t('请选择至少一条结果。'));
-      return;
-    }
-    const perItemLines = selectedItems.map((item) => {
-      const note = websearchItemNotes[item.id] || item.summary || item.title;
-      const cite = item.citeKey ? ` \\cite{${item.citeKey}}` : '';
-      return `  \\item ${note}${cite}`;
-    });
-    selectedItems.forEach((item) => {
-      if (!item.bibtex) return;
-      const normalized = item.bibtex.replace(/\\n/g, '\n');
-      const key = extractBibKey(normalized);
-      if (!key) return;
-      if (new RegExp(`@\\w+\\s*{\\s*${key}\\s*,`, 'i').test(content)) {
-        keys.push(key);
-        return;
-      }
-      keys.push(key);
-      if (content && !content.endsWith('\n')) content += '\n';
-      content += `${normalized.trim()}\n`;
-    });
-    await writeFileCompat(targetBib, content);
-    setFiles((prev) => ({ ...prev, [targetBib]: content }));
-    appendLog(setWebsearchLog, t('Bib 写入完成: {{path}}', { path: targetBib }));
-
-    const targetFile = websearchTargetFile || mainFile || activePath;
-    const perItemBlock = perItemLines.length
-      ? `\\paragraph{${t('逐条总结')}}\n\\begin{itemize}\n${perItemLines.join('\n')}\n\\end{itemize}\n\n`
-      : '';
-    const finalBlock = websearchParagraph ? `\\paragraph{${t('综合总结')}}\n${websearchParagraph}\n` : '';
-    const insertBlock = `${perItemBlock}${finalBlock}`.trim();
-    if (!insertBlock) {
-      appendLog(setWebsearchLog, t('没有可插入的总结内容。'));
-      return;
-    }
-    if (targetFile && targetFile.toLowerCase().endsWith('.tex')) {
-      const targetContent = await ensureFileContent(targetFile);
-      const insertText = insertBlock ? `\n${insertBlock}\n` : '\n';
-      const position = getLatexBodyInsertionRange(targetContent, targetContent.length, targetContent.length);
-      const nextContent = `${targetContent.slice(0,position.from)}${insertText}${targetContent.slice(position.to)}`.replace(/\n{3,}/g, '\n\n');
-      await writeFileCompat(targetFile, nextContent);
-      setFiles((prev) => ({ ...prev, [targetFile]: nextContent }));
-      if (activePath === targetFile) {
-        setEditorValue(nextContent);
-        if (!collabActiveRef.current) {
-          setEditorDoc(nextContent);
-        }
-      }
-      appendLog(setWebsearchLog, t('段落已插入 {{path}}', { path: targetFile }));
-    } else if (activePath && activePath.toLowerCase().endsWith('.tex')) {
-      if (insertBlock) {
-        insertAtCursor(insertBlock, { block: true });
-      }
-      appendLog(setWebsearchLog, t('段落已插入光标位置。'));
-    }
-  };
-
   const handleUpload = async (fileList: FileList | null, basePath = '') => {
     if (!projectId || !fileList || fileList.length === 0) return;
     const files = Array.from(fileList);
     await uploadFiles(projectId, files, basePath);
     await refreshTree();
-  };
-
-  const handleVisionSubmit = async () => {
-    if (!projectId) return;
-    if (!visionFile) {
-      setStatus(t('请先选择图片。'));
-      return;
-    }
-    setVisionBusy(true);
-    setVisionResult('');
-    try {
-      let extraPrompt = visionPrompt.trim();
-      if (!extraPrompt) {
-        if (visionMode === 'table') {
-          extraPrompt = t('只输出表格的 LaTeX（tabular 或 table），不要包含文档结构。');
-        } else if (visionMode === 'algorithm') {
-          extraPrompt = t('只输出 algorithm/algorithmic 环境，不要包含文档结构。');
-        } else if (visionMode === 'equation') {
-          extraPrompt = t('只输出 equation 环境，不要包含文档结构。');
-        }
-      }
-      const res = await visionToLatex({
-        projectId,
-        file: visionFile,
-        mode: visionMode,
-        prompt: extraPrompt,
-        llmConfig: visionLlmConfig
-      });
-      if (!res.ok) {
-        throw new Error(res.error || t('识别失败'));
-      }
-      setVisionResult(res.latex || '');
-    } catch (err) {
-      setStatus(t('识别失败: {{error}}', { error: String(err) }));
-    } finally {
-      setVisionBusy(false);
-    }
-  };
-
-  const handleVisionInsert = () => {
-    if (!visionResult) return;
-    insertAtCursor(visionResult, { block: true });
   };
 
   const beginInlineCreate = (kind: 'new-file' | 'new-folder') => {
@@ -1663,24 +1096,6 @@ function ProjectEditorSession() {
     [tree]
   );
 
-  const bibFiles = useMemo(
-    () => tree.filter((item) => item.type === 'file' && item.path.toLowerCase().endsWith('.bib')).map((item) => item.path),
-    [tree]
-  );
-
-  const translateTargetOptions = useMemo(
-    () => [
-      { value: 'English', label: t('English') },
-      { value: '中文', label: t('中文') },
-      { value: '日本語', label: t('日本語') },
-      { value: '한국어', label: t('한국어') },
-      { value: 'Français', label: t('Français') },
-      { value: 'Deutsch', label: t('Deutsch') },
-      { value: 'Español', label: t('Español') }
-    ],
-    [t]
-  );
-
   const outlineItems = useMemo(() => {
     if (!outlineText || !mainFile || !mainFile.toLowerCase().endsWith('.tex')) return [];
     return parseOutline(outlineText);
@@ -1711,55 +1126,12 @@ function ProjectEditorSession() {
   }, [activePath, editorValue, ensureFileContent, mainFile]);
 
   useEffect(() => {
-    if (!visionFile) {
-      setVisionPreviewUrl('');
-      return;
-    }
-    const url = URL.createObjectURL(visionFile);
-    setVisionPreviewUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [visionFile]);
-
-  useEffect(() => {
     if (texFiles.length === 0) return;
     if (!texFiles.includes(mainFile)) {
       const preferred = texFiles.find((path) => path.endsWith('main.tex')) || texFiles[0];
       setMainFile(preferred);
     }
   }, [texFiles, mainFile]);
-
-  useEffect(() => {
-    if (citeTargetFile) return;
-    if (mainFile) {
-      setCiteTargetFile(mainFile);
-    } else if (texFiles.length > 0) {
-      setCiteTargetFile(texFiles[0]);
-    }
-  }, [citeTargetFile, mainFile, texFiles]);
-
-  useEffect(() => {
-    if (websearchTargetFile) return;
-    if (mainFile) {
-      setWebsearchTargetFile(mainFile);
-    } else if (texFiles.length > 0) {
-      setWebsearchTargetFile(texFiles[0]);
-    }
-  }, [websearchTargetFile, mainFile, texFiles]);
-
-  useEffect(() => {
-    if (websearchTargetBib) return;
-    if (bibFiles.length > 0) {
-      setWebsearchTargetBib(bibFiles[0]);
-    }
-  }, [bibFiles, websearchTargetBib]);
-
-  useEffect(() => {
-    if (!bibTarget && bibFiles.length > 0) {
-      setBibTarget(bibFiles[0]);
-    }
-  }, [bibFiles, bibTarget]);
 
   const setAllFolders = useCallback(
     (open: boolean) => {
@@ -2032,12 +1404,6 @@ function ProjectEditorSession() {
     onStatus: setStatus, onView: setRightView
   });
 
-  const selectionText = useMemo(() => {
-    const [start, end] = selectionRange;
-    if (start === end) return '';
-    return editorValue.slice(start, end);
-  }, [selectionRange, editorValue]);
-
   useEffect(() => {
     const view = cmViewRef.current;
     if (!view) return;
@@ -2142,19 +1508,7 @@ function ProjectEditorSession() {
     const accepted = await assistant.start({
       ...intent, activePath, compileLog, llmConfig, history: assistant.history
     }, prepareAssistantDocuments);
-    if (accepted) { setActiveSidebar('agent'); setSidebarOpen(true); }
     return accepted;
-  };
-
-  const retryAssistant = async (run: HarnessRun) => {
-    const request = run.request;
-    if (!request) return;
-    await assistant.start({
-      task: request.task || run.task, prompt: request.prompt || '',
-      permission: request.permission || 'edit', activePath: request.activePath,
-      selection: '', compileLog: run.task === 'debug_compile' ? compileLog : request.compileLog,
-      history: request.history, skillNames: request.skillNames, llmConfig
-    }, prepareAssistantDocuments);
   };
 
   const diagnoseCompile = async () => {
@@ -2268,11 +1622,11 @@ function ProjectEditorSession() {
   );
 
   return (
-    <div className={`app-shell workspace-shell${researchMode ? ' is-research' : ' is-writing'}`}>
-      <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active={researchMode ? 'research' : activeSidebar === 'agent' ? 'chat' : ['vision', 'search', 'websearch', 'plot', 'review'].includes(activeSidebar) ? 'tools' : 'writing'} />
-      {researchMode ? <header className="research-command-bar"><span>{t('研究工作区')}</span><div><button className="btn ghost" onClick={() => navigate(`/project/${projectId}/tasks`)}>{t('任务进度')}</button><button className="btn ghost" aria-pressed={researchContextOpen} onClick={() => setResearchContextOpen((open) => !open)}><PanelRight size={16} />{t('研究上下文')}</button></div></header> : <header className="top-bar">
+    <div className="app-shell workspace-shell is-writing">
+      <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active="writing" />
+      <header className="top-bar">
         <div className="editor-titlebar">
-          <button className="icon-btn" onClick={() => setSidebarOpen((prev) => !prev)} title={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')} aria-label={sidebarOpen ? t('隐藏侧栏') : t('显示侧栏')}>
+          <button className="icon-btn" onClick={() => setSidebarOpen((prev) => !prev)} title={sidebarOpen ? t('关闭项目文件') : t('打开项目文件')} aria-label={sidebarOpen ? t('关闭项目文件') : t('打开项目文件')}>
             <PanelLeft size={17} />
           </button>
         </div>
@@ -2305,8 +1659,8 @@ function ProjectEditorSession() {
           } : compile} className="editor-compile-button" title={isCompiling ? t('只退出等待，不停止服务端编译；可到任务中心取消。') : t('编译')}>
             {isCompiling ? <X size={15} /> : <Play size={15} />}{isCompiling ? t('退出等待') : t('编译')}
           </button>
-          {researchMode && <button className={`icon-btn${researchContextOpen ? ' active' : ''}`} onClick={() => setResearchContextOpen((open) => !open)} title={t('研究上下文')} aria-label={t('研究上下文')}><PanelRight size={17} /></button>}
-          <button className="icon-btn" onClick={() => setSettingsOpen(true)} title={t('设置')} aria-label={t('设置')}><SettingsIcon size={17} /></button>
+          <button className={`icon-btn${collabEnabled ? ' active' : ''}`} aria-label={collabEnabled ? '断开协作' : '开启协作'} title={collabEnabled ? `协作：${collabStatus}` : '开启协作'} onClick={() => setCollabEnabled(value => !value)}><Users size={17}/></button>
+          <button className="icon-btn" onClick={() => navigate(`/project/${projectId}/models`)} title={t('设置')} aria-label={t('设置')}><SettingsIcon size={17} /></button>
           <div className="ios-select-wrapper">
             <button className="ios-select-trigger" onClick={(e) => {
               const opening = !langDropdownOpen;
@@ -2319,9 +1673,9 @@ function ProjectEditorSession() {
             </button>
           </div>
         </div>
-      </header>}
+      </header>
 
-      {!researchMode && <div className="status-bar">
+      <div className="status-bar">
         <div className="status-left">
           <div>{status}</div>
           <div className={`save-indicator ${isSaving ? 'saving' : isDirty ? 'dirty' : 'saved'} ${savePulse ? 'pulse' : ''}`}>
@@ -2332,101 +1686,24 @@ function ProjectEditorSession() {
         <div className="status-right">
           {t('Compile')}: {compileEngine} · {t('Engine')}: {engineName || t('未初始化')}
         </div>
-      </div>}
+      </div>
 
-      {researchMode && <div className="workspace-stage-strip"><ResearchStageNavigation activeStage={activeResearchStage} stageStatuses={researchWorkspaceState?.stageStatuses} onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)} /></div>}
 
       <main
-        className={`workspace${researchMode ? ' research-mode' : ''}${researchMode && !researchContextOpen ? ' context-closed' : ''}`}
+        className="workspace"
         ref={gridRef}
         style={{
           '--col-sidebar': sidebarOpen ? `${columnSizes.sidebar}px` : '0px',
           '--col-sidebar-gap': sidebarOpen ? '10px' : '0px',
           '--col-editor': `${columnSizes.editor}px`,
-          '--col-right': researchMode && !researchContextOpen ? '0px' : `${columnSizes.right}px`
+          '--col-right': `${columnSizes.right}px`
         } as CSSProperties}
       >
-        {!researchMode && sidebarOpen && (
+        {sidebarOpen && (
           <aside className="panel side-panel">
-            <div className="sidebar-tabs">
-              <div className="tab-group">
-                <button
-                  className={`tab-btn ${activeSidebar === 'research' ? 'active' : ''}`}
-                  data-testid="research-sidebar-tab"
-                  onClick={() => {
-                    setActiveSidebar('research');
-                    setSidebarOpen(true);
-                    if (!researchMode) navigate(researchHref(projectId));
-                  }}
-                  title="项目进展"
-                >
-                  <span className="tab-icon"><FlaskConical size={15} /></span>
-                  <span className="tab-text">项目进展</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'files' ? 'active' : ''}`}
-                  onClick={() => selectWorkspaceTool('files')}
-                  title={t('Files')}
-                >
-                  <span className="tab-icon"><FolderTree size={15} /></span>
-                  <span className="tab-text">{t('Files')}</span>
-                </button>
-                <button
-                  className={`tab-btn ${activeSidebar === 'agent' ? 'active' : ''}`}
-                  onClick={() => selectWorkspaceTool('agent')}
-                  title={t('助手')}
-                >
-                  <span className="tab-icon"><Bot size={15} /></span>
-                  <span className="tab-text">{t('助手')}</span>
-                </button>
-                <details className="assistant-tool-menu">
-                  <summary
-                    className={`tab-btn ${['vision', 'search', 'websearch', 'plot', 'review'].includes(activeSidebar) ? 'active' : ''}`}
-                    title={t('更多助手工具')}
-                  >
-                    <span className="tab-icon"><ChevronDown size={14} /></span>
-                    <span className="tab-text">{t('更多')}</span>
-                  </summary>
-                  <div className="assistant-tool-popover">
-                    {WORKSPACE_TOOLS.filter(tool => ['vision', 'search', 'websearch', 'plot', 'review'].includes(tool.id)).map(tool => <button key={tool.id} onClick={event => { selectWorkspaceTool(tool.id); event.currentTarget.closest('details')?.removeAttribute('open'); }}><tool.icon size={15} />{t(tool.label)}</button>)}
-                  </div>
-                </details>
-                <button
-                  className={`tab-btn ${activeSidebar === 'collab' ? 'active' : ''}`}
-                  onClick={() => selectWorkspaceTool('collab')}
-                  title={t('协作')}
-                >
-                  <span className="tab-icon"><Users size={15} /></span>
-                  <span className="tab-text">{t('协作')}</span>
-                </button>
-              </div>
-              <button className="icon-btn" onClick={() => setSidebarOpen(false)} title={t('关闭侧栏')} aria-label={t('关闭侧栏')}><X size={15} /></button>
-            </div>
-            {activeSidebar === 'research' ? (
+            <div className="panel-header"><span>项目文件</span><button className="icon-btn" onClick={() => setSidebarOpen(false)} aria-label="关闭项目文件"><X size={15}/></button></div>
+            {(
               <>
-                <div className="panel-header">
-                  <div>研究流程</div>
-                  <span className={`research-sidebar-harness is-${researchWorkspaceState?.harnessState || 'checking'}`}>
-                    {researchWorkspaceState?.harnessState === 'ready' ? 'Harness 已连接' : researchWorkspaceState?.harnessState === 'unavailable' ? 'Harness 未配置' : 'Harness 检查中'}
-                  </span>
-                </div>
-                <div className="research-sidebar-integrated" data-testid="research-stage-nav">
-                  <ResearchStageNavigation
-                    activeStage={activeResearchStage}
-                    stageStatuses={researchWorkspaceState?.stageStatuses}
-                    onNavigate={(nextStage) => navigate(`/editor/${projectId}/research/${nextStage}`)}
-                  />
-                  <div className="research-sidebar-gate-note">
-                    <strong>人工确认门禁</strong>
-                    <span>AI 负责补充与执行建议，每一阶段由你输入并确认。</span>
-                  </div>
-                </div>
-              </>
-            ) : activeSidebar === 'files' ? (
-              <>
-                <div className="panel-header">
-                  <div>{t('Project Files')}</div>
-                </div>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2549,173 +1826,17 @@ function ProjectEditorSession() {
                   ))}
                 </div>
               </>
-            ) : activeSidebar === 'collab' ? (
-              <CollaborationPanel
-                collabStatus={collabStatus}
-                collabServer={collabServer}
-                setCollabServerState={setCollabServerState}
-                collabName={collabName}
-                setCollabName={setCollabName}
-                collabEnabled={collabEnabled}
-                onToggleConnection={() => setCollabEnabled((previous) => !previous)}
-                canConnect={Boolean(activePath && isTextPath(activePath))}
-                canInvite={Boolean(projectId)}
-                collabInviteBusy={collabInviteBusy}
-                handleCreateInvite={handleCreateInvite}
-                copyInviteLink={copyInviteLink}
-                collabInviteLink={collabInviteLink}
-                activePath={activePath}
-                collabPeers={collabPeers}
-              />
-            ) : activeSidebar === 'agent' ? (
-              <AssistantPanel key={projectId} projectId={projectId} assistant={assistant}
-                activePath={activePath} selection={selectionText} onSend={sendAssistant}
-                onRetry={(run) => void retryAssistant(run)} onReview={() => setRightView('diff')} />
-            ) : activeSidebar === 'vision' ? (
-              <VisionPanel
-                visionMode={visionMode}
-                setVisionMode={setVisionMode}
-                visionFile={visionFile}
-                setVisionFile={setVisionFile}
-                visionResult={visionResult}
-                setVisionResult={setVisionResult}
-                visionPreviewUrl={visionPreviewUrl}
-                setVisionPreviewUrl={setVisionPreviewUrl}
-                visionPrompt={visionPrompt}
-                setVisionPrompt={setVisionPrompt}
-                visionBusy={visionBusy}
-                handleVisionSubmit={handleVisionSubmit}
-                handleVisionInsert={handleVisionInsert}
-              />
-            ) : activeSidebar === 'search' ? (
-              <LiteratureSearchPanel
-                arxivQuery={arxivQuery}
-                setArxivQuery={setArxivQuery}
-                arxivMaxResults={arxivMaxResults}
-                setArxivMaxResults={setArxivMaxResults}
-                handleArxivSearch={handleArxivSearch}
-                arxivBusy={arxivBusy}
-                useLlmSearch={useLlmSearch}
-                setUseLlmSearch={setUseLlmSearch}
-                arxivStatus={arxivStatus}
-                llmSearchOutput={llmSearchOutput}
-                setLlmSearchOutput={setLlmSearchOutput}
-                arxivResults={arxivResults}
-                arxivSelected={arxivSelected}
-                onSelectPaper={(id, selected) => setArxivSelected((previous) => ({ ...previous, [id]: selected }))}
-                bibTarget={bibTarget}
-                setBibTarget={setBibTarget}
-                bibFiles={bibFiles}
-                createBibFile={createBibFile}
-                autoInsertCite={autoInsertCite}
-                setAutoInsertCite={setAutoInsertCite}
-                autoInsertToMain={autoInsertToMain}
-                setAutoInsertToMain={setAutoInsertToMain}
-                citeTargetFile={citeTargetFile}
-                setCiteTargetFile={setCiteTargetFile}
-                texFiles={texFiles}
-                handleArxivApply={handleArxivApply}
-              />
-            ) : activeSidebar === 'websearch' ? (
-              <WebsearchPanel controller={websearch} bibFiles={bibFiles} texFiles={texFiles} createBibFile={createBibFile} insertAtCursor={insertAtCursor} applyWebsearchInsert={applyWebsearchInsert} />
-            ) : activeSidebar === 'plot' ? (
-              <PlotPanel
-                projectId={projectId}
-                plotType={plotType}
-                plotTitle={plotTitle}
-                plotFilename={plotFilename}
-                plotPrompt={plotPrompt}
-                plotRetries={plotRetries}
-                plotAutoInsert={plotAutoInsert}
-                plotBusy={plotBusy}
-                plotStatus={plotStatus}
-                plotAssetPath={plotAssetPath}
-                imagePrompt={imagePrompt}
-                imageSize={imageSize}
-                imageQuality={imageQuality}
-                imageBusy={imageBusy}
-                imageStatus={imageStatus}
-                imageAssetPath={imageAssetPath}
-                setPlotType={setPlotType}
-                setPlotTitle={setPlotTitle}
-                setPlotFilename={setPlotFilename}
-                setPlotPrompt={setPlotPrompt}
-                setPlotRetries={setPlotRetries}
-                setPlotAutoInsert={setPlotAutoInsert}
-                setImagePrompt={setImagePrompt}
-                setImageSize={setImageSize}
-                setImageQuality={setImageQuality}
-                handlePlotGenerate={handlePlotGenerate}
-                handleGptImageGenerate={handleGptImageGenerate}
-                insertFigureSnippet={insertFigureSnippet}
-              />
-            ) : activeSidebar === 'review' ? (
-              <ReviewPanel controller={review} />
-            ) : null}
+            )}
           </aside>
         )}
 
-        {!researchMode && sidebarOpen && (
+        {sidebarOpen && (
           <div
             className="drag-handle vertical sidebar-handle"
             onMouseDown={(e) => startColumnDrag('left', e)}
           />
         )}
 
-        {researchMode ? (
-          <>
-            <section className="panel research-workspace-panel" data-testid="research-stage-content">
-              <ResearchWorkspacePage embedded onStateChange={handleResearchStateChange} llmConfig={llmConfig} />
-            </section>
-
-            <div
-              className="drag-handle vertical main-handle"
-              onMouseDown={(e) => startColumnDrag('right', e)}
-            />
-
-            <section className="panel pdf-panel research-context-panel" data-testid="editor-right-panel">
-              <div className="panel-header">
-                <div>研究上下文</div>
-                <span className={`research-context-stage-status is-${researchWorkspaceState?.stageStatuses[activeResearchStage] || 'active'}`}>
-                  {getResearchStage(activeResearchStage).label}
-                </span>
-              </div>
-              <div className="right-body research-context-workspace">
-                <div className="research-context-summary">
-                  <span className="research-overline">CURRENT INPUT</span>
-                  <h3>{researchWorkspaceState?.direction.question || '等待你输入研究问题'}</h3>
-                  <p>{researchWorkspaceState?.direction.scope || '研究边界尚未填写'}</p>
-                </div>
-                <dl className="research-context-details">
-                  <dt>种子关键词</dt>
-                  <dd>{researchWorkspaceState?.direction.keywords.length ? researchWorkspaceState.direction.keywords.join(' · ') : '尚未填写'}</dd>
-                  <dt>论文质量门禁</dt>
-                  <dd>
-                    {researchWorkspaceState?.policy.venueLevel || 'CCF-A'} · {
-                      researchWorkspaceState?.policy.publicationType === 'journal'
-                        ? '期刊'
-                        : researchWorkspaceState?.policy.publicationType === 'conference'
-                          ? '会议'
-                          : '期刊/会议'
-                    } · {researchWorkspaceState?.policy.yearFrom || '2022'}-{researchWorkspaceState?.policy.yearTo || '2026'}
-                  </dd>
-                  <dt>当前阶段 Skill</dt>
-                  <dd>{researchWorkspaceState?.activeSkillNames.length ? researchWorkspaceState.activeSkillNames.join('、') : '使用阶段默认约束'}</dd>
-                  <dt>执行控制</dt>
-                  <dd>所有方向、论文、创新点和方法都由你输入或选择，AI 只补充候选并执行已确认任务。</dd>
-                </dl>
-                <div className="research-context-progress" aria-label="当前阶段">
-                  <span>{String(getResearchStage(activeResearchStage).index).padStart(2, '0')}</span>
-                  <div>
-                    <strong>{getResearchStage(activeResearchStage).label}</strong>
-                    <small>{getResearchStage(activeResearchStage).description}</small>
-                  </div>
-                </div>
-              </div>
-            </section>
-          </>
-        ) : (
-          <>
         <section className="panel editor-panel">
           <div className="panel-header">{t('Editor')}</div>
           <div className="breadcrumb-bar">
@@ -2821,7 +1942,7 @@ function ProjectEditorSession() {
                         key={item.value}
                         className={`ios-dropdown-item ${rightView === item.value ? 'active' : ''}`}
                         onClick={() => {
-                          setRightView(item.value as 'pdf' | 'figures' | 'diff' | 'log' | 'toc' | 'review');
+                          setRightView(item.value as 'pdf' | 'figures' | 'diff' | 'log' | 'toc');
                           setRightViewDropdownOpen(false);
                         }}
                       >
@@ -3095,23 +2216,9 @@ function ProjectEditorSession() {
                   <pre className="log-content">{compileLog || t('暂无编译日志')}</pre>
                 </div>
               )}
-              {rightView === 'review' && (
-                <div className="log-panel">
-                  <div className="log-title">{t('评审报告')}</div>
-                  <div className="log-content markdown-body">
-                    {reviewReport ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{reviewReport}</ReactMarkdown>
-                    ) : (
-                      t('暂无评审报告')
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </section>
-          </>
-        )}
       </main>
 
       {/* Top-bar dropdown portals — rendered outside top-bar to escape backdrop-filter stacking context */}
@@ -3155,7 +2262,7 @@ function ProjectEditorSession() {
             <div className="ctx-menu-group">{t('创建')}</div>
             <button className="ctx-menu-item" onClick={() => { beginInlineCreate('new-file'); setFileContextMenu(null); }}>{t('新建文件')}</button>
             <button className="ctx-menu-item" onClick={() => { beginInlineCreate('new-folder'); setFileContextMenu(null); }}>{t('新建文件夹')}</button>
-            <button className="ctx-menu-item" onClick={() => { createBibFile(); setFileContextMenu(null); }}>{t('新建 Bib')}</button>
+            <button className="ctx-menu-item" onClick={() => { beginInlineCreate('new-file'); setInlineEdit(previous => previous ? { ...previous, value: 'references.bib' } : previous); setFileContextMenu(null); }}>{t('新建 Bib')}</button>
             <div className="ctx-menu-sep" />
             <div className="ctx-menu-group">{t('上传')}</div>
             <button className="ctx-menu-item" onClick={() => { fileInputRef.current?.click(); setFileContextMenu(null); }}>{t('上传文件')}</button>
@@ -3167,127 +2274,6 @@ function ProjectEditorSession() {
             <div className="ctx-menu-sep" />
             <button className="ctx-menu-item ctx-menu-danger" onClick={() => { handleDeleteFile(); setFileContextMenu(null); }}>{t('删除')}</button>
             <button className="ctx-menu-item" onClick={() => { refreshTree(); setFileContextMenu(null); }}>{t('刷新')}</button>
-          </div>
-        </div>
-      )}
-      {settingsOpen && (
-        <div className="modal-backdrop" onClick={() => setSettingsOpen(false)}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <div>{t('Workspace Settings')}</div>
-              <button className="icon-btn" onClick={() => setSettingsOpen(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="field">
-                <label>{t('LLM Endpoint')}</label>
-                <input
-                  className="input"
-                  value={llmEndpoint}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, llmEndpoint: e.target.value }))}
-                  placeholder="https://api.openai.com/v1/chat/completions"
-                />
-                <div className="muted">{t('支持 OpenAI 兼容的 base_url，例如 https://api.apiyi.com/v1')}</div>
-              </div>
-              <div className="field">
-                <label>{t('LLM Model')}</label>
-                <input
-                  className="input"
-                  value={llmModel}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, llmModel: e.target.value }))}
-                  placeholder="gpt-4o-mini"
-                />
-              </div>
-              <div className="field">
-                <label>{t('Agent Runtime')}</label>
-                <select
-                  className="input"
-                  value={agentRuntime}
-                  onChange={(e) => setSettings((prev) => ({
-                    ...prev,
-                    agentRuntime: e.target.value === 'deepseek-harness' ? 'deepseek-harness' : 'legacy'
-                  }))}
-                >
-                  <option value="legacy">{t('Legacy LangChain')}</option>
-                  <option value="deepseek-harness">{t('DeepSeek Harness')}</option>
-                </select>
-                <div className="muted">{t('仅影响 Agent 的 Tools 模式；Chat、补全和视觉功能继续使用普通 LLM 调用。')}</div>
-              </div>
-              <div className="field">
-                <label>{t('LLM API Key')}</label>
-                <input
-                  className="input"
-                  value={llmApiKey}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, llmApiKey: e.target.value }))}
-                  placeholder="sk-..."
-                  type="password"
-                />
-                {!llmApiKey && (
-                  <div className="muted">{t('未配置 API Key 时将使用后端环境变量。')}</div>
-                )}
-              </div>
-              <div className="field">
-                <label>{t('Search LLM Endpoint (可选)')}</label>
-                <input
-                  className="input"
-                  value={searchEndpoint}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, searchEndpoint: e.target.value }))}
-                  placeholder="https://api.apiyi.com/v1"
-                />
-                <div className="muted">{t('仅用于“检索/websearch”任务，留空则复用 LLM Endpoint。')}</div>
-              </div>
-              <div className="field">
-                <label>{t('Search LLM Model (可选)')}</label>
-                <input
-                  className="input"
-                  value={searchModel}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, searchModel: e.target.value }))}
-                  placeholder="claude-sonnet-4-5-20250929-all"
-                />
-              </div>
-              <div className="field">
-                <label>{t('Search LLM API Key (可选)')}</label>
-                <input
-                  className="input"
-                  value={searchApiKey}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, searchApiKey: e.target.value }))}
-                  placeholder="sk-..."
-                  type="password"
-                />
-              </div>
-              <div className="field">
-                <label>{t('VLM Endpoint (可选)')}</label>
-                <input
-                  className="input"
-                  value={visionEndpoint}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, visionEndpoint: e.target.value }))}
-                  placeholder="https://api.apiyi.com/v1"
-                />
-                <div className="muted">{t('仅用于图像识别，留空则复用 LLM Endpoint。')}</div>
-              </div>
-              <div className="field">
-                <label>{t('VLM Model (可选)')}</label>
-                <input
-                  className="input"
-                  value={visionModel}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, visionModel: e.target.value }))}
-                  placeholder="gpt-4o"
-                />
-              </div>
-              <div className="field">
-                <label>{t('VLM API Key (可选)')}</label>
-                <input
-                  className="input"
-                  value={visionApiKey}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, visionApiKey: e.target.value }))}
-                  placeholder="sk-..."
-                  type="password"
-                />
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn ghost" onClick={() => setSettingsOpen(false)}>{t('关闭')}</button>
-              <button className="btn" onClick={() => setSettingsOpen(false)}>{t('完成')}</button>
-            </div>
           </div>
         </div>
       )}

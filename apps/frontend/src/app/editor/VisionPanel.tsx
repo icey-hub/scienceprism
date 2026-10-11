@@ -138,7 +138,7 @@ export function VisionPanel({
             <button className="ios-btn secondary" onClick={handleVisionSubmit} disabled={visionBusy}>
               {visionBusy ? t('识别中...') : t('开始识别')}
             </button>
-            <button className="ios-btn primary" onClick={handleVisionInsert} disabled={!visionResult}>{t('插入到光标')}</button>
+            <button className="ios-btn primary" onClick={handleVisionInsert} disabled={!visionResult}>{t('保存到目标文稿')}</button>
           </div>
           {visionResult && (
             <div className="vision-result">

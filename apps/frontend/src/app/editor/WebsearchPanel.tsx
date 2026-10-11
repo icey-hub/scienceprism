@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWebsearch } from './useWebsearch';
 import { appendLog } from './modelText';
-type Props={controller:ReturnType<typeof useWebsearch>;bibFiles:string[];texFiles:string[];createBibFile:()=>Promise<string|undefined>;insertAtCursor:(text:string)=>void;applyWebsearchInsert:()=>Promise<void>};
+type Props={controller:ReturnType<typeof useWebsearch>;bibFiles:string[];texFiles:string[];createBibFile:()=>Promise<string|undefined>;insertAtCursor:(text:string)=>Promise<void>;applyWebsearchInsert:()=>Promise<void>};
 export function WebsearchPanel({controller,bibFiles,texFiles,createBibFile,insertAtCursor,applyWebsearchInsert}:Props){
  const {t}=useTranslation();const {websearchQuery,setWebsearchQuery,websearchLog,setWebsearchLog,websearchBusy,setWebsearchBusy,websearchResults,setWebsearchResults,websearchSelected,setWebsearchSelected,websearchParagraph,setWebsearchParagraph,websearchItemNotes,setWebsearchItemNotes,websearchTargetFile,setWebsearchTargetFile,websearchTargetBib,setWebsearchTargetBib,websearchSelectedAll,setWebsearchSelectedAll,runWebsearch,stopWebsearch}=controller;
  const [wsBibDropdownOpen,setWsBibDropdownOpen]=useState(false),[wsTexDropdownOpen,setWsTexDropdownOpen]=useState(false);
@@ -58,14 +58,14 @@ export function WebsearchPanel({controller,bibFiles,texFiles,createBibFile,inser
                           </label>
                           <button
                             className="btn ghost small"
-                            onClick={() => {
+                            onClick={async () => {
                               const keys = websearchResults
                                 .filter((item) => websearchSelected[item.id])
                                 .map((item) => item.citeKey)
                                 .filter(Boolean);
                               if (keys.length > 0) {
-                                insertAtCursor(`\\cite{${keys.join(',')}}`);
-                                appendLog(setWebsearchLog, t('已插入选中引用到光标。'));
+                                await insertAtCursor(`\\cite{${keys.join(',')}}`).catch(error => appendLog(setWebsearchLog,String(error)));
+                                appendLog(setWebsearchLog, t('引用保存操作已结束，请查看保存状态。'));
                               }
                             }}
                           >
@@ -91,10 +91,10 @@ export function WebsearchPanel({controller,bibFiles,texFiles,createBibFile,inser
                               </div>
                               <button
                                 className="btn ghost small"
-                                onClick={() => {
+                                onClick={async () => {
                                   if (paper.citeKey) {
-                                    insertAtCursor(`\\cite{${paper.citeKey}}`);
-                                    appendLog(setWebsearchLog, t('已插入: {{cite}}', { cite: paper.citeKey }));
+                                    await insertAtCursor(`\\cite{${paper.citeKey}}`).catch(error => appendLog(setWebsearchLog,String(error)));
+                                    appendLog(setWebsearchLog, t('引用保存操作已结束: {{cite}}', { cite: paper.citeKey }));
                                   }
                                 }}
                               >
