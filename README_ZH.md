@@ -26,7 +26,7 @@ npm run dev:frontend
 
 ## 模型设置
 
-不配置模型也能创建项目、管理文件和编辑文稿。使用 AI 功能时，在编辑器的「工作区设置」填写 OpenAI 兼容端点、模型和 API Key。该设置保存在当前浏览器的 localStorage 中。
+不配置模型也能创建项目、管理文件和编辑文稿。使用 AI 功能时，在项目侧栏「模型」或编辑器的「工作区设置」填写 OpenAI 兼容端点、模型和 API Key。它们使用同一份浏览器 localStorage 设置，作用于该浏览器中的项目。
 
 也可以在启动后端前设置环境变量，作为请求未提供相应字段时的后备值：
 
@@ -48,6 +48,8 @@ npm run dev
 研究方向页列出 12 个内置研究 Skill，包括 CCF-A 选题评审、论文主线、审稿检查和论文绘图。可以在此绑定兼容的运行阶段；默认 Legacy Agent 现在能读取已启用 Skill 的正文。详见 [研究 Skill 说明](docs/research-skills.md)和[系统生成的目录快照](aidoc/research-skill-catalog.md)。
 
 写作整合页的「写作审查方式」默认是单 Agent。选择「两个子 Agent 审查后生成」再点「整理写作材料」，系统会串行运行论断证据审查、方法一致性审查和最终写作三个 Run。页面可查看各 Run 的状态、ID、意见和供应商返回的 token 用量；写作 Brief 记录来源。每个 Run 内部可能有多次模型请求。审查意见可能出错，仅供参考；阶段仍需人工确认。子任务失败时可在同页查看错误并重试。[一次真实模型对照](docs/agent-governance/real-writing-delegation-validation.md)中，多 Agent 消耗 161,818 token，单 Agent 消耗 25,401 token；不同项目的成本会变化。
+
+侧栏按「功能 / 系统」分组，模型、Agents、Skills 和 MCP 独立可达。研究阶段内化在仪表盘下一步和工作空间中。任务详情与探索图展示原始运行、产物、来源和关系；MCP 的手动发现及显式只读检查可用，DSH 自动 MCP 调用仍受限。操作见 [项目工作区](docs/project-workspace.md)。
 
 项目内主要入口：
 

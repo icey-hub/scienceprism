@@ -52,3 +52,22 @@ test('catalogue counts retained call identities, keeps Skill selection distinct,
  const {getToolCatalogue}=await import('../src/services/projectHub/toolCatalogue.js');const root=await project('usage');await mkdir(path.join(root,'.scienceprism'),{recursive:true});await writeFile(path.join(root,'.scienceprism/harness-runs.json'),JSON.stringify({schemaVersion:1,projectId:'usage',archivedRuns:[{id:'old'}],runs:[{id:'r',status:'cancelled',skills:['research-writing'],events:[{type:'tool/start',callId:'c',attempt:0,name:'read_research_skill',arguments:'{"name":"research-writing"}'},{type:'tool/call',callId:'c',attempt:0,name:'read_research_skill',arguments:'{"name":"research-writing"}'},{type:'tool/end',callId:'c',attempt:0,outcome:'success'},{type:'tool/start',callId:'unfinished',attempt:0,name:'read_file'},{type:'tool/start',name:'legacy-unknown'}]}]}));
  const result=await getToolCatalogue('usage');assert.equal(result.tools.find(tool=>tool.name==='read_research_skill').calls,1);assert.equal(result.tools.find(tool=>tool.name==='read_research_skill').success,1);assert.equal(result.tools.find(tool=>tool.name==='read_file').cancelled,1);assert.equal(result.skills.find(skill=>skill.name==='research-writing').selectedRuns,1);assert.equal(result.skills.find(skill=>skill.name==='research-writing').recordedReads,1);assert.equal(result.scope.uncorrelatedEvents,1);assert.equal(result.scope.unknownRetentionRuns,1);assert.equal(result.scope.archivedRuns,1);
 });
+
+test('tool catalogue bounds the most recent runs and links them in newest-first order', async () => {
+ const { getToolCatalogue } = await import('../src/services/projectHub/toolCatalogue.js');
+ const root = await project('recent-usage');
+ await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+ const runs = Array.from({ length: 101 }, (_, index) => ({
+  id: `run-${index}`, status: 'completed', events: [
+   { type: 'tool/start', name: index === 100 ? 'old-only-tool' : 'read_file', callId: `call-${index}`, attempt: 0 },
+   { type: 'tool/end', callId: `call-${index}`, attempt: 0, outcome: 'success' }
+  ]
+ }));
+ await writeFile(path.join(root, '.scienceprism/harness-runs.json'), JSON.stringify({ schemaVersion: 1, projectId: 'recent-usage', runs }));
+ const result = await getToolCatalogue('recent-usage');
+ assert.equal(result.tools.some(tool => tool.name === 'old-only-tool'), false);
+ const reads = result.tools.find(tool => tool.name === 'read_file');
+ assert.equal(reads.calls, 100);
+ assert.equal(reads.recent[0].runId, 'run-0');
+ assert.equal(result.scope.runs, 100);
+});

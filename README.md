@@ -26,7 +26,7 @@ npm run dev:frontend
 
 ## Model configuration
 
-You can create projects, manage files, and edit a manuscript without configuring a model. For AI features, enter an OpenAI-compatible endpoint, model, and API key in the editor's Workspace Settings. These settings are stored in this browser's localStorage.
+You can create projects, manage files, and edit a manuscript without configuring a model. For AI features, enter an OpenAI-compatible endpoint, model, and API key in the project's Models page or the editor's Workspace Settings. They share the same localStorage settings across projects in this browser.
 
 You can also set server environment variables before starting the backend. They are fallback values when a request does not provide the corresponding setting:
 
@@ -48,6 +48,8 @@ The research stages are Direction, Search, Selection, optional Replication, Idea
 The Direction page lists twelve built-in research Skills, including CCF-A idea review, manuscript storyline, paper review, and figure style. Bind them to compatible stages there. The default Legacy agent can read enabled Skill instructions; see [Research Skills](docs/research-skills.md) and the [generated catalog snapshot](aidoc/research-skill-catalog.md).
 
 Writing defaults to a single Agent. On the Writing stage, choose “两个子 Agent 审查后生成” under the review mode selector and run the writing handoff to start two serial read-only reviews followed by a coordinator Run. The page shows each Run's ID, status, review text, errors, and provider-reported token usage. Review opinions are advisory and may be wrong; the final brief still passes the evidence checks and requires human approval. Each Run may make several model requests. A failed child can be inspected and retried from the same stage. In [one real-model comparison](docs/agent-governance/real-writing-delegation-validation.md), this mode used 161,818 tokens versus 25,401 for the single-Agent path; cost varies with the project context.
+
+The sidebar groups project functions and system settings, with separate Models, Agents, Skills and MCP pages. Research stages remain in the overview's next step and workspace context. Task details and exploration graphs expose retained runs, artifacts and source relationships. Manual MCP discovery and explicit read-only checks are available; automatic DSH MCP execution remains restricted. See the [project workspace guide](docs/project-workspace.md) (Chinese).
 
 Main project views:
 

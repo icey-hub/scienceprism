@@ -101,3 +101,27 @@ test('HTTP download and restore preserve status codes and do not overwrite exist
     assert.equal((await app.inject({ method: 'POST', url: '/api/projects/restore-backup', payload: backup })).statusCode, 201);
   } finally { await app.close(); }
 });
+
+test('MCP backup omits environment, headers and URL query values, requires fresh discovery after restore', async () => {
+ const { root } = await fixture('mcp-backup');
+ const filePath = '.scienceprism/mcp.json';
+ await fs.writeFile(path.join(root, filePath), JSON.stringify({ schemaVersion: 1, version: 3, servers: [{
+  id: 'notes', enabled: true, transport: 'streamable-http', url: 'https://example.test/mcp?access=private-query',
+  env: { CUSTOM_CREDENTIAL: 'private-env' }, headers: { 'X-Api-Key': 'private-header' },
+  discovery: { state: 'discovered', tools: [{ name: 'read_note' }] }, roles: ['project-agent'], tools: ['read_note']
+ }] }));
+ const backup = await exportProjectBackup('mcp-backup');
+ const config = JSON.parse(Buffer.from(backup.files.find(file => file.path === filePath).content, 'base64'));
+ assert.ok(!JSON.stringify(config).includes('private-'));
+ assert.deepEqual(config.servers[0].env, {});
+ assert.deepEqual(config.servers[0].headers, {});
+ assert.equal(config.servers[0].enabled, false);
+ assert.equal(config.servers[0].discovery, null);
+ await fs.rename(root, path.join(data, '.saved-mcp-backup'));
+ const crafted = structuredClone(backup);
+ config.servers[0].env = { CUSTOM_CREDENTIAL: 'inserted-secret' };
+ alterFile(crafted, filePath, JSON.stringify(config, null, 2));
+ await assert.rejects(restoreProjectBackup(crafted), error => error.code === 'BACKUP_CREDENTIALS');
+ await restoreProjectBackup(backup);
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(root, filePath), 'utf8')).servers[0].headers, {});
+});

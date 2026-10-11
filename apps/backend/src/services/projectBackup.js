@@ -28,7 +28,17 @@ function withoutSecrets(value) {
 }
 function safeBytes(filePath, bytes) {
   if (filePath === 'project.json' || ((filePath.startsWith('.scienceprism/') || filePath.startsWith('.openprism/')) && filePath.endsWith('.json') && !filePath.includes('/artifacts/'))) {
-    return Buffer.from(JSON.stringify(withoutSecrets(JSON.parse(bytes.toString('utf8'))), null, 2));
+    const value = withoutSecrets(JSON.parse(bytes.toString('utf8')));
+    if (filePath === '.scienceprism/mcp.json' && Array.isArray(value.servers)) {
+      value.servers = value.servers.map(server => {
+        // MCP credentials use arbitrary environment/header names and may be in
+        // URL queries. Restored connections must be configured and discovered again.
+        let url = server.url || '';
+        try { const parsed = new URL(url); parsed.search = ''; url = parsed.href; } catch {}
+        return { ...server, url, env: {}, headers: {}, enabled: false, discovery: null };
+      });
+    }
+    return Buffer.from(JSON.stringify(value, null, 2));
   }
   return bytes;
 }

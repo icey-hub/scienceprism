@@ -18,6 +18,13 @@ function LegacyResearchRedirect() {
   return <Navigate to={researchHref(projectId)} replace />;
 }
 
+function EditorSession() {
+  const { projectId = '' } = useParams<{ projectId: string }>();
+  // Tools share one session within a project; another project closes that
+  // session so delayed responses cannot publish into its editor state.
+  return <EditorPage key={projectId} />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -31,9 +38,9 @@ export default function App() {
       <Route path="/project/:projectId/skills" element={<SkillsPage />} />
       <Route path="/project/:projectId/explore" element={<ExplorationPage />} />
       <Route path="/project/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
-      <Route path="/editor/:projectId" element={<EditorPage />} />
+      <Route path="/editor/:projectId" element={<EditorSession />} />
       <Route path="/editor/:projectId/research" element={<LegacyResearchRedirect />} />
-      <Route path="/editor/:projectId/research/:stage" element={<EditorPage />} />
+      <Route path="/editor/:projectId/research/:stage" element={<EditorSession />} />
       <Route path="/research/:projectId" element={<LegacyResearchRedirect />} />
       <Route path="/collab" element={<CollabJoinPage />} />
       <Route path="*" element={<Navigate to="/projects" replace />} />

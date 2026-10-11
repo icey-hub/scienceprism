@@ -66,3 +66,13 @@ test('exploration HTTP validates lenses, bounds nodes and exposes sourced adjace
   assert.equal((await app.inject({url:'/api/projects/missing/exploration'})).statusCode,404);
  } finally {await app.close();}
 });
+
+test('replication graph edges cite the actual replication manifest field', async () => {
+ const root = await fixture('replication-source');
+ await writeFile(path.join(root, '.scienceprism/experiment-runs.json'), JSON.stringify({
+  schemaVersion: 1, projectId: 'replication-source', runs: [{ id: 'replication-run', status: 'completed', manifest: { replication: { sourceStage: 'replication' } } }]
+ }));
+ const graph = await getProjectExploration('replication-source');
+ const edge = graph.edges.find(edge => edge.from === 'stage:replication' && edge.to === 'experiment:replication-run');
+ assert.equal(edge.sourceRef.field, 'manifest.replication.sourceStage');
+});

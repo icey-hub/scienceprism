@@ -74,7 +74,8 @@ export async function getProjectExploration(projectId, { lens = 'execution', roo
     const id=`experiment:${run.id}`;
     addNode({id,kind:'experiment',title:`${run.phase || 'experiment'} / ${run.id}`,status:run.status,decision:run.approval?.decision || 'unknown',retained:true,sourceRef:source('experiment',run.id),href:taskHref(projectId,`experiment-run:${run.id}`),version:run.manifest?.code?.snapshotHash || null});
     const stage=run.manifest?.researchPlan?.sourceStage || run.manifest?.replication?.sourceStage;
-    if (stage && nodes.has(`stage:${stage}`)) addEdge(`stage:${stage}`,id,'runs',source('experiment',run.id,'manifest.researchPlan.sourceStage'));
+    const stageField = run.manifest?.researchPlan?.sourceStage ? 'manifest.researchPlan.sourceStage' : 'manifest.replication.sourceStage';
+    if (stage && nodes.has(`stage:${stage}`)) addEdge(`stage:${stage}`,id,'runs',source('experiment',run.id,stageField));
     if (run.evidence?.runId) addEdge(id,evidenceRef(run.evidence.runId),'reports',source('experiment',run.id,'evidence.runId'));
     for (const artifact of run.artifacts || []) {
       const artifactId=`artifact:${run.id}:${artifact.id}`;
