@@ -22,6 +22,7 @@ import {
 import { PaperSourceReview, SourceReviewHistory } from './project/PaperSourceReview';
 import './ProjectDashboard.css';
 import { ProjectWorkspaceNav, type ProjectWorkspaceSection } from './components/ProjectWorkspaceNav';
+import { ProjectWorkspaceTopbar } from './components/ProjectWorkspaceTopbar';
 import { ApprovalsInbox, ConstraintsPanel, EvidenceView, HarnessConsole } from './project/ProjectControlViews';
 
 type View = 'overview' | 'library' | 'tasks' | 'quality' | 'approvals' | 'runs' | 'evidence' | 'settings';
@@ -55,7 +56,9 @@ const IMPORT_FIELD_LABELS: Record<string, string> = { title: '标题', authors: 
 
 function Layout({ projectId, projectName, view, children }: { projectId: string; projectName: string; view: View; children: React.ReactNode }) {
   const active: ProjectWorkspaceSection = view === 'overview' ? 'overview'
-    : view === 'library' || view === 'evidence' ? 'library'
+    : view === 'library' ? 'library'
+      : view === 'evidence' ? 'evidence'
+        : view === 'approvals' ? 'approvals'
       : view === 'quality' ? 'writing'
         : view === 'settings' ? 'settings'
           : 'activity';
@@ -78,6 +81,7 @@ function Layout({ projectId, projectName, view, children }: { projectId: string;
         : [];
   return <div className="project-hub-shell">
     <ProjectWorkspaceNav projectId={projectId} projectName={projectName} active={active} />
+    <ProjectWorkspaceTopbar projectId={projectId} projectName={projectName} title={({ overview: '项目概览', library: '资料库', tasks: '任务与会话', quality: '写作检查', approvals: '人工审批', runs: '运行记录', evidence: '科研证据', settings: '项目设置' })[view]} />
     {secondary.length > 0 && <nav className="project-hub-subnav" aria-label="当前分组视图">
       {secondary.map((item) => <Link key={item.href} className={item.active ? 'is-active' : ''} to={item.href}>{item.label}</Link>)}
     </nav>}
