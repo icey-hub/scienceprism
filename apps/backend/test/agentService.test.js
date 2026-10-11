@@ -325,12 +325,14 @@ test('cancelling during Legacy fallback remains cancelled instead of failed', as
 });
 
 test('pausing during Legacy fallback preserves a resumable Run', async (t) => {
+  let releaseUnwind;
+  const unwindGate = new Promise((resolve) => { releaseUnwind = resolve; });
   let fallbackStarted;
   const started = new Promise((resolve) => { fallbackStarted = resolve; });
   t.mock.method(globalThis, 'fetch', async (_url, init) => {
     fallbackStarted();
     return new Promise((_resolve, reject) => {
-      init.signal?.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+      init.signal?.addEventListener('abort', () => { void unwindGate.then(() => reject(init.signal.reason)); }, { once: true });
     });
   });
   let deepseekAttempts = 0;
@@ -352,6 +354,7 @@ test('pausing during Legacy fallback preserves a resumable Run', async (t) => {
     await started;
     const paused = await pauseHarnessRun('test', run.id);
     assert.equal(paused.status, 'running', 'pause returns the current persisted snapshot while execution unwinds');
+    releaseUnwind();
     const settled = await waitForHarnessRun('test', run.id);
     assert.equal(settled.status, 'paused');
     const resumed = await resumeHarnessRun('test', run.id, { wait: true, request: { fakeResponse: 'resumed fallback' } });
@@ -359,6 +362,7 @@ test('pausing during Legacy fallback preserves a resumable Run', async (t) => {
     assert.equal(resumed.reply, 'resumed fallback');
     assert.equal(resumed.attempt, 2);
   } finally {
+    releaseUnwind();
     registerHarnessAdapter(deepseekHarnessAdapter);
   }
 });
