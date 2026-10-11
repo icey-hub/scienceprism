@@ -166,3 +166,9 @@
 .project-hub-shell .runtime-event summary > code { color: var(--workspace-muted); }
 .project-hub-shell .runtime-event small { margin-left: auto; color: var(--workspace-muted); }
 @media (max-width: 760px) { .project-hub-shell .runtime-event summary { flex-wrap: wrap; } .project-hub-shell .runtime-event small { width: 100%; margin: 0; } }
+
+.project-hub-shell .hub-table-wrap { overflow-x:auto;min-width:0;max-width:100%; }
+.project-hub-shell .hub-table { border-collapse:collapse;width:100%;min-width:650px;font-size:12px; }
+.project-hub-shell .hub-table th { text-align:left;color:#737373;font-weight:500;background:#fafafa; }
+.project-hub-shell .hub-table td,.project-hub-shell .hub-table th { padding:12px;border-bottom:1px solid #e5e5e5;vertical-align:top;max-width:280px;overflow-wrap:anywhere; }
+.project-hub-shell .hub-table small { display:block;color:#737373;line-height:1.6; }

@@ -415,6 +415,12 @@ export interface RuntimeEvent {
   arguments?: string; output?: string; error?: string; outcome?: string; truncated?: boolean;
   path?: string; version?: FileVersion; usage?: Record<string, number>;
 }
+export interface ToolCatalogue {
+  tools:{id:string;name:string;source:string;capability:string|null;calls:number;success:number;error:number;incomplete:number;cancelled:number;unknown:number;serverId?:string;enabled?:boolean;bound?:boolean;dshRestricted?:boolean;recent:{runId:string;callId:string;outcome:string;at:string|null}[]}[];
+  skills:(AssistantSkill & {selectedRuns:number;recordedReads:number})[];
+  scope:{runLimit:number;runs:number;archivedRuns:number;uncorrelatedEvents:number;droppedEvents:number;unknownRetentionRuns:number};
+}
+export function getToolCatalogue(projectId:string){return request<{ok:boolean}&ToolCatalogue>(`/api/projects/${encodeURIComponent(projectId)}/tool-catalogue`);}
 export interface McpServer {
   id:string;name:string;transport:'stdio'|'streamable-http';enabled:boolean;command:string;args:string[];url:string;
   envKeys:string[];headerKeys:string[];roles:string[];tasks:string[];tools:string[];capability:string;
