@@ -1,0 +1,14 @@
+import { useEffect, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { getAgentRoles, getProjectDashboard, getResearchWorkflowSkills, listHarnessRuns, type AgentRoleSummary, type HarnessRun } from '../../api/client';
+import { ProjectWorkspaceFrame } from '../components/ProjectWorkspaceFrame';
+import { taskHref } from './taskLocation';
+import './ConfigurationPages.css';
+export default function AgentsPage(){const {projectId=''}=useParams();return <Agents key={projectId} projectId={projectId}/>;}
+function Agents({projectId}:{projectId:string}){
+ const [params,setParams]=useSearchParams();const selected=params.get('role');
+ const [roles,setRoles]=useState<AgentRoleSummary[]>([]),[runs,setRuns]=useState<HarnessRun[]>([]),[name,setName]=useState(projectId),[granted,setGranted]=useState<string[]>([]),[bindings,setBindings]=useState<Record<string,string[]>>({}),[error,setError]=useState('');
+ useEffect(()=>{Promise.all([getAgentRoles(),getProjectDashboard(projectId),getResearchWorkflowSkills(projectId),listHarnessRuns(projectId)]).then(([catalog,project,skills,history])=>{setRoles(catalog.roles);setName(project.dashboard.project.name);setGranted(project.dashboard.constraints.capabilities);setBindings(skills.bindings as Record<string,string[]>);setRuns(history.runs);}).catch(error=>setError(String(error)));},[projectId]);
+ const role=roles.find(role=>role.id===selected) || roles[0];
+ return <ProjectWorkspaceFrame projectId={projectId} projectName={name} active="agents" title="Agents"><p className="config-note">固定角色沿用现有职责与权限上限。项目授予能力与角色上限取交集；显示工具或绑定 Skill 不会增加权限。路径、审批和运行前策略继续单独校验。</p>{error&&<p role="alert">{error}</p>}<div className="config-split"><div className="config-list">{roles.map(item=><button key={item.id} aria-pressed={role?.id===item.id} onClick={()=>setParams({role:item.id})}><strong>{item.id}</strong><span>{item.purpose}</span><small>{item.authority}</small></button>)}</div><section className="config-detail">{role&&<><h2>{role.id}</h2><p>{role.purpose}</p><p>作用域：{role.stageScope.join(' / ')}</p><p>权责：{role.authority}</p><h3>项目中有效的能力上限</h3><p>{role.capabilities.filter(value=>granted.includes(value)).join(' · ')||'无工具能力'}</p><p>角色允许：{role.capabilities.join(' · ')||'无'}</p><h3>Skill 关联与生效绑定</h3><p>静态关联：{role.skills.join(' · ')||'使用编辑器实际选择'}</p>{role.stageScope.map(stage=><p key={stage}>{stage}：{bindings[stage]?.join(' · ')||'没有研究阶段绑定'}</p>)}<Link to={`/project/${encodeURIComponent(projectId)}/skills`}>查看 Skill 与修改阶段绑定</Link><h3>禁止行为</h3><ul>{role.forbiddenActions.map(value=><li key={value}>{value}</li>)}</ul><h3>已记录的相关 Run</h3>{runs.filter(run=>run.role===role.id).map(run=><p key={run.id}><Link to={taskHref(projectId,`harness:${run.id}`)}>{run.task} · {run.status}</Link></p>)}{!runs.some(run=>run.role===role.id)&&<p>当前保留范围没有明确标注该角色的 Run；不按任务名称推测角色。</p>}</>}</section></div></ProjectWorkspaceFrame>;
+}
