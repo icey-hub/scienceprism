@@ -1,5 +1,68 @@
 # Research Skills
 
+## GitHub discovery authentication
+
+Skill discovery and installation read public GitHub repositories. Browser login
+does not authenticate the backend's API requests. Choose a backend credential source:
+
+- `SCIENCEPRISM_GITHUB_TOKEN`: a GitHub access token.
+- `SCIENCEPRISM_GITHUB_TOKEN_FILE`: an explicit path to a UTF-8 file containing
+  only the token. On macOS/Linux the file must be private (`chmod 600`). The
+  environment token takes precedence; the file is reread on each API request so
+  replacing it does not require a server restart.
+- `SCIENCEPRISM_GITHUB_CLI` together with
+  `SCIENCEPRISM_GITHUB_CLI_CONFIG_DIR`: absolute paths to the GitHub CLI executable
+  and its login configuration directory. The backend reads `gh auth token` into
+  memory with a bounded subprocess, without a shell or an exported credential
+  file. Ambient `GH_TOKEN`, `GITHUB_TOKEN`, and model keys are not passed to it.
+  The explicit token/file settings take precedence over CLI authentication.
+
+Keep the file in a local ignored directory such as `.cache/github-auth/`, outside
+project research documents. Do not send the token through a frontend form,
+workflow, Skill, or model prompt. The backend sends it only to `api.github.com`
+over verified HTTPS. Raw file downloads remain anonymous; an optional explicitly
+trusted `SCIENCEPRISM_SKILL_DISCOVERY_PROXY` uses CONNECT with separate proxy
+credentials.
+
+For a personal token, select public-repository access without additional write
+permissions. For CLI browser login, review GitHub's requested permissions: its
+standard OAuth flow requests `repo`, `read:org`, and `gist`, which grant more than
+this discovery feature requires. The application still rejects private
+repositories. CLI normally stores its credential in the system credential store;
+if that store is unavailable it can fall back to a plaintext configuration file.
+Check its storage status after logging in. With an already installed CLI, for
+example, from the repository root:
+
+```sh
+mkdir -p .cache/github-auth/gh
+chmod 700 .cache/github-auth .cache/github-auth/gh
+export GH_CONFIG_DIR="$PWD/.cache/github-auth/gh"
+gh auth login --web --hostname github.com
+export SCIENCEPRISM_GITHUB_CLI="/absolute/path/to/gh"
+export SCIENCEPRISM_GITHUB_CLI_CONFIG_DIR="$GH_CONFIG_DIR"
+```
+
+Start the backend with that environment. Account changes and CLI logout are
+observed on the next API request. Use the same `GH_CONFIG_DIR` when managing this
+login. Revoke the credential on GitHub when access should end. A separately
+configured token file must also be removed if it is no longer needed.
+
+Repository visibility is checked afresh before reading commits or files. Private
+repositories are rejected even if the credential can access them. API caches are
+partitioned by credential identity. Invalid authentication is reported explicitly
+without retrying anonymously; permission failures and rate-limit responses are
+reported separately. Authentication failures or throttling stop the current scan.
+Secondary throttling is recognized even when GitHub omits retry headers, with a
+minimum one-minute wait message. Cached fixed-commit responses reduce repeated requests.
+
+GitHub documents a usual primary REST allowance of 60 requests/hour for anonymous
+access and 5,000/hour for authenticated users; secondary limits can still apply.
+See [GitHub rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api),
+[token permissions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens),
+and [CLI browser login](https://cli.github.com/manual/gh_auth_login).
+
+## Bundled research skills
+
 SciencePrism bundles twelve research skills under `.dsh/skills`. For the
 DeepSeek adapter, enabled skills are copied into the isolated Harness workspace.
 For the default Legacy adapter, the agent can read an enabled skill's `SKILL.md`

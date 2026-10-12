@@ -26,6 +26,7 @@ async function setup(options = {}) {
   const files = { ...baseFiles(), ...options.files }; const calls = [];
   const transport = async url => {
     calls.push(url); if (options.fail) throw options.fail;
+    if (url === 'https://api.github.com/repos/example/catalog') return Buffer.from(JSON.stringify({ private: false }));
     if (url.includes('/commits/')) return Buffer.from(JSON.stringify({ sha: options.commit || commit, commit: { tree: { sha: treeSha } } }));
     if (url.includes('/git/trees/')) {
       const tree = { sha: treeSha, truncated: false, tree: Object.entries(files).map(([name, data]) => ({ path: name, type: 'blob', mode: '100644', size: data.length,
@@ -105,7 +106,7 @@ test('file count and byte limits reject before package download; malicious paths
     value => ({ ...value, tree: [...value.tree, { ...value.tree[0], path: 'skills/paper-notes/../../outside.txt' }] })
   ]) {
     const f = await setup({ tree });
-    try { await assert.rejects(f.service.install('project', selection())); assert.deepEqual(await fs.readdir(f.root), ['project.json']); assert.ok(f.calls.length <= 3); }
+    try { await assert.rejects(f.service.install('project', selection())); assert.deepEqual(await fs.readdir(f.root), ['project.json']); assert.ok(f.calls.length <= 4); }
     finally { await f.close(); }
   }
 });

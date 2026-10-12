@@ -40,7 +40,9 @@ export function filterSkillCandidates(candidates, filters) {
     return true;
   });
 }
-const fatal = error => ['SKILL_DISCOVERY_CANCELLED', 'SKILL_DISCOVERY_TIMEOUT', 'SKILL_DISCOVERY_REQUEST_LIMIT', 'CAPABILITY_DENIED', 'NETWORK_DENIED'].includes(error.code);
+const fatal = error => ['SKILL_DISCOVERY_CANCELLED', 'SKILL_DISCOVERY_TIMEOUT', 'SKILL_DISCOVERY_REQUEST_LIMIT',
+  'SKILL_DISCOVERY_AUTH_INVALID', 'SKILL_DISCOVERY_AUTH_CONFIGURATION', 'SKILL_DISCOVERY_RATE_LIMITED',
+  'CAPABILITY_DENIED', 'NETWORK_DENIED'].includes(error.code);
 const errorData = error => ({ code: error.code || 'SKILL_DISCOVERY_UPSTREAM', message: error.statusCode ? error.message : 'Skill 目录读取失败。' });
 
 export function createSkillDiscoveryService({ sourceFactory = createGithubSkillSource(), resolveProject = getProjectRoot,

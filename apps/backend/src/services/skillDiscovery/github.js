@@ -1,6 +1,10 @@
 import https from 'node:https';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { createHash } from 'node:crypto';
+import { open } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import path from 'node:path';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { assertNetworkHost } from '../harnessRuntime/capabilities.js';
 import { isPublicAddress, parseDownloadProxy } from '../paperAttachments/download.js';
@@ -17,6 +21,41 @@ const upstream = message => new SkillDiscoveryError('SKILL_DISCOVERY_UPSTREAM', 
 const SHA = /^[a-f0-9]{40}$/;
 const publicResponses = new Map();
 const CACHE_BYTES = 32 * 1024 * 1024;
+const runFile = promisify(execFile);
+const authConfiguration = () => new SkillDiscoveryError('SKILL_DISCOVERY_AUTH_CONFIGURATION',
+  'GitHub 凭据配置无效。请检查后端的 Token、私有凭据文件或 GitHub CLI 登录配置。', 503);
+function validateToken(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_]{1,255}$/.test(value.trim())) throw authConfiguration();
+  return value.trim();
+}
+export async function readGithubToken(env = process.env, { run = runFile, signal } = {}) {
+  if (env.SCIENCEPRISM_GITHUB_TOKEN) return validateToken(env.SCIENCEPRISM_GITHUB_TOKEN);
+  if (!env.SCIENCEPRISM_GITHUB_TOKEN_FILE) {
+    if (!env.SCIENCEPRISM_GITHUB_CLI && !env.SCIENCEPRISM_GITHUB_CLI_CONFIG_DIR) return '';
+    const executable = env.SCIENCEPRISM_GITHUB_CLI; const config = env.SCIENCEPRISM_GITHUB_CLI_CONFIG_DIR;
+    if (typeof executable !== 'string' || !path.isAbsolute(executable) || typeof config !== 'string' || !path.isAbsolute(config)) throw authConfiguration();
+    // No shell or ambient GH_TOKEN; only the explicitly configured CLI account is used.
+    const cliEnv = { GH_CONFIG_DIR: config, GH_CACHE_DIR: path.join(config, 'cache'), GH_NO_UPDATE_NOTIFIER: '1' };
+    for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot']) if (env[key]) cliEnv[key] = env[key];
+    try {
+      const { stdout } = await run(executable, ['auth', 'token', '--hostname', 'github.com'], {
+        env: cliEnv, timeout: 5000, maxBuffer: 4096, encoding: 'utf8', windowsHide: true, signal
+      });
+      return validateToken(stdout);
+    } catch { throw authConfiguration(); }
+  }
+  let file;
+  try {
+    file = await open(env.SCIENCEPRISM_GITHUB_TOKEN_FILE, 'r');
+    const stat = await file.stat();
+    if (!stat.isFile() || stat.size > 4096 || (process.platform !== 'win32' && (stat.mode & 0o077))) throw authConfiguration();
+    const buffer = Buffer.alloc(4097);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > 4096) throw authConfiguration();
+    return validateToken(buffer.subarray(0, bytesRead).toString('utf8'));
+  } catch { throw authConfiguration(); }
+  finally { await file?.close(); }
+}
 function cacheLifetime(url) {
   if (url.hostname === 'raw.githubusercontent.com' && /^\/[^/]+\/[^/]+\/[a-f0-9]{40}\//.test(url.pathname)) return 60 * 60_000;
   if (/\/(?:commits|git\/trees)\/[a-f0-9]{40}$/.test(url.pathname)) return 60 * 60_000;
@@ -69,20 +108,26 @@ export function abortable(operation, signal) {
  * CONNECT proxy resolves the allowed host instead; no ambient proxy fallback. */
 export function createGithubTransport({ lookup = dnsLookup, request = https.request, timeoutMs = 10_000,
   proxyUrl = () => process.env.SCIENCEPRISM_SKILL_DISCOVERY_PROXY,
+  token = ({ signal } = {}) => readGithubToken(process.env, { signal }),
   cache = request === https.request ? publicResponses : null, now = Date.now } = {}) {
-  return async function get(value, { maxBytes = MAX_DOCUMENT_BYTES, signal, capabilityPolicy } = {}) {
+  return async function get(value, { maxBytes = MAX_DOCUMENT_BYTES, signal, capabilityPolicy, cacheResponse = true } = {}) {
     let url; try { url = new URL(value); } catch { /* Validated below. */ }
     if (!url || url.protocol !== 'https:' || url.username || url.password || url.port || url.hash || !GITHUB_HOSTS.includes(url.hostname)) {
       throw new SkillDiscoveryError('SKILL_DISCOVERY_HOST_DENIED', 'Skill 发现仅允许 GitHub API 与固定提交的 raw 内容。', 403);
     }
     assertNetworkHost(capabilityPolicy ?? { granted: ['research.search'], networkAllowlist: GITHUB_HOSTS }, url.href);
     if (signal?.aborted) throw aborted(signal);
-    const cached = cache?.get(url.href);
+    // Credentials belong only to the GitHub API origin, never raw files or CONNECT headers.
+    const credential = url.hostname === 'api.github.com' ? await abortable(() => typeof token === 'function' ? token({ signal }) : token, signal) : '';
+    const authorization = credential ? validateToken(credential) : '';
+    const identity = authorization ? createHash('sha256').update(authorization).digest('hex') : 'anonymous';
+    const cacheKey = `${identity}:${url.href}`;
+    const cached = cacheResponse && cache?.get(cacheKey);
     if (cached && cached.expires > now()) {
       if (cached.bytes.length > maxBytes) throw new SkillDiscoveryError('SKILL_DISCOVERY_TOO_LARGE', 'GitHub 响应超过读取上限。', 422);
       return Buffer.from(cached.bytes);
     }
-    cache?.delete(url.href);
+    cache?.delete(cacheKey);
     const proxy = parseGithubProxy(typeof proxyUrl === 'function' ? proxyUrl() : proxyUrl);
     const controller = new AbortController();
     const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -109,19 +154,42 @@ export function createGithubTransport({ lookup = dnsLookup, request = https.requ
           const req = request(url, { method: 'GET', agent: agent || false, rejectUnauthorized: true, signal: combined,
             ...(!agent ? { lookup: (_host, options, done) => options.all ? done(null, [address]) : done(null, address.address, address.family) } : {}),
             headers: { Accept: url.hostname === 'api.github.com' ? 'application/vnd.github+json' : 'text/plain',
+              ...(authorization ? { Authorization: `Bearer ${authorization}` } : {}),
               'User-Agent': 'SciencePrism-Skill-Discovery/1.0', 'Accept-Encoding': 'identity', 'X-GitHub-Api-Version': '2022-11-28' }
           }, resolve);
           req.on('error', reject); req.end();
         });
         if (combined.aborted) throw aborted(combined);
         if (response.statusCode >= 300 && response.statusCode < 400) throw upstream('GitHub 重定向已拒绝，请提供仓库当前地址。');
-        if (response.statusCode === 403 || response.statusCode === 429) {
+        if (response.statusCode === 401) throw new SkillDiscoveryError('SKILL_DISCOVERY_AUTH_INVALID', 'GitHub 认证失败，请在后端更新已过期、撤销或无效的 Token。', 503);
+        let secondaryLimit = false;
+        if (response.statusCode === 403 && String(response.headers['x-ratelimit-remaining']) !== '0' && !response.headers['retry-after']) {
+          // Some secondary limits have only an error message, without rate-limit headers.
+          const parts = []; let length = 0;
+          for await (const chunk of response) {
+            if (combined.aborted) throw aborted(combined);
+            const part = Buffer.from(chunk); length += part.length;
+            if (length > 16_384) break;
+            parts.push(part);
+          }
+          if (length <= 16_384) {
+            let message;
+            try { message = JSON.parse(Buffer.concat(parts).toString('utf8')).message; } catch { /* Never expose the upstream body. */ }
+            secondaryLimit = typeof message === 'string' && /secondary rate limit|abuse detection/i.test(message);
+          }
+        }
+        if (response.statusCode === 429 || (response.statusCode === 403
+          && (secondaryLimit || String(response.headers['x-ratelimit-remaining']) === '0' || response.headers['retry-after']))) {
           const reset = Number(response.headers['x-ratelimit-reset']);
           const limitKnown = String(response.headers['x-ratelimit-remaining']) === '0' && Number.isFinite(reset) && reset * 1000 > now();
+          const retryAfter = Number(response.headers['retry-after']);
+          const waitSeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter)
+            : limitKnown ? Math.ceil((reset * 1000 - now()) / 1000) : 60;
           throw new SkillDiscoveryError('SKILL_DISCOVERY_RATE_LIMITED', limitKnown
-            ? `GitHub 匿名接口额度已用尽，约 ${Math.ceil((reset * 1000 - now()) / 60_000)} 分钟后可重试。`
-            : 'GitHub 请求受限，请稍后重试。', 429);
+            ? `GitHub ${authorization ? '认证' : '匿名'}接口额度已用尽，约 ${Math.ceil((reset * 1000 - now()) / 60_000)} 分钟后可重试。`
+            : `GitHub 请求受限，请至少等待 ${waitSeconds} 秒后重试。`, 429);
         }
+        if (response.statusCode === 403) throw new SkillDiscoveryError('SKILL_DISCOVERY_ACCESS_DENIED', 'GitHub 拒绝访问，请检查 Token 权限、组织访问策略或稍后重试（二级限流）。', 403);
         if (response.statusCode !== 200) throw upstream(response.statusCode === 404 ? '公开仓库、提交或文件不存在。' : 'GitHub 未能返回 Skill 文件。');
         if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') throw upstream('GitHub 返回了不支持的内容编码。');
         if (Number(response.headers['content-length']) > maxBytes) throw new SkillDiscoveryError('SKILL_DISCOVERY_TOO_LARGE', 'GitHub 响应超过读取上限。', 422);
@@ -133,8 +201,8 @@ export function createGithubTransport({ lookup = dnsLookup, request = https.requ
           chunks.push(part);
         }
         const payload = Buffer.concat(chunks);
-        if (cache) {
-          cache.set(url.href, { bytes: Buffer.from(payload), expires: now() + cacheLifetime(url) });
+        if (cache && cacheResponse) {
+          cache.set(cacheKey, { bytes: Buffer.from(payload), expires: now() + cacheLifetime(url) });
           let total = [...cache.values()].reduce((size, item) => size + item.bytes.length, 0);
           while (cache.size > 128 || total > CACHE_BYTES) {
             const key = cache.keys().next().value; total -= cache.get(key).bytes.length; cache.delete(key);
@@ -153,12 +221,12 @@ export function createGithubTransport({ lookup = dnsLookup, request = https.requ
 export function createGithubSkillSource({ transport = createGithubTransport(), maxRequests = 32 } = {}) {
   return function session({ signal, capabilityPolicy } = {}) {
     let requests = 0;
-    const get = async (url, maxBytes) => {
+    const get = async (url, maxBytes, cacheResponse = true) => {
       if (++requests > maxRequests) throw new SkillDiscoveryError('SKILL_DISCOVERY_REQUEST_LIMIT', '本次目录读取达到请求上限，请缩小范围。', 422);
-      return abortable(() => transport(url, { maxBytes, signal, capabilityPolicy }), signal);
+      return abortable(() => transport(url, { maxBytes, signal, capabilityPolicy, cacheResponse }), signal);
     };
-    const json = async url => {
-      const bytes = await get(url, 4 * 1024 * 1024);
+    const json = async (url, cacheResponse = true) => {
+      const bytes = await get(url, 4 * 1024 * 1024, cacheResponse);
       try { return JSON.parse(bytes.toString('utf8')); } catch { throw upstream('GitHub 目录响应不是有效 JSON。'); }
     };
     return {
@@ -166,6 +234,11 @@ export function createGithubSkillSource({ transport = createGithubTransport(), m
       async resolve(input) {
         const source = normalizeRepository(input);
         const base = `https://api.github.com/repos/${source.repository}`;
+        // Recheck visibility before using cached commits, including after a repo becomes private.
+        const repository = await json(base, false);
+        if (repository?.private !== false || (repository.visibility !== undefined && repository.visibility !== 'public')) {
+          throw new SkillDiscoveryError('SKILL_DISCOVERY_PUBLIC_ONLY', 'Skill 发现与安装仅支持公开 GitHub 仓库。', 403);
+        }
         const commit = await json(`${base}/commits/${encodeURIComponent(source.ref)}`);
         if (!SHA.test(commit?.sha) || !SHA.test(commit?.commit?.tree?.sha)
           || (SHA.test(source.ref) && source.ref !== commit.sha)) throw upstream('GitHub 未返回可核验的固定提交。');
