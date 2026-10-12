@@ -1,63 +1,79 @@
-# DeepSeek Harness Agent
+# DeepSeek Harness and Codex CLI
 
-SciencePrism can run the Agent `Tools` mode through the DeepSeek Harness TypeScript SDK.
-The default runtime remains the existing LangChain agent.
+DeepSeek Harness owns the research task. When configured, it can delegate a bounded
+coding proposal to a Codex CLI worker and inspect the returned result. Both use the
+existing project Run ledger; Codex is not a second engine selector.
 
-## Enable
+## Configure the backend
 
-Open Workspace Settings and set `Agent Runtime` to `DeepSeek Harness`.
-
-The backend auto-detects the local checkout at:
-
-```text
-~/Desktop/DeepSeek Harness/deepseek-harness/packages/sdk/client/lib/index.js
-```
-
-For another checkout, set:
+Select `DeepSeek Harness` in Workspace Settings. Install the SDK and its matching
+runtime dependencies in a location you manage, then configure either the installed
+`@deepseek-ai/dsh-sdk-client` package or an explicit entry path:
 
 ```sh
 SCIENCEPRISM_HARNESS_SDK=/absolute/path/to/packages/sdk/client/lib/index.js
+SCIENCEPRISM_CODEX_EXECUTABLE=/absolute/path/to/codex
+SCIENCEPRISM_LLM_ENDPOINT=https://your-provider.example/v1
+SCIENCEPRISM_LLM_MODEL=your-model
+SCIENCEPRISM_LLM_API_KEY=your-provider-key
+SCIENCEPRISM_HARNESS_FALLBACK=false
 ```
 
-The LLM API key is taken from the SciencePrism LLM setting, or from
-`DEEPSEEK_API_KEY`. The model and endpoint are passed to the Harness SDK as the
-provider/model route.
+Keep credentials out of Git. The backend does not automatically load a root `.env`.
+Request-level model settings take precedence over backend LLM settings. The same
+explicit provider is passed to the worker through its private process environment;
+SciencePrism does not read the user's Codex login or plugins.
 
-## Safety boundary
+The verified combination requires DSH SDK/runtime/tools/minimal/pi-ai **0.2.0-rc.2**
+and Codex CLI **0.162.0-alpha.17.2**. Other versions fail with a configuration error.
+There is no automatic lookup of a particular user's Desktop or app installation.
+The DSH profile is `sdk-minimal`, with provider route `scienceprism-configured`.
+Leave `SCIENCEPRISM_HARNESS_PROFILE` and `SCIENCEPRISM_HARNESS_PROVIDER` unset, or
+use those exact values; a custom `SCIENCEPRISM_HARNESS_DSH_BIN` is unsupported.
 
-Each request is executed in a temporary copy of the SciencePrism project. Harness
-may use its configured tools inside that copy, but SciencePrism never exposes the
-original project directory to the Harness process. When the run finishes,
-SciencePrism converts text-file changes into pending patches. The original project
-is changed only after the user applies the Diff.
+The provider must support streaming Chat Completions for DSH and Responses for
+Codex. HTTPS is required except for loopback providers. Without a configured Codex
+executable, DSH can still read and propose changes through its project tools.
 
-The temporary workspace is removed after each attempt, while Run metadata,
-events, errors, output validation, and proposed patches remain queryable in
-`.scienceprism/harness-runs.json`. Pausing and resuming starts a new attempt;
-the SDK process itself is not treated as durable state.
+## Execution and review
 
-The Runtime grants `project.read` and `patch.propose` by default. Network,
-direct writes, Shell, experiment execution, sensitive files, and paths outside
-the project constraint scope are denied. See [Harness Runtime](./harness-runtime.md)
-for the capability file and HTTP lifecycle Interface.
+The three product tools are `project_read_file`, `project_propose_patch`, and
+`research_delegate_codex`. A coding child inherits its parent task's current role,
+allowed paths, selected Skill versions, cancellation and remaining budget. The
+model cannot supply a new provider, working directory, role, command or permission.
+Each actual read and proposal rechecks current policy. Child proposals merge into
+the parent's temporary copy using file hashes. The original project changes only
+through the existing Patch application command and its configured approval policy.
 
-If the Harness SDK cannot start or the model turn fails, SciencePrism falls back
-to the existing LangChain agent by default. Set
-`SCIENCEPRISM_HARNESS_FALLBACK=false` to fail closed instead.
+Task details link the parent and child and retain Codex thread/turn IDs. Inspect
+and apply the combined proposal from the parent. Child Runs cannot be started,
+replayed or applied independently. Retries create a new attempt; process sessions
+are not resumed after a server restart. Interrupted records remain inspectable.
 
-When the endpoint field is left at SciencePrism's default OpenAI URL, an existing
-`DEEPSEEK_BASE_URL` environment variable takes precedence; if neither is set,
-the Harness provider uses its public default. Otherwise the configured endpoint
-is normalized to a provider base URL.
+The current worker supports text reads and coding proposals. Native shell, test
+commands, experiment execution, arbitrary MCP tools, browser access and plugin
+scripts are not exposed. Research-search and experiment capabilities in this DSH
+profile fail explicitly until their domain brokers are integrated.
 
-## Runtime options
+## Skills and budgets
 
-These environment variables are optional:
+Use the project's Skills page to discover candidates, select a fixed version,
+install, bind to a stage, inspect updates, roll back or uninstall. Project-managed
+`.agents/skills` takes precedence over compatibility `.dsh/skills` and built-ins.
+Only selected Markdown documents are projected for a Run; scripts are not run.
+Installation history, stage binding and an actual model read are distinct records.
+DSH and its worker use the same frozen document hashes and source commits.
 
-```text
-SCIENCEPRISM_HARNESS_PROFILE=sdk
-SCIENCEPRISM_HARNESS_DSH_BIN=/absolute/path/to/dsh
-SCIENCEPRISM_HARNESS_PROVIDER=deepseek-official
-SCIENCEPRISM_HARNESS_MAX_TOKENS=49152
-SCIENCEPRISM_HARNESS_TIMEOUT_MS=600000
-```
+The parent holds one model slot while waiting for its child. Token use includes
+both runtimes; the worker receives a smaller allocation. Usage-triggered stops
+prevent further work after an observed overrun, but a completed provider response
+can exceed the remaining allocation before usage arrives. These limits are not an
+exact billing cap. Timeouts and cancellation wait for process shutdown before
+removing temporary files. If shutdown cannot be confirmed, the workspace and a
+persistent retained-slot marker are kept and further project Runs are blocked.
+An operator must verify process termination before clearing that marker; restarting
+the server alone is insufficient.
+
+Legacy fallback is allowed only before delegated work and when policy permits it.
+It is disabled after cancellation, a policy failure or an unconfirmed process stop.
+See [Harness Runtime](harness-runtime.md) for the shared HTTP interface.

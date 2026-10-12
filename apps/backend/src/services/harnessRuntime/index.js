@@ -47,6 +47,8 @@ const runtimeInstanceId = randomUUID();
 const executeRun = createRunExecutor({
   getRun: getHarnessRun,
   updateRun,
+  readProjectConstraints,
+  runChild: runCodexChild,
   adapterFor: (id) => adapters.get(id),
   forgetRequest: (id) => pendingRequests.delete(id)
 });
@@ -144,7 +146,31 @@ async function updateRun(projectId, runId, updater) {
 }
 
 function activeCount(projectId) {
-  return [...activeRuns.values()].filter((entry) => entry.projectId === projectId).length;
+  return [...activeRuns.values()].filter((entry) => entry.projectId === projectId && entry.occupiesModelSlot !== false).length;
+}
+
+// Only the executing DSH callback can create this child. Public create/start
+// delegation retains its existing unstarted-parent contract.
+async function runCodexChild(child, controller, execute) {
+  const projectId = child.projectId;
+  const root = await resolveHarnessProjectRoot(projectId);
+  const control = { controller, cancelRequested: false };
+  activeRuns.set(child.id, { projectId, controller, control, occupiesModelSlot: false, promise: null });
+  try {
+    await withHarnessRunLock(projectId, async () => {
+      const document = await readHarnessRuns(root, projectId);
+      const parent = document.runs.find(run => run.id === child.parentRunId);
+      if (!activeRuns.has(parent?.id) || parent?.status !== 'running' || parent.attempt !== child.parentAttempt || parent.adapter !== 'deepseek') {
+        throw new HarnessRuntimeError(409, 'INVALID_DELEGATION_PARENT', 'The DSH parent is no longer running.');
+      }
+      child.runtimeInstanceId = runtimeInstanceId;
+      document.runs.unshift(child);
+      await writeHarnessRuns(root, document);
+    });
+    const promise = execute();
+    activeRuns.get(child.id).promise = promise.then(() => getHarnessRun(projectId, child.id), () => getHarnessRun(projectId, child.id));
+    return await promise;
+  } finally { activeRuns.delete(child.id); }
 }
 
 function assertRunnableStatus(run) {
@@ -302,9 +328,11 @@ export async function createHarnessRun(projectId, request = {}) {
     }
     const allRuns = [run, ...document.runs];
     const olderRuns = allRuns.slice(MAX_RECENT_RUNS);
-    // Editor history includes replies, request ids and undecided proposals. A
-    // summary archive cannot restore those, so keep editor Runs in full.
-    const archivable = olderRuns.filter((old) => old.request?.source !== 'editor' && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
+    // Conversation and composed execution history must retain proposals,
+    // worker identity, sessions and the exact Skill evidence they used.
+    const composedParents = new Set(allRuns.filter(old => old.kind === 'codex-worker').map(old => old.parentRunId));
+    const archivable = olderRuns.filter((old) => old.request?.source !== 'editor' && old.kind !== 'codex-worker' &&
+      !composedParents.has(old.id) && !old.cleanup?.modelSlotRetained && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
     const archivedIds = new Set(archivable.map((old) => old.id));
     document.runs = allRuns.filter((old) => !archivedIds.has(old.id));
     document.archivedRuns = [
@@ -352,6 +380,12 @@ export async function listHarnessRuns(projectId, { status, stage, parentRunId, s
 
 export async function startHarnessRun(projectId, runId, { wait = false, request = {} } = {}) {
   const run = await getHarnessRun(projectId, runId);
+  const { document } = await getRunDocument(projectId);
+  if (document.runs.some(item => item.cleanup?.modelSlotRetained) ||
+      [...activeRuns.values()].some(entry => entry.projectId === projectId && entry.control.stopUnconfirmed)) {
+    throw new HarnessRuntimeError(409, 'HARNESS_STOP_UNCONFIRMED', 'A previous runtime has not confirmed stopping. Operator recovery must verify that its process has stopped before clearing the retained-slot marker; restarting the service alone does not clear it.');
+  }
+  if (run.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_RUN_CONTROL', 'Resume or retry the owning DSH task.');
   assertRunnableStatus(run);
   if (run.parentRunId) {
     const parent = await getHarnessRun(projectId, run.parentRunId);
@@ -398,7 +432,7 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
     throw error;
   }
   const effectiveRequest = mergeRequest(started, request);
-  const promise = executeRun(projectId, runId, effectiveRequest, control).finally(() => activeRuns.delete(runId));
+  const promise = executeRun(projectId, runId, effectiveRequest, control).finally(() => { if (!control.stopUnconfirmed) activeRuns.delete(runId); });
   activeRuns.set(runId, { projectId, controller, control, promise });
   return wait ? promise : started;
 }
@@ -443,6 +477,7 @@ export async function cancelHarnessRun(projectId, runId) {
 
 export async function replayHarnessRun(projectId, runId, { request = {}, start = true } = {}) {
   const original = await getHarnessRun(projectId, runId);
+  if (original.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_RUN_CONTROL', 'Retry the owning DSH task.');
   const run = await createHarnessRun(projectId, { ...original.request, ...request, stage: original.stage, task: original.task, replayOf: original.id });
   return start ? startHarnessRun(projectId, run.id, { wait: true, request }) : run;
 }
@@ -450,6 +485,7 @@ export async function replayHarnessRun(projectId, runId, { request = {}, start =
 export async function decideHarnessRun(projectId, runId, { decision, actor = 'human', note = '', paths } = {}) {
   if (!['accept', 'reject'].includes(decision)) throw new HarnessRuntimeError(400, 'INVALID_HUMAN_DECISION', 'decision must be accept or reject.');
   return updateRun(projectId, runId, (run) => {
+    if (run.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_PROPOSAL_OWNER', 'Review the combined proposal on the owning DSH task.');
     if (!TERMINAL_HARNESS_RUN_STATUSES.includes(run.status)) {
       throw new HarnessRuntimeError(409, 'HARNESS_RUN_NOT_DECIDABLE', 'Only a finished Harness Run can receive a human decision.');
     }
@@ -483,6 +519,7 @@ export async function applyHarnessRunPatches(projectId, runId, { actor = 'human'
     const document = await readHarnessRuns(root, projectId);
     const index = document.runs.findIndex((run) => run.id === runId);
     if (index < 0) throw new HarnessRuntimeError(404, 'HARNESS_RUN_NOT_FOUND', 'Harness Run not found.', { runId });
+    if (document.runs[index].kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_PROPOSAL_OWNER', 'Apply the combined proposal on the owning DSH task.');
     const constraints = await readProjectConstraints(root);
     const policy = applyProjectConstraintPolicy(
       resolveCapabilityPolicy({ configured: constraints.capabilities || DEFAULT_PROJECT_CAPABILITIES }), constraints

@@ -5,9 +5,14 @@ import { assertProjectPath, capabilityForToolName, isPathAllowed } from './capab
 import { asRuntimeError, HarnessRuntimeError } from './errors.js';
 import { resolveHarnessProjectRoot } from './repository.js';
 import { collectPatches, copyWorkspace, snapshotWorkspace } from './workspace.js';
-import { copyBundledResearchSkills, restrictWorkspaceResearchSkills } from '../researchResearch/researchSkills.js';
+import { projectSelectedSkillDocuments } from '../skillRuntime/projection.js';
 import { fileVersion } from './fileVersions.js';
 import { finalizeAssistantReply } from '../assistantReply.js';
+import { createCurrentToolPolicy } from './currentToolPolicy.js';
+import { createCodexDelegation, usageTotal } from './codexDelegation.js';
+import { createCodexWorker } from './adapters/codexWorker.js';
+import { getEnv } from '../../config/constants.js';
+import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../llmService.js';
 
 import { assertDshMcpPolicy } from '../mcp/execution.js';
 import { summarizeEvent, appendRuntimeEvents, sumEventUsage } from './runtimeEvents.js';
@@ -42,7 +47,7 @@ function timeoutPromise(ms, controller) {
   return promise;
 }
 
-async function runWithTimeout(task, timeoutMs, controller) {
+async function runWithTimeout(task, timeoutMs, controller, stopTimeoutMs) {
   const timeout = timeoutPromise(timeoutMs, controller);
   let abort;
   const aborted = new Promise((_, reject) => {
@@ -55,11 +60,24 @@ async function runWithTimeout(task, timeoutMs, controller) {
   } finally {
     timeout.cancel();
     controller.signal.removeEventListener('abort', abort);
+    if (controller.signal.aborted) {
+      let stopTimer;
+      const outcome = await Promise.race([
+        task.then(() => ({ stopped: true }), error => ({ stopped: !['CODEX_STOP_FAILED', 'DSH_STOP_FAILED'].includes(error?.code), error })),
+        new Promise(resolve => { stopTimer = setTimeout(() => resolve({ stopped: false }), stopTimeoutMs); })
+      ]);
+      clearTimeout(stopTimer);
+      if (!outcome.stopped) {
+        controller.stopError = new HarnessRuntimeError(503, 'HARNESS_STOP_UNCONFIRMED', 'The runtime has not confirmed stopping. Its private workspace and model slot are retained.');
+        throw controller.stopError;
+      }
+    }
   }
 }
 
 // Persistence and in-flight ownership stay with the runtime composition root.
-export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest }) {
+export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest, readProjectConstraints, runChild,
+  codexWorker = () => createCodexWorker({ executable: getEnv('CODEX_EXECUTABLE') }), stopTimeoutMs = 10000 }) {
   async function persistEvents(projectId, runId, events) {
     if (!events.length) return;
     await updateRun(projectId, runId, (run) => {
@@ -77,17 +95,30 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
       throw new HarnessRuntimeError(403, 'CAPABILITY_DENIED', 'Requested Harness capabilities were not granted by the Project Constraints.', { denied: run.capabilities.denied });
     }
     const projectRoot = await resolveHarnessProjectRoot(projectId);
+    const readPolicy = createCurrentToolPolicy({ initialRun: run, getRun: () => getRun(projectId, runId),
+      readConstraints: () => readProjectConstraints(projectRoot), signal: control.controller.signal });
     let runRoot;
     let workspace;
     let dshHome;
     let workspaceSnapshot;
     let excludedSkillPaths = [];
+    let skillProjection;
+    let delegation;
+    let parentReportedTokens = 0;
     let eventWrite = Promise.resolve();
     const emit = (event) => {
       const summary = summarizeEvent(event);
       // Only this adapter emits the exact identity of its pre-authorized call.
       if (run.adapter === 'mcp' && summary.name === `mcp__${request.mcpCall?.serverId}__${request.mcpCall?.toolName}`) summary.capability = 'project.read';
       eventWrite = eventWrite.then(() => persistEvents(projectId, runId, [summary])).catch(() => {});
+      if (summary.usage) {
+        parentReportedTokens += usageTotal(summary.usage);
+        if (parentReportedTokens + (delegation?.usage.totalTokens || 0) > run.limits.maxTokens && !control.violation) {
+          control.violation = new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED', 'The combined parent and worker token budget was exhausted.');
+          control.controller.abort(control.violation);
+          return;
+        }
+      }
       const capability = summary.capability;
       const toolName = summary.name || summary.tool;
       if (toolName && !capability && !control.violation) {
@@ -106,14 +137,15 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         assertDshMcpPolicy(request);
         const unenforceable = run.capabilities.granted.filter((capability) => ['research.search', 'experiment.execute'].includes(capability));
         if (unenforceable.length) {
-          throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The DeepSeek Harness SDK has no pre-tool policy hook for network or command execution. Use the legacy Adapter for these capabilities.', { capabilities: unenforceable });
+          throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The verified DSH profile does not yet expose controlled research search or experiment tools.', { capabilities: unenforceable });
         }
         // Only the SDK executes in a workspace. Legacy reads the project through
         // guarded tools; Fake needs no files. Copying for them was unused work.
         runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
         workspace = path.join(runRoot, 'workspace');
         dshHome = path.join(runRoot, 'dsh-home');
-        await copyWorkspace(projectRoot, workspace, run.capabilities);
+        if (run.capabilities.granted.includes('project.read')) await copyWorkspace(projectRoot, workspace, run.capabilities);
+        else await fs.mkdir(workspace, { recursive: true });
         workspaceSnapshot = await snapshotWorkspace(workspace, run.capabilities);
         for (const file of run.contextPack.files || []) {
           const snapshot = workspaceSnapshot.get(file.path);
@@ -121,10 +153,20 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             throw new HarnessRuntimeError(409, 'DOCUMENT_VERSION_CONFLICT', 'The project changed after context was captured.', { path: file.path });
           }
         }
-        if (Array.isArray(request.researchSkills)) {
-          const removedSkillPaths = await restrictWorkspaceResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
-          const bundledSkillPaths = await copyBundledResearchSkills(workspace, { enabledSkillNames: request.researchSkills });
-          excludedSkillPaths = [...removedSkillPaths, ...bundledSkillPaths];
+        skillProjection = await projectSelectedSkillDocuments({ projectId, projectRoot, workspaceRoot: workspace,
+          enabledSkillNames: request.researchSkills || [], capabilityPolicy: run.capabilities, signal: control.controller.signal });
+        excludedSkillPaths = skillProjection.excludedPaths;
+        await updateRun(projectId, runId, current => {
+          current.skillVersions = { format: skillProjection.format, documents: skillProjection.documents, totalBytes: skillProjection.totalBytes, scriptsIncluded: false };
+          return current;
+        });
+        if (getEnv('CODEX_EXECUTABLE') && run.capabilities.granted.includes('patch.propose')) {
+          const provider = resolveLLMConfig(request.llmConfig);
+          delegation = createCodexDelegation({ parent: { ...run, skillVersions: { format: skillProjection.format, documents: skillProjection.documents } },
+            workspace, runtimeHome: runRoot, skillProjection,
+            provider: { baseUrl: normalizeBaseURL(normalizeChatEndpoint(provider.endpoint)), model: provider.model, apiKey: provider.apiKey },
+            worker: codexWorker(), readPolicy, getRun: id => getRun(projectId, id), updateRun: (id, updater) => updateRun(projectId, id, updater),
+            runChild, signal: control.controller.signal, emit, flushEvents: () => eventWrite });
         }
       }
       const task = adapter.run({
@@ -132,6 +174,20 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         projectRoot,
         workspace,
         dshHome,
+        skillProjection,
+        readPolicy,
+        onDecision: event => persistEvents(projectId, runId, [summarizeEvent(event)]),
+        delegateCodex: delegation ? async (input, options) => {
+          try { return await delegation.run(input, options); }
+          catch (error) {
+            if (delegation.preserveWorkspace || error?.code === 'CODEX_STOP_FAILED') {
+              control.stopUnconfirmed = true;
+              control.controller.stopError = new HarnessRuntimeError(503, 'HARNESS_STOP_UNCONFIRMED', 'A delegated process has not confirmed stopping.');
+              control.controller.abort(control.controller.stopError);
+            }
+            throw error;
+          }
+        } : undefined,
         capabilities: run.capabilities.granted,
         capabilityPolicy: run.capabilities,
         // Every adapter receives the Run's limits, not only the DeepSeek SDK.
@@ -139,8 +195,12 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         signal: control.controller.signal,
         emit
       });
-      const rawResult = await runWithTimeout(task, run.limits.timeoutMs, control.controller);
+      const rawResult = await runWithTimeout(task, run.limits.timeoutMs, control.controller, stopTimeoutMs);
       control.controller.signal.throwIfAborted();
+      if (delegation?.preserveWorkspace) throw new HarnessRuntimeError(503, 'HARNESS_STOP_UNCONFIRMED', 'A delegated process has not confirmed stopping.');
+      if (delegation && usageTotal(rawResult?.usage || rawResult?.tokenUsage) + delegation.usage.totalTokens > run.limits.maxTokens) {
+        throw new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED', 'The combined parent and worker token budget was exhausted.');
+      }
       const result = await finalizeAssistantReply(projectId, request, rawResult);
       await eventWrite;
       const workspacePatches = run.adapter === 'deepseek'
@@ -160,7 +220,9 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         current.patches = patches;
         current.humanDecision = patches.length ? { status: 'pending' } : { status: 'none' };
         current.output = result?.output;
-        current.tokenUsage = result?.usage || result?.tokenUsage || sumEventUsage(current.events) || null;
+        const parentUsage = result?.usage || result?.tokenUsage || sumEventUsage(current.events) || null;
+        current.tokenUsage = delegation ? { ...parentUsage, totalTokens: usageTotal(parentUsage) + delegation.usage.totalTokens,
+          parentTotalTokens: usageTotal(parentUsage), workerTotalTokens: delegation.usage.totalTokens } : parentUsage;
         current.adapterResult = { ok: result?.ok !== false, fallback: current.fallback || false };
         return current;
       });
@@ -168,8 +230,9 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
       return updated;
     } catch (error) {
       await eventWrite;
-      const runtimeError = control.violation || control.timeoutError || asRuntimeError(error);
-      if (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED') {
+      const runtimeError = control.controller.stopError || control.violation || control.timeoutError || asRuntimeError(error);
+      control.stopUnconfirmed = ['HARNESS_STOP_UNCONFIRMED', 'CODEX_STOP_FAILED', 'DSH_STOP_FAILED'].includes(runtimeError.code) || delegation?.preserveWorkspace;
+      if (!control.stopUnconfirmed && (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED')) {
         return updateRun(projectId, runId, (current) => {
           current.status = 'cancelled';
           current.finishedAt = now();
@@ -178,7 +241,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
           return current;
         });
       }
-      if (control.pauseRequested || control.controller.signal.reason?.code === 'HARNESS_PAUSED') {
+      if (!control.stopUnconfirmed && (control.pauseRequested || control.controller.signal.reason?.code === 'HARNESS_PAUSED')) {
         return updateRun(projectId, runId, (current) => {
           current.status = 'paused';
           current.updatedAt = now();
@@ -187,7 +250,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         });
       }
 
-      if (run.adapter === 'deepseek' && run.fallback && !control.controller.signal.aborted && runtimeError.retryable && !runtimeError.code?.includes('CAPABILITY') && !runtimeError.code?.includes('PATH')) {
+      if (run.adapter === 'deepseek' && run.fallback && !control.stopUnconfirmed && !delegation?.usage.totalTokens && !control.controller.signal.aborted && runtimeError.retryable && !runtimeError.code?.includes('CAPABILITY') && !runtimeError.code?.includes('PATH')) {
         const fallbackAdapter = adapterFor('legacy');
         try {
           emit({ type: 'runtime/fallback', data: { from: 'deepseek', to: 'legacy', error: runtimeError.message } });
@@ -201,7 +264,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             limits: run.limits,
             signal: control.controller.signal,
             emit
-          }), run.limits.timeoutMs, control.controller);
+          }), run.limits.timeoutMs, control.controller, stopTimeoutMs);
           control.controller.signal.throwIfAborted();
           const fallbackResult = await finalizeAssistantReply(projectId, request, rawFallback);
           await eventWrite;
@@ -228,6 +291,15 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
           forgetRequest(runId);
           return updated;
         } catch (fallbackError) {
+          if (control.controller.stopError) {
+            control.stopUnconfirmed = true;
+            return updateRun(projectId, runId, current => {
+              current.status = 'failed'; current.finishedAt = now(); current.updatedAt = now();
+              current.error = { code: 'HARNESS_STOP_UNCONFIRMED', message: control.controller.stopError.message, retryable: false };
+              current.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: Boolean(runRoot), modelSlotRetained: true };
+              return current;
+            });
+          }
           if (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED') {
             return updateRun(projectId, runId, (current) => {
               current.status = 'cancelled';
@@ -262,11 +334,17 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         current.finishedAt = now();
         current.updatedAt = current.finishedAt;
         current.error = { code: runtimeError.code, message: runtimeError.message, retryable: runtimeError.retryable };
+        if (control.stopUnconfirmed) current.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: Boolean(runRoot), modelSlotRetained: true };
         return current;
       });
     } finally {
       forgetRequest(runId);
-      if (runRoot) await fs.rm(runRoot, { recursive: true, force: true }).catch(() => {});
+      if (delegation) {
+        control.controller.abort();
+        if (control.stopUnconfirmed) void delegation.close().catch(() => {});
+        else await delegation.close();
+      }
+      if (runRoot && !control.stopUnconfirmed && !delegation?.preserveWorkspace) await fs.rm(runRoot, { recursive: true, force: true }).catch(() => {});
     }
   }
 

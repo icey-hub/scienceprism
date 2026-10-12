@@ -18,11 +18,17 @@ One human-reviewable step in the workflow: direction, search, selection, replica
 **Approval**:
 An explicit human decision that advances the current stage; navigation, an AI response, or a saved draft is not an approval.
 
+**Automation Decision**:
+A system action authorized by the project's saved global and per-stage policy. It records the policy version and actor separately from human Approval and does not certify scientific evidence.
+
 **Project Constraint**:
 A rule limiting what a Harness Run may read, write, execute, access over the network, consume in tokens, or run for time.
 
 **Project Skill**:
 Project-local instructions supplied to a compatible Harness Run; a Skill has no authority to approve workflow data or bypass a Project Constraint.
+
+**Skill Version**:
+A fixed source commit and content hash. Installation, stage binding and actual runtime reads are separate facts; a Run retains the exact Markdown versions it received.
 
 ## Research Objects
 
@@ -59,6 +65,9 @@ The query projection that classifies each Paper Claim as supported, unsupported,
 **Harness Run**:
 An auditable execution of AI assistance for a Project and Research Stage, including its model, Skill set, context, tool events, validated output, and proposed Patch.
 
+**Codex Worker Run**:
+A bounded coding child delegated by an active DeepSeek Harness Run. It shares the parent policy, budget and Skill versions, retains its own CLI thread/turn identity, and returns proposals to the parent for a single application decision. It is not an independent engine or scheduler.
+
 **Project Product Loop**:
 The project-level view that connects current Research Workflow state, pending Approval, Harness Run activity, Evidence risks, Paper Library signals, and the next human action. It is a query projection, not a second workflow state source.
 
@@ -79,7 +88,7 @@ A query projection that combines the Claim-Evidence Matrix with manuscript citat
 - A **Paper Candidate** can support **Evidence** only after its source, retrieval time, metadata state, and relevant location are recorded.
 - A confirmed **Paper Candidate**, **Method**, **Experiment Plan**, or **Artifact** may be referenced by a **Paper Claim**; a suggestion alone is not evidence.
 - An **Experiment Plan** may produce zero or more **Experiment Runs**. A run may produce zero or more **Artifacts**.
-- A **Harness Run** can propose data or a Patch, but only **Approval** or an explicit Patch application action can change the human-owned record.
+- A **Harness Run** can propose data or a Patch; changes require the owning domain command and its human Approval or configured Automation Decision. Neither form of authorization turns an unsupported claim into evidence.
 
 The canonical backend stage IDs are `direction`, `search`, `selection`, `replication`, `ideation`, `method`, `experiment`, and `writing`. The frontend label `innovation` is an alias for the backend stage `ideation`; it is not a second stage.
 

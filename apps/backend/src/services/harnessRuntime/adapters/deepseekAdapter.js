@@ -1,46 +1,13 @@
 import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../../llmService.js';
 import { getEnv } from '../../../config/constants.js';
-import { PROJECT_CONSTRAINT_LIMITS } from '../../../config/projectConstraintDefaults.js';
 import { HarnessRuntimeError } from '../errors.js';
 import { capabilityPrompt } from '../capabilities.js';
 import { formatHarnessInput } from '../contextPackager.js';
 import { summarizeEvent, sumEventUsage } from '../runtimeEvents.js';
-
-async function pathExists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function loadHarnessSdk() {
-  const candidates = [];
-  if (getEnv('HARNESS_SDK')) candidates.push(getEnv('HARNESS_SDK'));
-  candidates.push(path.join(homedir(), 'Desktop/DeepSeek Harness/deepseek-harness/packages/sdk/client/lib/index.js'));
-
-  for (const candidate of candidates) {
-    if (await pathExists(candidate)) return import(pathToFileURL(candidate).href);
-  }
-
-  try {
-    return await import('@deepseek-ai/dsh-sdk-client');
-  } catch {
-    throw new HarnessRuntimeError(
-      503,
-      'PROVIDER_UNAVAILABLE',
-      'DeepSeek Harness SDK not found. Set SCIENCEPRISM_HARNESS_SDK to packages/sdk/client/lib/index.js.',
-      undefined,
-      { retryable: true }
-    );
-  }
-}
+import { createDshProfile, loadVerifiedDshSdk, DSH_VERSION, DSH_PROVIDER } from '../dshProfile.js';
 
 function eventFailure(events = []) {
   const terminal = [...events].reverse().find((event) => event?.type === 'turn/end');
@@ -56,40 +23,40 @@ function buildInput(request, policy) {
   ].filter(Boolean).join('\n\n');
 }
 
-function childEnvironment({ apiKey, baseUrl, dshHome }) {
+function childEnvironment({ apiKey, dshHome }) {
   const env = {
     HOME: dshHome,
     TMPDIR: path.join(dshHome, 'tmp'),
     XDG_CONFIG_HOME: path.join(dshHome, 'config'),
     XDG_CACHE_HOME: path.join(dshHome, 'cache'),
     XDG_DATA_HOME: path.join(dshHome, 'data'),
-    DEEPSEEK_API_KEY: apiKey
+    SCIENCEPRISM_DSH_KEY: apiKey,
+    NO_PROXY: '127.0.0.1,localhost,::1',
+    no_proxy: '127.0.0.1,localhost,::1'
   };
   for (const key of ['PATH', 'LANG', 'LC_ALL', 'TZ']) {
     if (process.env[key]) env[key] = process.env[key];
   }
-  if (baseUrl) env.DEEPSEEK_BASE_URL = baseUrl;
   return env;
 }
 
 export const deepseekHarnessAdapter = Object.freeze({
   id: 'deepseek',
   label: 'DeepSeek Harness SDK Adapter',
-  async run({ request, workspace, dshHome, capabilities, capabilityPolicy, signal, emit }) {
+  async run({ request, workspace, dshHome, capabilities, capabilityPolicy, limits, signal, emit, readPolicy, onDecision, delegateCodex, skillProjection }) {
+    if (!limits || !['maxTokens', 'timeoutMs'].every(key => Number.isSafeInteger(limits[key]) && limits[key] > 0)) {
+      throw new HarnessRuntimeError(422, 'DSH_LIMITS_INVALID', 'The executor must supply positive finite token and timeout limits.');
+    }
+    const { maxTokens, timeoutMs } = limits;
     const resolved = resolveLLMConfig(request.llmConfig);
-    const timeoutMs = Number(request.limits?.timeoutMs || getEnv('HARNESS_TIMEOUT_MS') || 10 * 60 * 1000);
-    const { DeepSeekHarness } = await loadHarnessSdk();
-    const configuredEndpoint = typeof request.llmConfig?.endpoint === 'string' && request.llmConfig.endpoint.trim()
-      ? request.llmConfig.endpoint.trim()
-      : (getEnv('LLM_ENDPOINT') || '').trim();
-    const defaultEndpoint = normalizeChatEndpoint(undefined);
-    const configuredBaseUrl = normalizeBaseURL(normalizeChatEndpoint(resolved.endpoint));
-    const inheritedBaseUrl = (process.env.DEEPSEEK_BASE_URL || '').trim();
-    const baseUrl = !configuredEndpoint || configuredEndpoint === defaultEndpoint
-      ? (inheritedBaseUrl || undefined)
-      : configuredBaseUrl;
-    const env = childEnvironment({ apiKey: resolved.apiKey || process.env.DEEPSEEK_API_KEY || '', baseUrl, dshHome });
-    if (!env.DEEPSEEK_API_KEY) {
+    if (getEnv('HARNESS_DSH_BIN') || getEnv('HARNESS_PROFILE') && getEnv('HARNESS_PROFILE') !== 'sdk-minimal') {
+      throw new HarnessRuntimeError(503, 'DSH_PROFILE_UNVERIFIED', 'This Run requires the verified sdk-minimal profile and matching SDK runtime.');
+    }
+    const { DeepSeekHarness } = await loadVerifiedDshSdk(getEnv('HARNESS_SDK'));
+    if (getEnv('HARNESS_PROVIDER') && getEnv('HARNESS_PROVIDER') !== DSH_PROVIDER) throw new HarnessRuntimeError(503, 'DSH_PROVIDER_UNVERIFIED', 'This profile uses the explicitly configured compatible provider route.');
+    const baseUrl = normalizeBaseURL(normalizeChatEndpoint(resolved.endpoint));
+    const env = childEnvironment({ apiKey: resolved.apiKey || '', dshHome });
+    if (!env.SCIENCEPRISM_DSH_KEY) {
       throw new HarnessRuntimeError(503, 'PROVIDER_UNAVAILABLE', 'DeepSeek API key is not configured.', undefined, { retryable: true });
     }
     await Promise.all([
@@ -99,24 +66,29 @@ export const deepseekHarnessAdapter = Object.freeze({
       fs.mkdir(env.XDG_DATA_HOME, { recursive: true })
     ]);
 
-    const harness = new DeepSeekHarness({
-      profile: getEnv('HARNESS_PROFILE') || 'sdk',
-      ...(getEnv('HARNESS_DSH_BIN') ? { dshBin: getEnv('HARNESS_DSH_BIN') } : {}),
+    const profile = await createDshProfile({ workspace, dshHome, provider: { baseUrl, model: resolved.model }, readPolicy, onDecision, delegateCodex, skillProjection, emit, signal, timeoutMs });
+    let harness;
+    const abort = () => { void harness?.close().catch(() => {}); };
+    const sessionId = `scienceprism-${request.projectId}-${randomUUID()}`;
+    try {
+      harness = new DeepSeekHarness({
+      profile: 'sdk-minimal',
+      patches: [profile.patchPath],
       cwd: workspace,
       processCwd: workspace,
       dshHome,
-      provider: getEnv('HARNESS_PROVIDER') || 'deepseek-official',
-      model: resolved.model || process.env.DEEPSEEK_MODEL || 'deepseek-flash',
-      maxTokens: Number(request.limits?.maxTokens || getEnv('HARNESS_MAX_TOKENS') || PROJECT_CONSTRAINT_LIMITS.maxTokens),
+      provider: DSH_PROVIDER,
+      model: resolved.model,
+      maxTokens,
       env,
       requestTimeoutMs: timeoutMs,
       initializeTimeoutMs: Math.min(timeoutMs, 30_000)
-    });
-    const abort = () => { void harness.close().catch(() => {}); };
-    signal?.addEventListener('abort', abort, { once: true });
-    const sessionId = `scienceprism-${request.projectId}-${randomUUID()}`;
-    try {
-      emit({ type: 'adapter/started', data: { adapter: 'deepseek', model: resolved.model || 'deepseek-flash' } });
+      });
+      signal?.addEventListener('abort', abort, { once: true });
+      await harness.start();
+      await profile.waitReady();
+      if (signal?.aborted) throw new HarnessRuntimeError(409, 'RUN_CANCELLED', 'The DSH Run was cancelled before the model turn.');
+      emit({ type: 'adapter/started', data: { adapter: 'deepseek', sdkVersion: DSH_VERSION, profile: 'sdk-minimal', model: resolved.model || 'deepseek-flash' } });
       const result = await harness.run(buildInput(request, capabilityPolicy || { granted: capabilities }), {
         sessionId,
         onNotification: (notification) => emit(notification)
@@ -135,7 +107,8 @@ export const deepseekHarnessAdapter = Object.freeze({
       };
     } finally {
       signal?.removeEventListener('abort', abort);
-      await harness.close().catch(() => {});
+      const stopped = await Promise.allSettled([harness?.close(), profile.close()]);
+      if (stopped.some(result => result.status === 'rejected')) throw new HarnessRuntimeError(503, 'DSH_STOP_FAILED', 'The DSH runtime could not confirm a complete stop.');
     }
   }
 });

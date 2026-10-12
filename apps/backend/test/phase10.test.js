@@ -508,3 +508,17 @@ test('observability distinguishes reported zero usage from missing usage and bou
   assert.equal(result.scope.oldestAt, '2026-10-09T00:00:00.000Z');
   assert.equal(result.recentRuns.length, 1);
 });
+
+test('composed parent and worker usage are counted once in project totals', async () => {
+  const projectId = 'observability-composed-usage';
+  const root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism/harness-runs.json'), JSON.stringify({ schemaVersion: 1, projectId, runs: [
+    { id: 'parent', projectId, status: 'completed', adapter: 'deepseek', tokenUsage: { inputTokens: 200, cacheReadTokens: 50, outputTokens: 50, totalTokens: 800, parentTotalTokens: 300, workerTotalTokens: 500 } },
+    { id: 'child', projectId, status: 'completed', adapter: 'codex', kind: 'codex-worker', parentRunId: 'parent', tokenUsage: { inputTokens: 400, outputTokens: 100, totalTokens: 500 } }
+  ] }));
+  const report = await getProjectObservability(projectId);
+  assert.deepEqual(report.harness.tokens, { input: 650, output: 150, total: 800 });
+  assert.equal(report.recentRuns.find(run => run.runId === 'parent').tokenUsage.totalTokens, 800, 'the parent budget retains its combined usage');
+  assert.equal(report.recentRuns.find(run => run.runId === 'parent').tokens.total, 300, 'statistics use each process contribution');
+});

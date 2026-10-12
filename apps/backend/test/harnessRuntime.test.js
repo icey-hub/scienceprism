@@ -254,7 +254,8 @@ test('DeepSeek Adapter prompt and child environment retain policy without leakin
   assert.match(prompt, /Allowed project paths: sections\/method\.tex/);
   assert.match(prompt, /Allowed network hosts: export\.arxiv\.org/);
   assert.equal(env.HOME, '/tmp/dsh-home');
-  assert.equal(env.DEEPSEEK_API_KEY, 'provider-key');
+  assert.equal(env.SCIENCEPRISM_DSH_KEY, 'provider-key');
+  assert.equal(env.DEEPSEEK_API_KEY, undefined);
   assert.equal(env.SCIENCEPRISM_TEST_SECRET, undefined);
   delete process.env.SCIENCEPRISM_TEST_SECRET;
 });
@@ -585,4 +586,43 @@ test('the terminal Harness Run statuses have one definition', async () => {
   // also contains rejected, and task terminality is not run terminality.
   const taskCenter = await readFile(new URL('../src/services/projectHub/taskCenter.js', import.meta.url), 'utf8');
   assert.match(taskCenter, /TASK_STATUSES/);
+});
+
+test('persisted unconfirmed process stop blocks new execution after service restart', async () => {
+  const projectId = 'harness-persisted-stop';
+  const root = await createProject(projectId);
+  const retained = await createHarnessRun(projectId, { adapter: 'fake' });
+  const next = await createHarnessRun(projectId, { adapter: 'fake' });
+  const runsPath = path.join(root, '.scienceprism', 'harness-runs.json');
+  const document = JSON.parse(await readFile(runsPath, 'utf8'));
+  Object.assign(document.runs.find(run => run.id === retained.id), {
+    status: 'failed', runtimeInstanceId: 'old-server',
+    cleanup: { status: 'process-stop-unconfirmed', modelSlotRetained: true, workspaceRetained: true }
+  });
+  await writeFile(runsPath, JSON.stringify(document));
+  await assert.rejects(startHarnessRun(projectId, next.id), { code: 'HARNESS_STOP_UNCONFIRMED' });
+  assert.equal((await getHarnessRun(projectId, next.id)).status, 'created');
+});
+
+test('composed worker and parent retain full identity and replay boundary beyond recent history', async () => {
+  const projectId = 'harness-composed-history';
+  const root = await createProject(projectId);
+  const parent = await createHarnessRun(projectId, { adapter: 'fake', source: 'workflow' });
+  await cancelHarnessRun(projectId, parent.id);
+  const runsPath = path.join(root, '.scienceprism', 'harness-runs.json');
+  const document = JSON.parse(await readFile(runsPath, 'utf8'));
+  const child = { ...document.runs[0], id: 'fixed-codex-child', kind: 'codex-worker', adapter: 'codex',
+    parentRunId: parent.id, parentAttempt: 1, sessionId: 'thread-test', output: { codex: { threadId: 'thread-test', turnId: 'turn-test' } },
+    skillVersions: { documents: [{ name: 'writing', sha256: 'fixed-hash' }] }, events: [{ type: 'file/read' }] };
+  document.runs = [...Array.from({ length: 100 }, (_, index) => ({ ...document.runs[0], id: `recent-${index}` })), child, document.runs[0]];
+  await writeFile(runsPath, JSON.stringify(document));
+  await createHarnessRun(projectId, { adapter: 'fake' });
+  const saved = await getHarnessRun(projectId, child.id);
+  assert.equal(saved.archived, undefined);
+  assert.equal(saved.kind, 'codex-worker');
+  assert.deepEqual(saved.skillVersions, child.skillVersions);
+  assert.deepEqual(saved.output, child.output);
+  assert.deepEqual(saved.events, child.events);
+  assert.equal((await getHarnessRun(projectId, parent.id)).archived, undefined);
+  await assert.rejects(replayHarnessRun(projectId, child.id), { code: 'DELEGATED_RUN_CONTROL' });
 });

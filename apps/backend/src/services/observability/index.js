@@ -34,6 +34,11 @@ function hasUsage(value) {
 
 function summarizeHarnessRun(run) {
   const tokens = normalizeTokenUsage(run.tokenUsage);
+  // Composed parent totals include workers for budget enforcement. The ledger
+  // also lists those workers separately, so aggregate each runtime's own usage.
+  if (typeof run.tokenUsage?.parentTotalTokens === 'number' && Number.isFinite(run.tokenUsage.parentTotalTokens)) {
+    tokens.total = number(run.tokenUsage.parentTotalTokens);
+  }
   return {
     type: 'harness',
     runId: run.id,

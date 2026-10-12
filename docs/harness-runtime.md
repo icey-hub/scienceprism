@@ -9,6 +9,10 @@ Its public Interface is exposed by `apps/backend/src/services/harnessRuntime`:
 - execute inside a temporary Project copy and return proposed Patches;
 - record events, context hash, model, Skill names, output validation, limits, Context Pack, and errors.
 
+DeepSeek can delegate coding proposals to an internal Codex CLI worker. Parent and
+child share this ledger, policy and model slot; Codex is not a public Adapter
+selection. See [configuration and current tool limits](deepseek-harness.md).
+
 ## Capability policy
 
 Without a project constraint file, the Runtime grants only:
@@ -39,9 +43,14 @@ the Project Constraints did not grant.
 
 `experiment.execute` is intentionally absent from the default set, and there is
 no direct-write capability at all: a Patch is only a proposal and this Runtime
-never applies it. Writes are expressed as `patch.propose` plus an explicit human
-application step, so the grantable vocabulary holds only capabilities the
+never applies it. Writes are expressed as `patch.propose` plus the owning Patch
+application command and its saved human/automatic policy, so the grantable vocabulary holds only capabilities the
 Runtime can enforce.
+
+The verified DSH profile currently exposes only bounded project reads, text
+proposals and Codex delegation. A request for research search or experiment
+execution through that profile is explicitly rejected until its domain broker is
+available; a capability grant alone does not implement a tool.
 
 ## HTTP Interface
 
@@ -50,6 +59,12 @@ Runtime can enforce.
 `decision` commands. A client can create a Run without starting it, then start
 it with provider credentials supplied in the start request; credentials are
 never written to the Run file.
+
+Internal `codex-worker` Runs cannot be started, replayed, accepted or applied on
+their own. Their parent owns those commands and the combined proposal. Session
+IDs, fixed Skill sources and actual read events remain in full history. An
+unconfirmed process stop retains a persistent model-slot marker, so a service
+restart cannot silently allow overlapping execution.
 
 ## Context Pack
 

@@ -65,18 +65,38 @@ test('DeepSeek adapter passes SDK notifications through the actual runtime witho
   const root = path.join(dataDir, projectId);
   await mkdir(root);
   await writeFile(path.join(root, 'project.json'), '{}');
-  const sdkPath = path.join(dataDir, 'notification-sdk.mjs');
-  await writeFile(sdkPath, `export class DeepSeekHarness {
+  await writeFile(path.join(root, 'main.tex'), 'source bytes');
+  const sdkRoot = path.join(dataDir, 'notification-sdk');
+  await mkdir(sdkRoot);
+  await writeFile(path.join(sdkRoot, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh-sdk-client', version: '0.2.0-rc.2', type: 'module' }));
+  for (const name of ['dsh', 'dsh-tools', 'dsh-sdk-minimal', 'dsh-llm-pi-ai']) {
+    const packageRoot = path.join(sdkRoot, 'node_modules', '@deepseek-ai', name);
+    await mkdir(packageRoot, { recursive: true });
+    await writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({ name: `@deepseek-ai/${name}`, version: '0.2.0-rc.2' }));
+  }
+  const sdkPath = path.join(sdkRoot, 'index.js');
+  await writeFile(sdkPath, `
+  import {readFile} from 'node:fs/promises';
+  import {createDshToolFixture} from ${JSON.stringify(new URL('./helpers/dshToolFixture.js', import.meta.url).href)};
+  import {apply} from ${JSON.stringify(new URL('../src/services/harnessRuntime/dshPolicyPlugin.js', import.meta.url).href)};
+  export class DeepSeekHarness {
+    constructor(options) { this.options = options; this.ctx = createDshToolFixture(); }
+    async start() {
+      const patch = JSON.parse(await readFile(this.options.patches[0], 'utf8'));
+      await apply(this.ctx, patch.at(-1).insert.at(-1).config);
+    }
     async run(_input, {onNotification}) {
+      const result = await this.ctx.tools.execute({name:'project_read_file',callId:'sdk-pair',arguments:{path:'main.tex'},signal:new AbortController().signal});
+      if (result.isError) throw new Error('The fixture read must pass real project policy and broker checks.');
       const events = [
-        {type:'tool/call',seq:1,time:1791676800000,data:{name:'read_file',callId:'sdk-pair',arguments:'{"path":"main.tex"}'}},
-        {type:'tool/result',seq:2,time:1791676800001,data:{message:{toolCallId:'sdk-pair',content:[{type:'text',text:'source bytes'}]}}},
+        {type:'tool/call',seq:1,time:1791676800000,data:{name:'project_read_file',callId:'sdk-pair',arguments:'{"path":"main.tex"}'}},
+        {type:'tool/result',seq:2,time:1791676800001,data:{message:{toolCallId:'sdk-pair',content:[{type:'text',text:result.value.content}]}}},
         {type:'assistant/message',seq:3,time:1791676800002,data:{message:{content:[{type:'text',text:'answer'}]},usage:{inputTokens:2,outputTokens:3,totalTokens:5}}}
       ];
       for (const event of events) onNotification({method:'session.event',params:{event}});
       return {events,finalResponse:'answer',sessionId:'fixture-session'};
     }
-    async close() {}
+    async close() { await this.ctx.dispose(); }
   }`);
   const previous = process.env.SCIENCEPRISM_HARNESS_SDK;
   process.env.SCIENCEPRISM_HARNESS_SDK = sdkPath;
@@ -88,12 +108,14 @@ test('DeepSeek adapter passes SDK notifications through the actual runtime witho
     const returned = run.events.find(event => event.type === 'tool/result');
     const message = run.events.find(event => event.type === 'assistant/message');
     assert.equal(call.callId,'sdk-pair');
-    assert.equal(returned.name,'read_file');
+    assert.equal(returned.name,'project_read_file');
     assert.equal(returned.output,'source bytes');
     assert.equal(message.text,'answer');
     assert.equal(message.usage.inputTokens,2);
     assert.equal(run.tokenUsage.totalTokens,5);
     assert.equal(message.sourceSequence,3);
+    assert.ok(run.events.some(event => event.type === 'tool/policy' && event.decision === 'allow' && event.callId === 'sdk-pair'));
+    assert.ok(run.events.some(event => event.type === 'file/read' && event.path === 'main.tex'));
   } finally {
     if(previous === undefined) delete process.env.SCIENCEPRISM_HARNESS_SDK;
     else process.env.SCIENCEPRISM_HARNESS_SDK = previous;
