@@ -6,6 +6,7 @@ import { ensureDir } from './utils/fsUtils.js';
 import { DATA_DIR, PORT, TUNNEL_MODE } from './config/constants.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerArxivRoutes } from './routes/arxiv.js';
+import { registerPaperSearchRoutes } from './routes/paperSearch.js';
 import { registerProjectRoutes } from './routes/projects.js';
 import { registerProjectBackupRoutes } from './routes/projectBackups.js';
 import { registerCompileRoutes } from './routes/compile.js';
@@ -46,6 +47,7 @@ registerApiAuth(fastify);
 
 registerHealthRoutes(fastify);
 registerArxivRoutes(fastify);
+registerPaperSearchRoutes(fastify);
 registerProjectRoutes(fastify);
 registerProjectBackupRoutes(fastify);
 registerCompileRoutes(fastify);

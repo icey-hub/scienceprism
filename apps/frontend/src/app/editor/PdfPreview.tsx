@@ -51,7 +51,7 @@ export function PdfPreview({
 
     const render = async () => {
       try {
-        const loadingTask = getDocument(pdfUrl);
+        const loadingTask = getDocument({ url: pdfUrl, isEvalSupported: false });
         const pdf = await loadingTask.promise;
         const containerWidth = container.clientWidth - 24;
         const pageTargetWidth = spread ? Math.max(200, (containerWidth - 16) / 2) : containerWidth;

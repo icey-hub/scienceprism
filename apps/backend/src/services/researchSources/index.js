@@ -22,7 +22,7 @@ export function listResearchSourceAdapters() {
   return [...adapters.values()].map(({ id, label, priority }) => ({ id, label, priority: priority ?? 0 }));
 }
 
-export async function searchResearchSources({ queries = [], sources = ['arxiv'], maxResults = 12, signal } = {}) {
+export async function searchResearchSources({ queries = [], sources = ['arxiv'], maxResults = 12, offset = 0, signal } = {}) {
   const normalizedQueries = [...new Set((Array.isArray(queries) ? queries : [queries]).map((query) => String(query || '').trim()).filter(Boolean))];
   const normalizedSources = [...new Set((Array.isArray(sources) ? sources : [sources]).map((source) => String(source || '').trim().toLowerCase()).filter(Boolean))];
   if (!normalizedQueries.length) throw new ResearchSourceError('At least one search query is required.', { code: 'MISSING_QUERY' });
@@ -38,7 +38,7 @@ export async function searchResearchSources({ queries = [], sources = ['arxiv'],
     }
     for (const query of normalizedQueries) {
       try {
-        batches.push(await searchWithAdapter(adapter, { query, maxResults, signal }));
+        batches.push(await searchWithAdapter(adapter, { query, maxResults, offset, signal }));
       } catch (error) {
         failures.push({ source: sourceId, query, code: error.code || 'SOURCE_ERROR', message: error.message, retryable: error.retryable === true });
       }

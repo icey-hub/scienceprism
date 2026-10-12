@@ -41,13 +41,13 @@ export function normalizeSourceCandidate(candidate, { source, retrievedAt = new 
   };
 }
 
-export async function searchWithAdapter(adapterInput, { query, maxResults = 20, signal } = {}) {
+export async function searchWithAdapter(adapterInput, { query, maxResults = 20, offset = 0, signal } = {}) {
   const adapter = assertSourceAdapter(adapterInput);
   const normalizedQuery = asText(query);
   if (!normalizedQuery) throw new ResearchSourceError('A search query is required.', { code: 'MISSING_QUERY', source: adapter.id });
   const startedAt = new Date().toISOString();
   try {
-    const result = await adapter.search({ query: normalizedQuery, maxResults, signal });
+    const result = await adapter.search({ query: normalizedQuery, maxResults, offset, signal });
     const candidates = Array.isArray(result) ? result : result?.candidates;
     if (!Array.isArray(candidates)) {
       throw new ResearchSourceError(`Source Adapter ${adapter.id} returned an invalid result.`, { code: 'INVALID_SOURCE_RESULT', source: adapter.id });

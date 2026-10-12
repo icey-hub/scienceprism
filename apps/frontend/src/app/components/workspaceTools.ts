@@ -3,7 +3,7 @@ import { BarChart3, Bot, CheckCircle2, FolderTree, Globe2, Image, Search, Users 
 export const WORKSPACE_TOOLS = [
   { id: 'files', label: '项目文件', detail: '浏览项目文件，选择文稿进入写作。', icon: FolderTree },
   { id: 'agent', label: '对话', detail: '围绕项目进行问答，选择文件和 Skill，审阅修改建议。', icon: Bot },
-  { id: 'search', label: '论文检索', detail: '检索文献、选择来源并插入引用。', icon: Search },
+  { id: 'search', label: '论文搜索', detail: '独立搜索论文，阅读摘要并加入文献库。', icon: Search },
   { id: 'websearch', label: '网页检索', detail: '检索网页、阅读结果并保存研究笔记。', icon: Globe2 },
   { id: 'vision', label: '图像识别', detail: '读取图片或公式，确认后插入文稿。', icon: Image },
   { id: 'plot', label: '绘图', detail: '生成科研图形，批准后执行并查看产物。', icon: BarChart3 },
@@ -17,5 +17,7 @@ export function isWorkspaceTool(value: string | null): value is WorkspaceTool {
 }
 export function workspaceToolHref(projectId: string, tool: WorkspaceTool) {
   const id = encodeURIComponent(projectId);
-  return tool === 'agent' ? `/project/${id}/chat` : `/project/${id}/tools/${tool}`;
+  if (tool === 'agent') return `/project/${id}/chat`;
+  if (tool === 'search') return `/project/${id}/papers/search`;
+  return `/project/${id}/tools/${tool}`;
 }

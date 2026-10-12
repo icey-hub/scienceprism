@@ -22,7 +22,7 @@ import './WorkspacePages.css';
 
 type Documents=ReturnType<typeof useProjectDocuments>;
 async function createBibliography(docs:Documents) { try { return await docs.createBib(); } catch(cause) { docs.report(cause); return undefined; } }
-export default function ToolPage(){const {projectId='',tool=''}=useParams();if(!isWorkspaceTool(tool))return <Navigate replace to={`/project/${projectId}/tools`}/>;if(tool==='agent')return <Navigate replace to={`/project/${projectId}/chat`}/>;return <ToolWorkspace key={`${projectId}:${tool}`} projectId={projectId} tool={tool}/>;}
+export default function ToolPage(){const {projectId='',tool=''}=useParams();if(!isWorkspaceTool(tool))return <Navigate replace to={`/project/${projectId}/tools`}/>;if(tool==='search')return <Navigate replace to={`/project/${encodeURIComponent(projectId)}/papers/search`}/>;if(tool==='agent')return <Navigate replace to={`/project/${projectId}/chat`}/>;return <ToolWorkspace key={`${projectId}:${tool}`} projectId={projectId} tool={tool}/>;}
 function ToolWorkspace({projectId,tool}:{projectId:string;tool:Exclude<WorkspaceTool,'agent'>}){
  const docs=useProjectDocuments(projectId),definition=WORKSPACE_TOOLS.find(item=>item.id===tool)!;
  const Content=TOOL_CONTENT[tool];

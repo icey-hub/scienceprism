@@ -18,6 +18,7 @@ import { isWorkspaceTool, workspaceToolHref } from './components/workspaceTools'
 
 const EditorPage = lazy(() => import('./EditorPage'));
 const ResearchPage = lazy(() => import('./workspace/ResearchPage'));
+const PaperSearchPage = lazy(() => import('./papers/PaperSearchPage'));
 
 function LegacyResearchRedirect() {
   const { projectId = '' } = useParams<{ projectId: string }>();
@@ -40,6 +41,7 @@ export default function App() {
       <Route path="/project/:projectId" element={<ProjectDashboardPage />} />
       <Route path="/project/:projectId/:view" element={<ProjectDashboardPage />} />
       <Route path="/project/:projectId/chat" element={<ChatPage />} />
+      <Route path="/project/:projectId/papers/search" element={<PaperSearchPage />} />
       <Route path="/project/:projectId/tools/:tool" element={<ToolPage />} />
       <Route path="/project/:projectId/mcp" element={<McpPage />} />
       <Route path="/project/:projectId/models" element={<ModelsPage />} />
