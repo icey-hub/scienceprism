@@ -1,4 +1,5 @@
 import { HarnessRuntimeError } from '../errors.js';
+import { createHash } from 'node:crypto';
 
 const METHODS = new Set(['initialize', 'thread/start', 'turn/start', 'turn/interrupt', 'command/exec', 'mcpServerStatus/list']);
 const idPresent = (message) => Object.hasOwn(message, 'id');
@@ -30,7 +31,7 @@ export function createCodexProtocol(child, { requestTimeoutMs = 15_000, closeTim
   const pending = new Map();
   const listeners = new Set();
   const failures = new Set();
-  const toolCalls = new Set();
+  const toolCalls = new Map();
   const toolTasks = new Set();
   const toolAbort = new AbortController();
   let resolveExit;
@@ -47,7 +48,9 @@ export function createCodexProtocol(child, { requestTimeoutMs = 15_000, closeTim
   function send(message) {
     if (closed || terminalError) throw terminalError || error('CODEX_PROCESS_CLOSED', 'Codex process is closed.');
     const line = `${JSON.stringify(message)}\n`;
-    if (Buffer.byteLength(line) > maxLineBytes) throw error('CODEX_MESSAGE_TOO_LARGE', 'Codex protocol message exceeds the size limit.');
+    const bytes = Buffer.byteLength(line);
+    if (bytes > maxLineBytes) throw error('CODEX_MESSAGE_TOO_LARGE', 'Codex protocol message exceeds the size limit.');
+    if (child.stdin.writableLength + bytes > 4_194_304) throw error('CODEX_TRANSPORT_OVERFLOW', 'Codex input stream exceeded its pending write limit.');
     child.stdin.write(line, (failure) => { if (failure) fail(error('CODEX_PROCESS_CLOSED', 'Codex input stream closed.')); });
   }
 
@@ -68,24 +71,39 @@ export function createCodexProtocol(child, { requestTimeoutMs = 15_000, closeTim
     if (idPresent(message) && typeof message.method === 'string') {
       if (message.method === 'item/tool/call' && typeof onToolCall === 'function') {
         const callId = message.params?.callId;
-        if (typeof callId !== 'string' || !callId || toolCalls.has(callId) || toolCalls.size >= 128 || toolTasks.size >= 8) {
+        if (toolAbort.signal.aborted || typeof callId !== 'string' || !callId || callId.length > 200 || toolTasks.size >= 8) {
           denyRequest(message);
           for (const listener of listeners) listener({ ...message, sequence, denied: true });
           return;
         }
-        toolCalls.add(callId);
+        // Bind cached results to all original parameters, including thread/turn.
+        // JSON key order can change in transit without changing the request.
+        const fingerprint = createHash('sha256').update(JSON.stringify(message.params, (_key, value) =>
+          value && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value)).digest('hex');
+        const previous = toolCalls.get(callId);
+        if (previous ? previous.fingerprint !== fingerprint : toolCalls.size >= 128) {
+          denyRequest(message);
+          for (const listener of listeners) listener({ ...message, sequence, denied: true });
+          return;
+        }
         const sourceSequence = sequence;
-        const task = (async () => {
-          let result;
+        const operation = previous?.operation || Promise.resolve().then(async () => {
           try {
+            if (toolAbort.signal.aborted) throw new Error('Tool cancelled.');
             const value = await onToolCall(message.params, toolAbort.signal);
             const text = JSON.stringify(value);
             if (toolAbort.signal.aborted || Buffer.byteLength(text) > 262_144) throw new Error('Tool response unavailable.');
-            result = { success: true, contentItems: [{ type: 'inputText', text }] };
-          } catch { result = { success: false, contentItems: [{ type: 'inputText', text: 'The project tool request was denied or could not complete.' }] }; }
+            return { success: true, contentItems: [{ type: 'inputText', text }] };
+          } catch { return { success: false, contentItems: [{ type: 'inputText', text: 'The project tool request was denied or could not complete.' }] }; }
+        });
+        if (!previous) toolCalls.set(callId, { fingerprint, operation });
+        const task = (async () => {
+          const result = await operation;
           if (closed || terminalError || toolAbort.signal.aborted) return;
           send({ id: message.id, result });
-          for (const listener of listeners) listener({ ...message, sequence: sourceSequence, denied: !result.success });
+          // One execution event; retransmissions only receive its same result.
+          if (!previous) for (const listener of listeners) listener({ ...message, sequence: sourceSequence, denied: !result.success });
         })();
         toolTasks.add(task);
         void task.catch(reason => fail(reason)).finally(() => toolTasks.delete(task));

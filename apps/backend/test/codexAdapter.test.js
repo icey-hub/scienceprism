@@ -108,13 +108,119 @@ test('explicit dynamic tool handler is awaited once and duplicate call identitie
   const message = { id: 91, method: 'item/tool/call', params: { callId: 'one', tool: 'project_read_file', arguments: { path: 'main.tex' } } };
   child.stdout.write(`${JSON.stringify(message)}\n`);
   child.stdout.write(`${JSON.stringify({ ...message, id: 92 })}\n`);
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls, 1);
-  assert.equal(child.commands.find(command => command.id === 92).result.success, false);
+  assert.equal(child.commands.some(command => command.id === 92), false);
   assert.equal(child.commands.some(command => command.id === 91), false);
   release();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(child.commands.find(command => command.id === 91).result.success, true);
+  assert.deepEqual(child.commands.find(command => command.id === 92).result, child.commands.find(command => command.id === 91).result);
+  child.stdout.write(`${JSON.stringify({ ...message, id: 93 })}\n`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.deepEqual(child.commands.find(command => command.id === 93).result, child.commands.find(command => command.id === 91).result);
   await protocol.close();
+});
+
+test('duplicate tool results stay scoped to the original thread, turn, tool and arguments', async () => {
+  const child = fakeServer(() => {});
+  let calls = 0;
+  const events = [];
+  const protocol = createCodexProtocol(child, { onToolCall: async () => { calls++; return { content: 'scoped result' }; } });
+  protocol.subscribe(event => events.push(event));
+  const params = { threadId: 'thread', turnId: 'turn', callId: 'same', tool: 'project_read_file', arguments: { path: 'main.tex', fromLine: 1 } };
+  const send = (id, value) => child.stdout.write(`${JSON.stringify({ id, method: 'item/tool/call', params: value })}\n`);
+  send(1, params);
+  await new Promise(resolve => setImmediate(resolve));
+  // Object key order is not a change to the tool's arguments.
+  send(2, { ...params, arguments: { fromLine: 1, path: 'main.tex' } });
+  for (const [index, altered] of [
+    { threadId: 'other' }, { turnId: 'other' }, { tool: 'project_propose_patch' },
+    { namespace: 'other' }, { arguments: { path: 'other.tex', fromLine: 1 } }
+  ].entries()) send(index + 3, { ...params, ...altered });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.deepEqual(child.commands.find(command => command.id === 2).result, child.commands.find(command => command.id === 1).result);
+  assert.equal(events.filter(event => !event.denied).length, 1);
+  for (let id = 3; id <= 7; id++) {
+    assert.equal(child.commands.find(command => command.id === id).result.success, false);
+    assert.ok(!JSON.stringify(child.commands.find(command => command.id === id)).includes('scoped result'));
+  }
+  await protocol.close();
+});
+
+test('failed tool calls replay their sanitized failure and closing cannot execute a late request', async () => {
+  const child = fakeServer(() => {});
+  let calls = 0;
+  const events = [];
+  const protocol = createCodexProtocol(child, { onToolCall: async () => { calls++; throw new Error('private credential'); } });
+  protocol.subscribe(event => events.push(event));
+  const request = { id: 1, method: 'item/tool/call', params: { callId: 'failure', tool: 'project_read_file', arguments: { path: 'main.tex' } } };
+  child.stdout.write(`${JSON.stringify(request)}\n`);
+  await new Promise(resolve => setImmediate(resolve));
+  child.stdout.write(`${JSON.stringify({ ...request, id: 2 })}\n`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.deepEqual(child.commands[0].result, child.commands[1].result);
+  assert.equal(events.length, 1);
+  assert.ok(!JSON.stringify(child.commands).includes('private credential'));
+  await protocol.close();
+  const late = fakeServer(() => {}, { linger: true });
+  const closing = createCodexProtocol(late, { closeTimeoutMs: 5, onToolCall: async () => { calls++; return {}; } });
+  const stopped = closing.close();
+  late.stdout.write(`${JSON.stringify(request)}\n`);
+  await stopped;
+  assert.equal(calls, 1);
+});
+
+test('tool replay cache and pending responses remain bounded without evicting execution identities', async () => {
+  const child = fakeServer(() => {});
+  let calls = 0;
+  const protocol = createCodexProtocol(child, { onToolCall: async () => { calls++; return { ok: true }; } });
+  const send = (id, callId) => child.stdout.write(`${JSON.stringify({ id, method: 'item/tool/call', params: { callId } })}\n`);
+  for (let id = 1; id <= 128; id++) {
+    send(id, `call-${id}`);
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  send(129, 'call-129');
+  send(130, 'call-1');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 128);
+  assert.equal(child.commands.find(command => command.id === 129).result.success, false);
+  assert.deepEqual(child.commands.find(command => command.id === 130).result, child.commands[0].result);
+  await protocol.close();
+
+  const pending = fakeServer(() => {});
+  let release;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const bounded = createCodexProtocol(pending, { onToolCall: async () => { calls++; await blocked; return {}; } });
+  for (let id = 1; id <= 9; id++) pending.stdout.write(`${JSON.stringify({ id, method: 'item/tool/call', params: { callId: `pending-${id}` } })}\n`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 136);
+  assert.equal(pending.commands.find(command => command.id === 9).result.success, false);
+  release();
+  await new Promise(resolve => setImmediate(resolve));
+  await bounded.close();
+});
+
+test('a stalled Codex input stream cannot accumulate unlimited retransmitted tool results', async () => {
+  const child = fakeServer(() => {}, { linger: true });
+  child.stdin.pause();
+  let calls = 0;
+  const failures = [];
+  const protocol = createCodexProtocol(child, { closeTimeoutMs: 5, onToolCall: async () => { calls++; return { content: 'x'.repeat(260_000) }; } });
+  protocol.subscribe(() => {}, reason => failures.push(reason));
+  for (let id = 1; id <= 100; id++) {
+    child.stdout.write(`${JSON.stringify({ id, method: 'item/tool/call', params: { callId: 'stalled' } })}\n`);
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(calls, 1);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0].code, 'CODEX_TRANSPORT_OVERFLOW');
+  assert.ok(child.stdin.writableLength <= 4_194_304);
+  await protocol.close();
+  assert.equal(child.exited, true);
 });
 
 test('dynamic tool failure is sanitized and closing aborts and drains an in-flight handler', async () => {
@@ -130,8 +236,14 @@ test('dynamic tool failure is sanitized and closing aborts and drains an in-flig
   await protocol.close();
   const pending = fakeServer(() => {});
   let aborted = false;
-  const controlled = createCodexProtocol(pending, { onToolCall: async (_params, signal) => new Promise(resolve => signal.addEventListener('abort', () => { aborted = true; resolve({ cancelled: true }); }, { once: true })) });
+  let started;
+  const active = new Promise(resolve => { started = resolve; });
+  const controlled = createCodexProtocol(pending, { onToolCall: async (_params, signal) => new Promise(resolve => {
+    signal.addEventListener('abort', () => { aborted = true; resolve({ cancelled: true }); }, { once: true });
+    started();
+  }) });
   pending.stdout.write(`${JSON.stringify({ id: 2, method: 'item/tool/call', params: { callId: 'pending' } })}\n`);
+  await active;
   await controlled.close();
   assert.equal(aborted, true);
   assert.equal(pending.commands.length, 0);

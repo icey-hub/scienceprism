@@ -66,6 +66,15 @@ IDs, fixed Skill sources and actual read events remain in full history. An
 unconfirmed process stop retains a persistent model-slot marker, so a service
 restart cannot silently allow overlapping execution.
 
+Within one Codex worker connection, repeated dynamic tool requests with the same
+call ID and parameters share one execution and its bounded result, including
+sanitized failures. Changing the thread, turn, tool or arguments under that ID is
+rejected. Retransmissions do not add another tool execution or proposal to the
+graph. This does not provide cross-process recovery or replay an interrupted
+worker after a server restart. The connection retains at most 128 tool identities
+and 8 pending responses. Pending input writes are limited to 4 MiB; a stalled
+connection that exceeds this limit fails and is closed by the owning worker.
+
 ## Context Pack
 
 Each Run is created with a deterministic Context Pack by
