@@ -1,14 +1,35 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { createTranslationService } from '../src/services/translation/index.js';
+import { createTranslationState, DEFAULT_TRANSLATION_SETTINGS } from '../src/services/translation/state.js';
 import { registerTranslationRoutes } from '../src/routes/translation.js';
 
 const request = { selectionId: 'selection-1', text: 'The experiment compares the baseline with the proposed method.', sourceLanguage: 'en', targetLanguage: 'zh-CN' };
 const authHtml = '<div data-iid="translator.5028"><script>const x={IG:"AB123"};var params_AbusePreventionHelper = [1791763200000,"temporary-secret",3600000];</script></div>';
 const success = () => Response.json([{ detectedLanguage: { language: 'en' }, translations: [{ text: '该实验比较了基线方法与所提出的方法。', to: 'zh-Hans' }] }]);
 const resolveProject = async id => { if (!['project-a', 'project-b'].includes(id)) throw Object.assign(new Error('private path'), { code: 'ENOENT' }); };
-const build = options => createTranslationService({ resolveProject, intervalMs: 0, ...options });
+const cacheRoot = fileURLToPath(new URL('../../../.cache/research-workbench-v2/translation/', import.meta.url));
+await fs.mkdir(cacheRoot, { recursive: true });
+const fixtureRoot = await fs.mkdtemp(path.join(cacheRoot, 'service-test-'));
+after(() => fs.rm(fixtureRoot, { recursive: true, force: true }));
+const fixtureResolvers = new WeakMap();
+const build = (options = {}) => {
+  const root = path.join(fixtureRoot, randomUUID());
+  const resolver = options.resolveProject || (async id => {
+    await resolveProject(id);
+    const project = path.join(root, id);
+    await fs.mkdir(project, { recursive: true });
+    return project;
+  });
+  const service = createTranslationService({ intervalMs: 0, ...options, resolveProject: resolver });
+  fixtureResolvers.set(service, resolver);
+  return service;
+};
 
 test('Bing translates selected text with a temporary session and exposes no session credentials', async () => {
   const calls = [];
@@ -169,7 +190,11 @@ test('timeout aborts fetch, reports 504 and late result cannot be cached', async
   const keepAlive = setTimeout(() => {}, 1000);
   try {
     let observedSignal;
-    const service = build({ timeoutMs: 15, fetchImpl: async (_, { signal }) => {
+    // This provider-abort check excludes filesystem latency; persistent budgets
+    // and before-dispatch refusal are exercised by the real state tests below.
+    const stateStore = { read: async () => ({ revision: 0, settings: DEFAULT_TRANSLATION_SETTINGS }), lookup: async () => ({ operation: null }),
+      reserve: async () => ({ disposition: 'reserved' }), markDispatched: async () => {}, settle: async () => {} };
+    const service = build({ timeoutMs: 15, stateStore, fetchImpl: async (_, { signal }) => {
       observedSignal = signal;
       return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     } });
@@ -208,4 +233,154 @@ test('route catalog is read-only and errors retain stable shape without response
   assert.equal(missing.body.includes('private path'), false);
   const invalid = await app.inject({ method: 'POST', url: '/api/projects/project-a/translations', payload: { ...request, text: '' } });
   assert.equal(invalid.statusCode, 400);
+});
+
+test('project translation settings, usage and cache commands share persistent revision and provider defaults', async t => {
+  let calls = 0;
+  const service = build({ fetchImpl: async url => {
+    calls++;
+    assert.equal(new URL(url).searchParams.get('tl'), 'ja');
+    return Response.json([[['比較実験', 'comparison']], null, 'en']);
+  } });
+  const app = Fastify(); t.after(() => app.close());
+  registerTranslationRoutes(app, { service });
+  const base = '/api/projects/project-a/translation';
+  const before = await app.inject(`${base}/settings`);
+  assert.equal(before.statusCode, 200);
+  const revision = before.json().revision;
+  assert.equal(before.json().settings.defaultProviderId, 'bing-web');
+  const changed = await app.inject({ method: 'PATCH', url: `${base}/settings`, payload: {
+    expectedRevision: revision, patch: { defaultProviderId: 'google-web', targetLanguage: 'ja', monthlyCharacterLimit: 100 }
+  } });
+  assert.equal(changed.statusCode, 200);
+  assert.ok(changed.json().revision > revision);
+  const conflict = await app.inject({ method: 'PATCH', url: `${base}/settings`, payload: { expectedRevision: revision, patch: { automatic: true } } });
+  assert.equal(conflict.statusCode, 409);
+  const providers = await app.inject(`${base}/providers`);
+  assert.equal(providers.json().defaultProviderId, 'google-web');
+  assert.equal(calls, 0, 'reading settings and health must not contact providers');
+  const translated = await app.inject({ method: 'POST', url: '/api/projects/project-a/translations', payload: { selectionId: 'defaults', text: 'comparison', operationId: 'settings-op' } });
+  assert.equal(translated.statusCode, 200);
+  assert.equal(translated.json().translation.providerId, 'google-web');
+  assert.equal(translated.json().translation.targetLanguage, 'ja');
+  const usage = await app.inject(`${base}/usage`);
+  assert.equal(usage.statusCode, 200);
+  assert.equal(usage.json().usage.usedCharacters, 10);
+  assert.equal(usage.json().usage.limitCharacters, 100);
+  assert.equal((await app.inject(`${base}/settings`)).json().revision, changed.json().revision, 'usage must not cause settings conflicts');
+  assert.equal((await app.inject({ method: 'DELETE', url: `${base}/cache` })).statusCode, 200);
+  assert.equal(calls, 1);
+  assert.equal((await app.inject('/api/projects/missing/translation/settings')).statusCode, 404);
+});
+
+test('one operation shares in-flight output, cached identities survive restart, and local quota never becomes provider downtime', async () => {
+  let enter, finish, calls = 0;
+  const started = new Promise(resolve => { enter = resolve; });
+  const response = new Promise(resolve => { finish = resolve; });
+  const service = build({ fetchImpl: async () => { calls++; enter(); return response; } });
+  const input = { selectionId: 'one', operationId: 'one', providerId: 'google-web', text: 'hello' };
+  const prefs = await service.getSettings('project-a');
+  await service.updateSettings('project-a', { expectedRevision: prefs.revision, patch: { monthlyCharacterLimit: 5 } });
+  const first = service.translate('project-a', input);
+  await started;
+  const repeated = service.translate('project-a', input);
+  await assert.rejects(service.translate('project-a', { ...input, text: 'changed' }), { code: 'TRANSLATION_OPERATION_CONFLICT' });
+  finish(Response.json([[['你好', 'hello']], null, 'en']));
+  assert.equal((await first).translatedText, '你好');
+  assert.equal((await repeated).replayed, true);
+  assert.equal(calls, 1);
+  assert.equal((await service.getUsage('project-a')).usage.usedCharacters, 5);
+  assert.equal((await service.translate('project-a', { ...input, operationId: 'cached', selectionId: 'two' })).cached, true);
+  assert.equal(calls, 1);
+  const resolver = fixtureResolvers.get(service);
+  const restarted = build({ resolveProject: resolver, fetchImpl: async () => { calls++; throw new Error('must not resend'); } });
+  await assert.rejects(restarted.translate('project-a', { ...input, operationId: 'cached', selectionId: 'two' }), { code: 'TRANSLATION_RESULT_UNAVAILABLE' });
+  await assert.rejects(restarted.translate('project-a', { ...input, operationId: 'blocked', providerId: 'bing-web', text: 'world' }), { code: 'TRANSLATION_QUOTA_EXHAUSTED' });
+  assert.equal((await restarted.listProviders('project-a')).providers[0].health.status, 'unknown');
+  const state = await fs.readFile(path.join(await resolver('project-a'), '.scienceprism/translation.json'), 'utf8');
+  assert.ok(!state.includes('hello') && !state.includes('你好'));
+  assert.equal(calls, 1);
+});
+
+test('a busy request can retry its unchanged identity once capacity is free', async () => {
+  let enter, finish, calls = 0;
+  const started = new Promise(resolve => { enter = resolve; });
+  const blocked = new Promise(resolve => { finish = resolve; });
+  const service = build({ fetchImpl: async () => { calls++; if (calls === 1) { enter(); await blocked; } return Response.json([[['译文', 'text']], null, 'en']); } });
+  const input = { selectionId: 'busy', operationId: 'busy', providerId: 'google-web', text: 'second' };
+  const first = service.translate('project-a', { ...input, operationId: 'first', text: 'first' });
+  await started;
+  await assert.rejects(service.translate('project-a', input), { code: 'TRANSLATION_BUSY' });
+  finish(); await first;
+  assert.equal((await service.translate('project-a', input)).translatedText, '译文');
+  assert.equal(calls, 2);
+});
+
+test('clearing content cache during a cached receipt prevents late cache refill', async () => {
+  let enter, finish, calls = 0;
+  const started = new Promise(resolve => { enter = resolve; });
+  const blocked = new Promise(resolve => { finish = resolve; });
+  const resolverService = build();
+  const resolver = fixtureResolvers.get(resolverService);
+  const store = createTranslationState({ resolveProject: resolver });
+  const service = build({ resolveProject: resolver, stateStore: { ...store, recordCached: async (...args) => { enter(); await blocked; return store.recordCached(...args); } },
+    fetchImpl: async () => { calls++; return Response.json([[['译文', 'text']], null, 'en']); } });
+  const input = { selectionId: 'clear', operationId: 'original', providerId: 'google-web', text: 'same' };
+  await service.translate('project-a', input);
+  const cached = service.translate('project-a', { ...input, operationId: 'cache-hit' });
+  await started; await service.clearCache('project-a'); finish(); await cached;
+  assert.equal((await service.translate('project-a', { ...input, operationId: 'new' })).cached, false);
+  assert.equal(calls, 2);
+});
+
+test('a reservation appearing between lookup and reserve cannot be taken over or dispatched', async () => {
+  let calls = 0;
+  const resolverService = build();
+  const resolver = fixtureResolvers.get(resolverService);
+  const store = createTranslationState({ resolveProject: resolver });
+  const service = build({ resolveProject: resolver, stateStore: { ...store, lookup: async (...args) => {
+    const result = await store.lookup(...args); await store.reserve(...args); return result;
+  } }, fetchImpl: async () => { calls++; return Response.json([[['不应调用', 'text']], null, 'en']); } });
+  await assert.rejects(service.translate('project-a', { selectionId: 'race', operationId: 'race', providerId: 'google-web', text: 'text' }), { code: 'TRANSLATION_RESULT_UNAVAILABLE' });
+  assert.equal(calls, 0);
+  assert.equal((await service.getUsage('project-a')).usage.reservedCharacters, 4);
+});
+
+test('cancellation while committing a network or cached result preserves accounting and returns no success', async () => {
+  for (const cached of [false, true]) {
+    let enter, finish, calls = 0;
+    const started = new Promise(resolve => { enter = resolve; });
+    const blocked = new Promise(resolve => { finish = resolve; });
+    const resolver = fixtureResolvers.get(build());
+    const store = createTranslationState({ resolveProject: resolver });
+    const stateStore = { ...store,
+      settle: async (...args) => { if (!cached && args[2].outcome === 'completed') { enter(); await blocked; } return store.settle(...args); },
+      recordCached: async (...args) => { enter(); await blocked; return store.recordCached(...args); }
+    };
+    const service = build({ resolveProject: resolver, stateStore, fetchImpl: async () => { calls++; return Response.json([[['译文', 'text']], null, 'en']); } });
+    const input = { selectionId: 'commit', operationId: 'commit', providerId: 'google-web', text: 'same' };
+    if (cached) await service.translate('project-a', { ...input, operationId: 'seed' });
+    const controller = new AbortController();
+    const running = service.translate('project-a', input, { signal: controller.signal });
+    await started; controller.abort(); finish();
+    await assert.rejects(running, { code: 'TRANSLATION_CANCELLED' });
+    assert.equal((await store.lookup('project-a', { ...input, sourceLanguage: 'auto', targetLanguage: 'zh-CN' })).operation.status, 'completed');
+    if (!cached) {
+      assert.equal((await service.translate('project-a', { ...input, operationId: 'next' })).cached, false);
+      assert.equal(calls, 2, 'cancelled result must not refill content cache');
+    }
+  }
+});
+
+test('local settlement failure preserves uncertain budget without declaring the translation provider unavailable', async () => {
+  const resolver = fixtureResolvers.get(build());
+  const store = createTranslationState({ resolveProject: resolver });
+  const { TranslationError } = await import('../src/services/translation/index.js');
+  const service = build({ resolveProject: resolver, stateStore: { ...store, settle: async (...args) => {
+    if (args[2].outcome === 'completed') throw new TranslationError('TRANSLATION_STATE_UNAVAILABLE', 'Storage unavailable.', 500);
+    return store.settle(...args);
+  } }, fetchImpl: async () => Response.json([[['译文', 'text']], null, 'en']) });
+  await assert.rejects(service.translate('project-a', { selectionId: 'disk', operationId: 'disk', providerId: 'google-web', text: 'same' }), { code: 'TRANSLATION_STATE_UNAVAILABLE' });
+  assert.equal((await service.getUsage('project-a')).usage.uncertainCharacters, 4);
+  assert.equal((await service.listProviders('project-a')).providers.find(provider => provider.id === 'google-web').health.status, 'unknown');
 });

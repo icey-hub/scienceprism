@@ -17,6 +17,22 @@ export function registerTranslationRoutes(app, { service = translationService } 
     try { return { ok: true, ...await service.listProviders(req.params.id) }; }
     catch (error) { return fail(reply, error); }
   });
+  app.get(`${base}/translation/settings`, async (req, reply) => {
+    try { return { ok: true, ...await service.getSettings(req.params.id) }; }
+    catch (error) { return fail(reply, error); }
+  });
+  app.patch(`${base}/translation/settings`, { bodyLimit: 8 * 1024 }, async (req, reply) => {
+    try { return { ok: true, ...await service.updateSettings(req.params.id, req.body) }; }
+    catch (error) { return fail(reply, error); }
+  });
+  app.get(`${base}/translation/usage`, async (req, reply) => {
+    try { return { ok: true, ...await service.getUsage(req.params.id) }; }
+    catch (error) { return fail(reply, error); }
+  });
+  app.delete(`${base}/translation/cache`, async (req, reply) => {
+    try { return { ok: true, ...await service.clearCache(req.params.id) }; }
+    catch (error) { return fail(reply, error); }
+  });
   app.post(`${base}/translations`, { bodyLimit: 32 * 1024 }, async (req, reply) => {
     const controller = new AbortController();
     const disconnect = () => { if (!reply.raw.writableEnded) controller.abort(); };
