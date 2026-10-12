@@ -74,7 +74,9 @@ function normalizeAnnotation(annotation, previous) {
     quote: text(annotation?.quote),
     page: Number.isFinite(Number(annotation?.page)) ? Number(annotation.page) : null,
     createdAt: previous?.createdAt || at,
-    updatedAt: at
+    updatedAt: at,
+    ...(previous?.anchor ? { anchor: structuredClone(previous.anchor) } : {}),
+    ...(previous?.translation ? { translation: structuredClone(previous.translation) } : {})
   };
 }
 
@@ -108,7 +110,7 @@ export function normalizePaper(input, { existing } = {}) {
     readingStatus: STATUSES.has(input.readingStatus) ? input.readingStatus : (STATUSES.has(previous.readingStatus) ? previous.readingStatus : 'unread'),
     notes: text(input.notes ?? previous.notes),
     annotations: Array.isArray(input.annotations)
-      ? input.annotations.map((annotation, index) => normalizeAnnotation(annotation, previous.annotations?.[index]))
+      ? input.annotations.map(annotation => normalizeAnnotation(annotation, previous.annotations?.find(item => item.id === annotation.id)))
       : (previous.annotations || []),
     bibtex: text(input.bibtex ?? previous.bibtex) || bibtexFor({ ...previous, ...input }),
     sourceCheck: input.sourceCheck || previous.sourceCheck || sourceCheckFor({ ...previous, ...input }, previous.sourceCheck),
@@ -116,6 +118,7 @@ export function normalizePaper(input, { existing } = {}) {
     createdAt: previous.createdAt || at,
     updatedAt: at
   };
+  delete merged.expectedAnnotationsRevision;
   merged.canonicalKey = paperKey(merged);
   if (input.runSourceCheck) merged.sourceCheck = sourceCheckFor(merged, previous.sourceCheck);
   return merged;

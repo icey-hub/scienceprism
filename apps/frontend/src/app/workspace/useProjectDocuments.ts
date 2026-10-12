@@ -55,8 +55,9 @@ export function useProjectDocuments(projectId: string) {
     const target = 'references.bib';
     await perform(async () => {
       // Existing bibliography is selected, never replaced with an empty template.
-      const snapshot = await read(target);
-      if (!snapshot.version.exists) await write(target, '% Add BibTeX entries here\n', snapshot.version);
+      if (!items.some(item => item.path === target)) {
+        await write(target, '% Add BibTeX entries here\n', { exists: false, sha256: null });
+      }
     });
     return target;
   };

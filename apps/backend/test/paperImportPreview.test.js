@@ -8,7 +8,7 @@ import Fastify from 'fastify';
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-import-preview-'));
 process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 const { confirmPaperImport, previewPaperImport, PaperImportPreviewError } = await import('../src/services/projectHub/paperImportPreview.js');
-const { importPaper, listPapers, updatePaper } = await import('../src/services/projectHub/paperLibrary.js');
+const { importPaper, listPapers, updatePaper, paperAnnotationsRevision } = await import('../src/services/projectHub/paperLibrary.js');
 const { registerProjectHubRoutes } = await import('../src/routes/projectHub.js');
 
 async function createProject(projectId) {
@@ -97,7 +97,7 @@ test('confirmation creates once, keeps without writes, and merges only chosen fi
   await createProject(id);
   const preview = await previewPaperImport(id, { text: bibtex });
   const created = await confirmPaperImport(id, decision(preview, 0, 'create'));
-  await updatePaper(id, created.paper.id, { notes: 'Human notes', favorite: true, title: 'Human title', tags: ['keep'], annotations: [{ text: 'My annotation' }] });
+  await updatePaper(id, created.paper.id, { notes: 'Human notes', favorite: true, title: 'Human title', tags: ['keep'], annotations: [{ text: 'My annotation' }], expectedAnnotationsRevision: paperAnnotationsRevision(created.paper.annotations) });
   const next = await previewPaperImport(id, { text: bibtex });
   const before = await snapshot(id);
   assert.equal((await confirmPaperImport(id, decision(next, 0, 'keep'))).skipped, true);

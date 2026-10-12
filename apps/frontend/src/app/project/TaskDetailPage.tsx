@@ -59,6 +59,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
     {task && <>
       <div className="hub-page-heading task-detail-heading"><div><h2>{task.title}</h2><p><code>{task.id}</code> · {task.kind}</p></div><DecisionStatus status={task.status} /></div>
       <div className="task-detail-actions">
+        {task.kind === 'paper-download' && typeof task.metadata?.paperId === 'string' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/papers/${encodeURIComponent(task.metadata.paperId)}/read`}>打开 PDF 阅读</Link>}
         {stageHref && <Link className="hub-small-button is-quiet" to={stageHref}>打开相关工作</Link>}
         {run && !run.archived ? <>
           {run.status === 'created' && <button className="hub-small-button" disabled={busy} onClick={() => void action(() => startHarnessRun(projectId, run.id))}>启动</button>}

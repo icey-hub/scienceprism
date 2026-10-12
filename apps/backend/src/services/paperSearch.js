@@ -4,6 +4,8 @@ import path from 'node:path';
 import { getProjectRoot } from './projectService.js';
 import { listResearchSourceAdapters, searchResearchSources } from './researchSources/index.js';
 import { readHubJson, withHubLock, writeHubJson } from './projectHub/repository.js';
+import { loadRankingCatalogs, applyPaperRankings } from './paperRankings/index.js';
+import { normalizeRankingFilter } from './paperRankings/validation.js';
 import { mergeSourceCandidates } from './researchSources/candidateIdentity.js';
 
 const FILE = 'paper-searches.json';
@@ -35,7 +37,7 @@ export function normalizeSearchInput(input = {}) {
   if (filters.yearFrom && filters.yearTo && filters.yearFrom > filters.yearTo) throw new PaperSearchError('起始年份不能晚于结束年份。');
   if (filters.publicationType && !['journal', 'conference', 'preprint'].includes(filters.publicationType)) throw new PaperSearchError('论文类型无效。');
   if (filters.openAccessOnly !== undefined && typeof filters.openAccessOnly !== 'boolean') throw new PaperSearchError('开放获取筛选无效。');
-  return { query, sources: [...new Set(sources)], pageSize, offset, filters: {
+  return { query, sources: [...new Set(sources)], pageSize, offset, ranking: normalizeRankingFilter(input.ranking || {}), filters: {
     yearFrom: filters.yearFrom || null, yearTo: filters.yearTo || null, publicationType: filters.publicationType || '', openAccessOnly: filters.openAccessOnly === true
   } };
 }
@@ -60,17 +62,20 @@ export async function searchProjectPapers(projectId, input, { signal, search = s
   await getProjectRoot(projectId);
   const criteria = normalizeSearchInput(input);
   signal?.throwIfAborted();
+  const catalogs = await loadRankingCatalogs(projectId);
   const result = await search({ queries: [criteria.query], sources: criteria.sources, maxResults: criteria.pageSize + 1, offset: criteria.offset, filters: criteria.filters, signal });
   signal?.throwIfAborted();
   const candidates = mergeSourceCandidates(result.batches.flatMap(batch => batch.candidates.slice(0, criteria.pageSize).filter(candidate => matchesFilters(candidate, criteria.filters))));
+  const ranked = applyPaperRankings(candidates, catalogs.catalogs, criteria.ranking);
   const session = {
     id: randomUUID(), projectId, createdAt: new Date().toISOString(), criteria,
     status: result.failures.length ? (result.batches.length ? 'partial' : 'failed') : 'completed',
-    candidates, failures: result.failures,
+    candidates: ranked.candidates, failures: result.failures, rankingCoverage: { ...ranked.coverage, catalogVersion: catalogs.version },
     sourceResults: result.batches.map(batch => ({ source: batch.source || null, retrievedAt: batch.retrievedAt || null, total: batch.total ?? null, filterMode: batch.filterMode || 'batch', received: Math.min(batch.candidates.length, criteria.pageSize), matched: batch.candidates.slice(0, criteria.pageSize).filter(candidate => matchesFilters(candidate, criteria.filters)).length })),
     nextOffset: criteria.offset < 5000 && result.batches.some(batch => batch.candidates.length > criteria.pageSize)
       ? Math.min(5000, criteria.offset + criteria.pageSize) : null
   };
+  session.candidates = session.candidates.map(candidate => ({ ...candidate, searchSessionIds: [session.id], sourceRecords: (candidate.sourceRecords || []).map(record => ({ ...record, searchSessionId: session.id })) }));
   await withHubLock(projectId, async () => {
     signal?.throwIfAborted();
     const history = await readHubJson(projectId, FILE, () => ({ sessions: [] }));

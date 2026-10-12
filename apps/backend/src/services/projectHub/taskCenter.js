@@ -142,6 +142,15 @@ function experimentRunTask(run) {
   });
 }
 
+function paperDownloadTask(job) {
+  return normalizeTask({ id: `paper-download:${job.id}`, kind: 'paper-download', title: `下载 PDF · ${job.filename}`,
+    status: job.status, progress: job.status === 'completed' ? 100 : job.totalBytes ? Math.min(99, Math.round(job.receivedBytes / job.totalBytes * 100)) : null,
+    error: job.error, retryable: ['failed', 'cancelled'].includes(job.status),
+    log: [job.sourceUrl, `${job.receivedBytes} bytes received`, ...(job.interrupted ? ['进程中断，可重新下载。'] : [])],
+    metadata: { paperId: job.paperId, jobId: job.id, attachmentId: job.attachmentId, sourceUrl: job.sourceUrl, filename: job.filename, receivedBytes: job.receivedBytes, totalBytes: job.totalBytes },
+    createdAt: job.createdAt, updatedAt: job.updatedAt, startedAt: job.startedAt, finishedAt: job.finishedAt });
+}
+
 export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
   const stored = await readTasks(projectId);
   const taskMap = new Map(stored.tasks.map((task) => [task.id, task]));
@@ -160,6 +169,8 @@ export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
     const runs = await listExperimentRuns(projectId, { limit: 100 });
     for (const run of runs) taskMap.set(`experiment-run:${run.id}`, experimentRunTask(run));
   } catch {}
+  const { paperAttachmentService } = await import('../paperAttachments/index.js');
+  for (const job of await paperAttachmentService.listJobs(projectId)) taskMap.set(`paper-download:${job.id}`, paperDownloadTask(job));
   const linkedRuns = new Set([...taskMap.values()].map(task => task.metadata?.harnessRunId).filter(Boolean));
   let tasks = [...taskMap.values()].filter(task => task.kind !== 'harness' || !linkedRuns.has(task.metadata?.runId))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -186,6 +197,11 @@ export async function retryTask(projectId, taskId) {
     const run = await retryExperimentRun(projectId, task.metadata.runId);
     return { task: experimentRunTask(run), run };
   }
+  if (task.kind === 'paper-download') {
+    const { paperAttachmentService } = await import('../paperAttachments/index.js');
+    const result = await paperAttachmentService.startDownload(projectId, task.metadata.paperId, { url: task.metadata.sourceUrl, filename: task.metadata.filename, refresh: true });
+    return { task: paperDownloadTask(result.job) };
+  }
   if (task.kind === 'experiment') throw new Error('Experiment Plans require a controlled Experiment Run.');
   if (!task.retryable) throw new Error('Task is not retryable.');
   const updated = await updateTask(projectId, taskId, { status: 'queued', progress: 0, error: null, log: ['Retry requested by human.'], finishedAt: null });
@@ -201,6 +217,10 @@ export async function cancelTask(projectId, taskId) {
   if (task.kind === 'experiment-run' && task.metadata?.runId) {
     const run = await cancelExperimentRun(projectId, task.metadata.runId);
     return { task: experimentRunTask(run), run };
+  }
+  if (task.kind === 'paper-download') {
+    const { paperAttachmentService } = await import('../paperAttachments/index.js');
+    return { task: paperDownloadTask(await paperAttachmentService.cancelDownload(projectId, task.metadata.paperId, task.metadata.jobId)) };
   }
   if (task.kind === 'compile') {
     if (task.status === 'cancelled') return { task };

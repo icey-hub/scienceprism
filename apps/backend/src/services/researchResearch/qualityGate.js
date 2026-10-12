@@ -181,13 +181,20 @@ export function normalizePaperCandidate(input = {}) {
     citationCount: normalizeNumber(firstValue(source.citationCount, source.citations, source.citedByCount)),
     hasCode: normalizeBoolean(hasCodeValue),
     doi,
+    arxivId: asText(source.arxivId) || null,
+    oaPdfUrl: asText(source.oaPdfUrl) || null,
+    oaVersion: asText(source.oaVersion) || null,
+    oaLicense: asText(source.oaLicense) || null,
+    isOpenAccess: normalizeBoolean(source.isOpenAccess),
+    issns: Array.isArray(source.issns) ? unique(source.issns.map(asText)) : [],
     url,
     codeUrl,
-    source: asText(firstValue(source.source, source.provider, source.database)) || null,
+    source: asText(firstValue(typeof source.source === 'object' ? source.source?.provider : source.source, source.provider, source.database)) || null,
     links,
     metadataUpdatedAt: asText(firstValue(source.metadataUpdatedAt, source.updatedAt)) || null,
     retrievedAt: asText(firstValue(source.retrievedAt, source.acquiredAt)) || null,
     sourceRecords: Array.isArray(source.sourceRecords) ? source.sourceRecords : [],
+    searchSessionIds: Array.isArray(source.searchSessionIds) ? unique(source.searchSessionIds.map(asText)) : [],
     sourceCount: Number(source.sourceCount) || (source.source ? 1 : 0)
   };
 }

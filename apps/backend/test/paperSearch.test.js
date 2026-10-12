@@ -79,3 +79,25 @@ test('batch filtering keeps pagination based on fetched records and does not cal
   assert.equal(session.sourceResults[0].filterMode, 'batch'); assert.equal(session.sourceResults[0].total, null);
   for (const filters of [{ yearFrom: 2025, yearTo: 2020 }, { yearFrom: '2024' }, { hidden: true }, { publicationType: 'unknown' }]) assert.throws(() => normalizeSearchInput({ query: 'x', filters }), { code: 'INVALID_SEARCH' });
 });
+
+test('project search applies the imported ranking version while preserving source pagination and historical results', async () => {
+  await project('ranked-search');
+  const search = async () => ({ batches: [{ source: 'arxiv', candidates: [
+    { ...candidate(1), venue: 'Fixture Journal' }, { ...candidate(2), venue: 'Unknown Journal' }, candidate(3)
+  ] }], failures: [] });
+  const before = await searchProjectPapers('ranked-search', { query: 'x', pageSize: 2 }, { search });
+  const { importRankingCatalog } = await import('../src/services/paperRankings/index.js');
+  await importRankingCatalog('ranked-search', { expectedVersion: 0, scheme: 'custom', editionYear: 2026,
+    label: 'Synthetic catalog', provenance: { label: 'Test fixture, not a real ranking' },
+    records: [{ venue: 'Fixture Journal', subject: 'Testing', rank: 'example' }] });
+  const ranked = await searchProjectPapers('ranked-search', { query: 'x', pageSize: 2,
+    ranking: { scheme: 'custom', ranks: ['example'], unknown: 'exclude' } }, { search });
+  assert.equal(ranked.candidates.length, 1); assert.equal(ranked.nextOffset, 2);
+  assert.equal(ranked.sourceResults[0].received, 2);
+  assert.equal(ranked.rankingCoverage.catalogVersion, 1); assert.equal(ranked.rankingCoverage.total, 2);
+  assert.equal(ranked.candidates[0].rankings[0].provenance.label, 'Test fixture, not a real ranking');
+  assert.deepEqual((await loadPaperSearches('ranked-search')).sessions.find(item => item.id === before.id), before);
+  const unknown = await searchProjectPapers('ranked-search', { query: 'x', pageSize: 2,
+    ranking: { scheme: 'custom', unknown: 'only' } }, { search });
+  assert.deepEqual(unknown.candidates.map(item => item.id), ['paper-2']);
+});

@@ -1,18 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { importProjectPaper, listProjectPapers, type PaperLibraryRecord } from '../../api/projectAdapter';
 import { loadPaperSearches, searchProjectPapers, type PaperSearchHistory, type SearchCandidate, type SearchCriteria } from '../../api/paperSearchAdapter';
+export { matchPaper, findUniquePaper } from './paperIdentity';
 
 function errorMessage(cause: unknown) {
   const message = cause instanceof Error ? cause.message : String(cause);
   try { return JSON.parse(message).error?.message || message; } catch { return message; }
 }
-function arxivIdentity(value?: string) { return value?.replace(/v\d+$/, '').toLowerCase(); }
-export function matchPaper(paper: PaperLibraryRecord, candidate: SearchCandidate) {
-  if (candidate.doi && paper.doi?.toLowerCase() === candidate.doi.toLowerCase()) return true;
-  if (candidate.arxivId && arxivIdentity(paper.arxivId) === arxivIdentity(candidate.arxivId)) return true;
-  return !!candidate.url && candidate.url === paper.url;
-}
-
 export function usePaperSearch(projectId: string) {
   const [data, setData] = useState<PaperSearchHistory | null>(null);
   const [papers, setPapers] = useState<PaperLibraryRecord[]>([]);
@@ -59,12 +53,13 @@ export function usePaperSearch(projectId: string) {
         year: candidate.year, url: candidate.url, doi: candidate.doi, arxivId: candidate.arxivId, venue: candidate.venue,
         publicationType: candidate.publicationType, isOpenAccess: candidate.isOpenAccess, oaPdfUrl: candidate.oaPdfUrl,
         oaVersion: candidate.oaVersion, oaLicense: candidate.oaLicense, issns: candidate.issns,
-        source: { provider: candidate.source, url: candidate.url },
+        source: { provider: candidate.source, url: candidate.url }, searchSessionIds: candidate.searchSessionIds,
         sourceRecords: candidate.sourceRecords || [{ ...candidate.sourceRecord, provider: candidate.source, retrievedAt: candidate.retrievedAt }]
       });
       if (!mounted.current) return;
       setPapers(value => [...value.filter(paper => paper.id !== result.paper.id), result.paper]);
       setNotice(result.duplicate ? '文献已在资料库，来源信息已合并。' : '已加入文献库。');
+      return result.paper;
     } catch (cause) { if (mounted.current) setError(errorMessage(cause)); }
     finally { if (mounted.current) setSaving(null); }
   };

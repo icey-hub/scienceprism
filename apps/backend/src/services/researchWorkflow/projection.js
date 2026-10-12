@@ -56,6 +56,7 @@ export function toFrontendWorkflow(workflow) {
       queries: search.queries || [],
       count: papers.length,
       lastRunAt: search.lastRunAt || null,
+      searchSessionIds: Array.isArray(search.searchSessionIds) ? search.searchSessionIds : [],
       sources: search.sources || [],
       requestedSources: search.requestedSources || [],
       inclusionCriteria: search.aiSearchStrategy?.inclusionCriteria || [],

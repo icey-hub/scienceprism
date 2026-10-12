@@ -24,7 +24,7 @@
     "lib0": "^0.2.95",
     "lucide-react": "^0.468.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^3.11.174",
+    "pdfjs-dist": "6.4.299",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^14.1.3",

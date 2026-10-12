@@ -1,8 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { normalizePaper, paperKey, sourceCheckFor } from './paperNormalization.js';
 import { getEvidence, upsertEvidence } from '../evidenceLedger/index.js';
 import { createTask } from './taskCenter.js';
 import { clone, readHubJson, withHubLock, writeHubJson } from './repository.js';
+import { findMatchingPapers, mergeSourceRecords } from '../researchSources/candidateIdentity.js';
 
 const FILE = 'paper-library.json';
 const MAX_PAPERS = 5_000;
@@ -69,11 +70,47 @@ export function paperRevision(paper) {
   return paper ? createHash('sha256').update(JSON.stringify(paper)).digest('hex') : null;
 }
 
+export function paperAnnotationsRevision(annotations) {
+  return createHash('sha256').update(JSON.stringify(annotations || [])).digest('hex');
+}
+
+function assertAnnotationsRevision(annotations, expectedRevision) {
+  if (expectedRevision !== paperAnnotationsRevision(annotations)) {
+    const error = new Error('批注已经变化，请刷新后重试；你的笔记尚未被覆盖。');
+    error.code = 'ANNOTATION_CONFLICT';
+    error.statusCode = 409;
+    throw error;
+  }
+}
+
+export async function mutatePaperAnnotations(projectId, paperId, expectedRevision, change) {
+  return withHubLock(projectId, async () => {
+    const library = await readLibrary(projectId);
+    const paper = library.papers.find(item => item.id === paperId);
+    if (!paper) { const error = new Error('Paper not found.'); error.statusCode = 404; throw error; }
+    assertAnnotationsRevision(paper.annotations, expectedRevision);
+    paper.annotations = await change(clone(paper.annotations || []));
+    paper.updatedAt = now();
+    library.version += 1;
+    library.updatedAt = now();
+    await writeHubJson(projectId, FILE, library);
+    return { paper: clone(paper), libraryVersion: library.version };
+  });
+}
+
 export class PaperImportConflictError extends Error {
   constructor() {
     super('The library record changed after preview. Preview again before importing.');
     this.code = 'IMPORT_PREVIEW_STALE';
     this.statusCode = 409;
+  }
+}
+
+export class PaperIdentityConflictError extends PaperImportConflictError {
+  constructor() {
+    super();
+    this.message = 'The incoming identifiers match multiple library records. Review those records before importing.';
+    this.code = 'PAPER_IDENTITY_AMBIGUOUS';
   }
 }
 
@@ -89,9 +126,9 @@ export async function importPaper(projectId, input, { actor = 'human', confirmat
       const expected = confirmation.sourceMatches;
       if (matches.length !== expected.length || matches.some((paper) => !expected.some((match) => match.paperId === paper.id && match.revision === paperRevision(paper)))) throw new PaperImportConflictError();
     }
-    const existingIndex = confirmation?.paperId
-      ? library.papers.findIndex((paper) => paper.id === confirmation.paperId)
-      : library.papers.findIndex((paper) => paper.canonicalKey === candidate.canonicalKey);
+    const matches = findMatchingPapers(library.papers, candidate);
+    if (!confirmation?.paperId && matches.length > 1) throw new PaperIdentityConflictError();
+    const existingIndex = library.papers.findIndex(paper => paper.id === (confirmation?.paperId || matches[0]?.id));
     const existing = existingIndex >= 0 ? library.papers[existingIndex] : undefined;
     let selectedInput = input;
     if (confirmation) {
@@ -103,15 +140,25 @@ export async function importPaper(projectId, input, { actor = 'human', confirmat
         selectedInput.sourceRecords = input.sourceRecords;
       }
     }
-    // Legacy imports keep their existing merge behavior; confirmed previews
-    // supply only fields explicitly chosen by the human.
+    // Acquiring metadata cannot erase human reading work. Explicit preview
+    // decisions can replace selected bibliographic fields, including BibTeX.
+    if (existing && !confirmation) {
+      if (Array.isArray(selectedInput.annotations) && paperAnnotationsRevision(selectedInput.annotations) !== paperAnnotationsRevision(existing.annotations)) {
+        assertAnnotationsRevision(existing.annotations, selectedInput.expectedAnnotationsRevision);
+      }
+      selectedInput = { ...selectedInput };
+      for (const field of ['notes', 'annotations', 'bibtex', 'citationKey', 'tags', 'favorite', 'readingStatus', 'expectedAnnotationsRevision']) delete selectedInput[field];
+    }
     const paper = normalizePaper(existing ? selectedInput : { ...candidate, ...selectedInput }, { existing });
+    if (!existing && library.papers.some(item => item.id === paper.id)) paper.id = `paper-${randomUUID()}`;
+    paper.sourceRecords = mergeSourceRecords(existing?.sourceRecords || [], candidate.sourceRecords || [], input.sourceRecords || []);
+    paper.searchSessionIds = [...new Set([...(existing?.searchSessionIds || []), ...(Array.isArray(input.searchSessionIds) ? input.searchSessionIds.filter(value => typeof value === 'string') : []), ...paper.sourceRecords.map(record => record.searchSessionId).filter(Boolean)])];
     // Provider review receipts can only enter through server-owned confirmation.
     // Raw imports and ordinary edits retain existing receipts, never mint them.
     if (existing?.sourceReviews) paper.sourceReviews = clone(existing.sourceReviews);
     else delete paper.sourceReviews;
     if (confirmation?.sourceReview) paper.sourceReviews = [...(paper.sourceReviews || []), clone(confirmation.sourceReview)];
-    if (confirmation && library.papers.some((item) => item.id !== paper.id && item.canonicalKey === paper.canonicalKey)) throw new PaperImportConflictError();
+    if (confirmation && findMatchingPapers(library.papers.filter(item => item.id !== paper.id), paper).length) throw new PaperImportConflictError();
     paper.evidenceId = await ensurePaperEvidence(projectId, paper, actor);
     if (existingIndex >= 0) {
       library.papers[existingIndex] = paper;
@@ -141,7 +188,9 @@ export async function updatePaper(projectId, paperId, patch, { actor = 'human' }
     const library = await readLibrary(projectId);
     const index = library.papers.findIndex((paper) => paper.id === paperId);
     if (index < 0) throw new Error('Paper not found.');
+    if (Object.hasOwn(patch, 'annotations')) assertAnnotationsRevision(library.papers[index].annotations, patch.expectedAnnotationsRevision);
     const paper = normalizePaper({ ...patch, id: paperId }, { existing: library.papers[index] });
+    paper.sourceRecords = mergeSourceRecords(library.papers[index].sourceRecords || [], paper.sourceRecords || []);
     if (library.papers[index].sourceReviews) paper.sourceReviews = clone(library.papers[index].sourceReviews);
     else delete paper.sourceReviews;
     if (patch.runSourceCheck) paper.sourceCheck = sourceCheckFor(paper, library.papers[index].sourceCheck);

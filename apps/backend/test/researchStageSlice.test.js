@@ -93,6 +93,12 @@ test('Source Adapter merges duplicate paper entities and preserves metadata unce
   assert.equal(papers.length, 1);
   assert.equal(papers[0].sourceRecords.length, 2);
   assert.deepEqual(validatePaperMetadata(papers[0]).missing, []);
+  const sameTitle = mergePaperCandidates([
+    { title: 'Shared title', doi: '10.1234/first', source: 'crossref' },
+    { title: 'Shared title', doi: '10.1234/second', source: 'crossref' },
+    { title: 'Shared title', source: 'manual' }
+  ]);
+  assert.equal(sameTitle.length, 3, 'a shared title must never merge distinct or unknown identities');
 });
 
 test('direction to writing Brief vertical slice keeps approvals, Evidence, and editor artifact', async () => {

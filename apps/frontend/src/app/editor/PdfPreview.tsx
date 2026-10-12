@@ -1,10 +1,6 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GlobalWorkerOptions, getDocument, renderTextLayer } from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min?url';
-import 'pdfjs-dist/web/pdf_viewer.css';
-
-GlobalWorkerOptions.workerSrc = pdfWorker;
+import { loadPdf, renderPdfPage } from '../pdf/pdfRuntime';
 
 export interface PdfAnnotation {
   id: string;
@@ -43,15 +39,18 @@ export function PdfPreview({
   const localRef = useRef<HTMLDivElement | null>(null);
   const containerRef = externalRef || localRef;
 
+  const [renderRevision, setRenderRevision] = useState(0);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !pdfUrl) return;
     let cancelled = false;
     container.innerHTML = '';
+    const loadingTask = loadPdf(pdfUrl);
+    const renders: ReturnType<typeof renderPdfPage>[] = [];
 
     const render = async () => {
       try {
-        const loadingTask = getDocument({ url: pdfUrl, isEvalSupported: false });
         const pdf = await loadingTask.promise;
         const containerWidth = container.clientWidth - 24;
         const pageTargetWidth = spread ? Math.max(200, (containerWidth - 16) / 2) : containerWidth;
@@ -67,29 +66,11 @@ export function PdfPreview({
         }
 
         const renderPage = async (page: Awaited<ReturnType<typeof pdf.getPage>>) => {
-          const cssViewport = page.getViewport({ scale: baseScale });
-          const qualityBoost = Math.min(2.4, (window.devicePixelRatio || 1) * 1.25);
-          const renderViewport = page.getViewport({ scale: baseScale * qualityBoost });
           const pageWrapper = document.createElement('div');
           pageWrapper.className = 'pdf-page';
-          pageWrapper.style.width = `${cssViewport.width}px`;
-          pageWrapper.style.height = `${cssViewport.height}px`;
-          pageWrapper.dataset.pageNumber = String(page.pageNumber);
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = renderViewport.width;
-          canvas.height = renderViewport.height;
-          canvas.style.width = `${cssViewport.width}px`;
-          canvas.style.height = `${cssViewport.height}px`;
-          pageWrapper.appendChild(canvas);
-          const textLayer = document.createElement('div');
-          textLayer.className = 'textLayer';
-          textLayer.style.width = `${cssViewport.width}px`;
-          textLayer.style.height = `${cssViewport.height}px`;
-          pageWrapper.appendChild(textLayer);
-          if (ctx) await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-          const textContent = await page.getTextContent();
-          renderTextLayer({ textContentSource: textContent, container: textLayer, viewport: cssViewport });
+          const rendered = renderPdfPage(page, pageWrapper, baseScale);
+          renders.push(rendered);
+          await rendered.promise;
           return pageWrapper;
         };
 
@@ -102,6 +83,7 @@ export function PdfPreview({
           if (cancelled) return;
           wrappers.push(await renderPage(await pdf.getPage(pageNum)));
         }
+        if (cancelled) return;
         if (spread) {
           for (let idx = 0; idx < wrappers.length; idx += 2) {
             const row = document.createElement('div');
@@ -112,6 +94,7 @@ export function PdfPreview({
           }
         } else wrappers.forEach((wrapper) => container.appendChild(wrapper));
 
+        setRenderRevision(value => value + 1);
         if (onOutline) {
           try {
             const outline = await pdf.getOutline();
@@ -129,16 +112,17 @@ export function PdfPreview({
               }
             };
             await walk(outline || [], 1);
-            onOutline(items);
-          } catch { onOutline([]); }
+            if (!cancelled) onOutline(items);
+          } catch { if (!cancelled) onOutline([]); }
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('PDF render error:', err);
         container.innerHTML = `<div class="muted">${t('PDF 渲染失败')}</div>`;
       }
     };
     render().catch(() => { container.innerHTML = `<div class="muted">${t('PDF 渲染失败')}</div>`; });
-    return () => { cancelled = true; container.innerHTML = ''; };
+    return () => { cancelled = true; renders.forEach(item => item.cancel()); void loadingTask.destroy(); container.innerHTML = ''; };
   }, [containerRef, fitWidth, onFitScale, onOutline, pdfUrl, scale, spread, t]);
 
   useEffect(() => {
@@ -156,7 +140,7 @@ export function PdfPreview({
       marker.dataset.annotationId = note.id;
       pageEl.appendChild(marker);
     });
-  }, [annotations, containerRef, pdfUrl, spread]);
+  }, [annotations, containerRef, pdfUrl, spread, renderRevision]);
 
   return <div className={`pdf-preview ${annotateMode ? 'annotate' : ''}`} ref={containerRef} onClick={(event) => {
     const target = event.target as HTMLElement | null;

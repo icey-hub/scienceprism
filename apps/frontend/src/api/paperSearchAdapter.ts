@@ -1,13 +1,15 @@
+import type { PaperRanking, RankingFilter } from './paperRankingsAdapter';
 import { request } from './client';
 
 export interface SearchFilters { yearFrom: number | null; yearTo: number | null; publicationType: string; openAccessOnly: boolean }
-export interface SearchCriteria { query: string; sources: string[]; pageSize: number; offset: number; filters?: SearchFilters }
+export interface SearchCriteria { query: string; sources: string[]; pageSize: number; offset: number; filters?: SearchFilters; ranking?: RankingFilter }
 export interface SearchCandidate {
   id: string; title: string; authors?: string[]; abstract?: string; year?: number | null;
   url?: string; doi?: string; arxivId?: string; venue?: string; publicationType?: string;
-  source: string; retrievedAt?: string;
+  rankings?: PaperRanking[]; rankingStatus?: 'known' | 'unknown';
+  source: string; retrievedAt?: string; searchSessionIds?: string[];
   isOpenAccess?: boolean | null; oaPdfUrl?: string; oaVersion?: string; oaLicense?: string; issns?: string[];
-  sourceRecord?: { provider?: string; id?: string; retrievedAt?: string; externalVersion?: string | null };
+  sourceRecord?: { provider?: string; id?: string; retrievedAt?: string; externalVersion?: string | null; searchSessionId?: string };
   sourceRecords?: NonNullable<SearchCandidate['sourceRecord']>[];
 }
 export interface PaperSearchSession {
@@ -15,6 +17,7 @@ export interface PaperSearchSession {
   status: 'completed' | 'partial' | 'failed'; candidates: SearchCandidate[];
   failures: { source: string; code: string; message: string; retryable?: boolean }[];
   nextOffset: number | null;
+  rankingCoverage?: { total: number; matched: number; unmatched: number; returned: number; catalogCount: number; catalogVersion: number; unmatchedPapers: { id: string; venue: string; reason: string }[] };
   sourceResults?: { source: string; retrievedAt: string; total: number | null; filterMode: 'server' | 'batch'; received: number; matched: number }[];
 }
 export interface PaperSearchHistory {

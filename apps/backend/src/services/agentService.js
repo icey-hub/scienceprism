@@ -1,5 +1,4 @@
 import { applyPatch, createTwoFilesPatch } from 'diff';
-import { XMLParser } from 'fast-xml-parser';
 import { z } from 'zod';
 import { ChatOpenAI } from '@langchain/openai';
 import { DynamicStructuredTool } from '@langchain/core/tools';
@@ -18,6 +17,24 @@ import { readEnabledResearchSkillDocument } from './researchResearch/researchSki
 import { formatHarnessInput } from './harnessRuntime/contextPackager.js';
 import { readFileState, sameVersion } from './harnessRuntime/fileVersions.js';
 import { HarnessRuntimeError } from './harnessRuntime/errors.js';
+import { searchProjectPapers } from './paperSearch.js';
+import { searchSessionCandidates } from './researchSources/candidateIdentity.js';
+
+export function createArxivSearchTool({ projectId, capabilityPolicy, signal, search = searchProjectPapers }) {
+  return new DynamicStructuredTool({
+    name: 'arxiv_search',
+    description: 'Search arXiv through the project paper search. Returns papers and a saved searchSessionId. Input: { query, maxResults? }.',
+    schema: z.object({ query: z.string(), maxResults: z.number().nullish() }),
+    func: async ({ query, maxResults }) => {
+      assertCapability(capabilityPolicy, 'research.search');
+      assertNetworkHost(capabilityPolicy, 'https://export.arxiv.org/api/query');
+      signal?.throwIfAborted();
+      const session = await search(projectId, { query, sources: ['arxiv'], pageSize: Math.min(10, Math.max(1, Math.floor(maxResults || 5))) }, { signal });
+      signal?.throwIfAborted();
+      return JSON.stringify({ papers: searchSessionCandidates(session), searchSessionId: session.id, status: session.status, failures: session.failures });
+    }
+  });
+}
 
 /**
  * Builds the tool-agent model.
@@ -184,39 +201,7 @@ export async function runToolAgent({
     }
   });
 
-  const arxivSearchTool = new DynamicStructuredTool({
-    name: 'arxiv_search',
-    description: 'Search arXiv papers. Input: { query, maxResults? }.',
-    schema: z.object({ query: z.string(), maxResults: z.number().nullish() }),
-    func: async ({ query, maxResults }) => {
-      assertCapability(effectiveCapabilityPolicy, 'research.search');
-      const max = Math.min(10, Math.max(1, maxResults || 5));
-      const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&start=0&max_results=${max}`;
-      assertNetworkHost(effectiveCapabilityPolicy, url);
-      const res = await fetch(url, { headers: { 'User-Agent': 'scienceprism/1.0' }, signal });
-      if (!res.ok) {
-        throw new Error(`arXiv search failed: ${res.status}`);
-      }
-      const xml = await res.text();
-      const parser = new XMLParser({ ignoreAttributes: false });
-      const data = parser.parse(xml);
-      const entries = Array.isArray(data?.feed?.entry) ? data.feed.entry : data?.feed?.entry ? [data.feed.entry] : [];
-      const papers = entries.map((entry) => {
-        const authors = Array.isArray(entry.author) ? entry.author : [entry.author].filter(Boolean);
-        const authorNames = authors.map((a) => a?.name).filter(Boolean);
-        const id = String(entry.id || '');
-        const arxivId = id ? id.split('/').pop() : '';
-        return {
-          title: String(entry.title || '').replace(/\s+/g, ' ').trim(),
-          abstract: String(entry.summary || '').replace(/\s+/g, ' ').trim(),
-          authors: authorNames,
-          url: id,
-          arxivId
-        };
-      });
-      return JSON.stringify({ papers });
-    }
-  });
+  const arxivSearchTool = createArxivSearchTool({ projectId, capabilityPolicy: effectiveCapabilityPolicy, signal });
 
   const arxivBibtexTool = new DynamicStructuredTool({
     name: 'arxiv_bibtex',

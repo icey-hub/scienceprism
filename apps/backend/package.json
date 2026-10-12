@@ -20,6 +20,7 @@
     "diff": "^5.2.0",
     "fast-xml-parser": "^5.11.2",
     "fastify": "^4.26.2",
+    "https-proxy-agent": "7.0.6",
     "langchain": "~0.3.37",
     "lib0": "^0.2.95",
     "localtunnel": "^2.0.2",

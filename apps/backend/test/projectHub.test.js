@@ -7,7 +7,7 @@ import test from 'node:test';
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'scienceprism-phase-seven-'));
 process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 
-const { importPaper, listPapers, updatePaper } = await import('../src/services/projectHub/paperLibrary.js');
+const { importPaper, listPapers, updatePaper, paperAnnotationsRevision } = await import('../src/services/projectHub/paperLibrary.js');
 const { initializeProject, getProjectDashboard } = await import('../src/services/projectHub/dashboard.js');
 const { createTask, getTask, getTaskSummary, listTasks } = await import('../src/services/projectHub/taskCenter.js');
 const { getWritingQuality } = await import('../src/services/projectHub/writingQuality.js');
@@ -71,6 +71,7 @@ test('duplicate imports preserve human metadata omitted by the source', async ()
   const source = { title: 'Traceable paper', authors: ['A Researcher'], arxivId: '2401.01234v1', source: 'arxiv' };
   const first = await importPaper(projectId, source);
   const edited = await updatePaper(projectId, first.paper.id, {
+    expectedAnnotationsRevision: paperAnnotationsRevision(first.paper.annotations),
     notes: 'Human note', annotations: [{ id: 'annotation-stable', text: 'Keep quote', page: 3 }],
     tags: ['review'], favorite: true, readingStatus: 'reading', bibtex: '@article{humanKey}'
   });
@@ -79,10 +80,14 @@ test('duplicate imports preserve human metadata omitted by the source', async ()
   for (const key of ['id', 'evidenceId', 'notes', 'annotations', 'tags', 'favorite', 'readingStatus', 'bibtex', 'createdAt', 'importedAt']) {
     assert.deepEqual(merged.paper[key], edited.paper[key], key);
   }
-  const cleared = await importPaper(projectId, { ...source, notes: '', annotations: [], favorite: false });
-  assert.equal(cleared.paper.notes, '');
-  assert.deepEqual(cleared.paper.annotations, []);
-  assert.equal(cleared.paper.favorite, false);
+  await assert.rejects(importPaper(projectId, { ...source, notes: '', annotations: [], favorite: false }), { code: 'ANNOTATION_CONFLICT' });
+  const protectedImport = await importPaper(projectId, { ...source, notes: '', bibtex: '@article{source}', favorite: false });
+  assert.equal(protectedImport.paper.notes, 'Human note');
+  assert.deepEqual(protectedImport.paper.annotations, edited.paper.annotations);
+  assert.equal(protectedImport.paper.favorite, true);
+  assert.equal(protectedImport.paper.bibtex, '@article{humanKey}');
+  const roundTrip = await importPaper(projectId, structuredClone(protectedImport.paper));
+  assert.deepEqual(roundTrip.paper.annotations, edited.paper.annotations);
 });
 
 test('project initialization creates the first stage and dashboard projection', async () => {

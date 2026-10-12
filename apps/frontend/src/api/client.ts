@@ -127,7 +127,7 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
     ...getAuthHeader(),
     ...(options?.headers as Record<string, string> || {})
   };
-  if (options?.body) {
+  if (options?.body && !(options.body instanceof FormData)) {
     mergedHeaders['Content-Type'] = 'application/json';
   }
   const res = await fetch(`${API_BASE}${url}`, {
@@ -677,7 +677,8 @@ export interface PaperLibraryRecord {
   issns?: string[];
   year?: number | null;
   source?: { provider?: string | null; url?: string | null; path?: string | null };
-  sourceRecords?: { provider?: string; id?: string; retrievedAt?: string; externalVersion?: string | null }[];
+  searchSessionIds?: string[];
+  sourceRecords?: { searchSessionId?: string; provider?: string; id?: string; retrievedAt?: string; externalVersion?: string | null }[];
   sourceReviews?: PaperSourceReview[];
   evidenceId?: string | null;
   tags: string[];

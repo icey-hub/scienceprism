@@ -264,3 +264,15 @@ test('editor task creation rejects a saved-document mismatch before persisting a
   }), { code: 'DOCUMENT_VERSION_CONFLICT' });
   assert.deepEqual(await runtime.listHarnessRuns(id), []);
 });
+
+
+test('new bibliography creation is version-checked and cannot replace a concurrently created file', async t => {
+  const id = 'new-bibliography'; const root = await project(id);
+  const app = Fastify(); registerProjectRoutes(app); t.after(() => app.close());
+  const payload = { path: 'references.bib', content: '@article{kept, title={Existing entry}}\n', expectedVersion: { exists: false, sha256: null } };
+  const first = await app.inject({ method: 'PUT', url: `/api/projects/${id}/file`, payload });
+  assert.equal(first.statusCode, 200, first.body);
+  const conflict = await app.inject({ method: 'PUT', url: `/api/projects/${id}/file`, payload: { ...payload, content: '' } });
+  assert.equal(conflict.statusCode, 409);
+  assert.equal(await fs.readFile(path.join(root, 'references.bib'), 'utf8'), payload.content);
+});

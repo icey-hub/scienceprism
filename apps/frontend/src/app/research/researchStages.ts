@@ -59,6 +59,7 @@ export interface ResearchDirection {
 }
 
 export interface SearchRunSummary {
+  searchSessionIds?: string[];
   query: string;
   candidateCount: number;
   selectedCount: number;

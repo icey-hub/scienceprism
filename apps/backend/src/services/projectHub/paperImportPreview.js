@@ -3,6 +3,7 @@ import '@citation-js/plugin-bibtex';
 import { createHash } from 'node:crypto';
 import { importPaper, listPapers, paperRevision } from './paperLibrary.js';
 import { normalizePaper, sourceCheckFor } from './paperNormalization.js';
+import { findMatchingPapers } from '../researchSources/candidateIdentity.js';
 
 export class PaperImportPreviewError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -33,8 +34,7 @@ export async function previewPaperImport(projectId, { format = 'bibtex', text } 
     throw new PaperImportPreviewError('INVALID_BIBTEX', `Invalid BibTeX: ${error.message}`);
   }
   const papers = await listPapers(projectId, { limit: 5000 });
-  const existingByKey = new Map(papers.map((paper) => [paper.canonicalKey, paper]));
-  const batchByKey = new Map();
+  const earlierItems = [];
   const labels = new Set();
   const receivedAt = new Date().toISOString();
   const items = entries.map((entry, index) => {
@@ -55,8 +55,11 @@ export async function previewPaperImport(projectId, { format = 'bibtex', text } 
     };
     const fieldCheck = sourceCheckFor(input);
     const candidate = normalizePaper(input);
-    const existing = existingByKey.get(candidate.canonicalKey);
-    const earlier = batchByKey.get(candidate.canonicalKey);
+    const matches = findMatchingPapers(papers, candidate);
+    if (matches.length > 1) throw new PaperImportPreviewError('PAPER_IDENTITY_AMBIGUOUS', 'The incoming identifiers match multiple library records. Review those records before importing.', 409);
+    const existing = matches[0];
+    const earlierMatch = findMatchingPapers(earlierItems.map(item => item.candidate), candidate)[0];
+    const earlier = earlierItems.find(item => item.candidate === earlierMatch);
     const duplicates = [
       ...(existing ? [{ scope: 'project', paperId: existing.id }] : []),
       ...(earlier ? [{ scope: 'batch', index: earlier.index }] : [])
@@ -70,7 +73,7 @@ export async function previewPaperImport(projectId, { format = 'bibtex', text } 
     }
     const warnings = labels.has(entry.label) ? ['duplicate-citation-key'] : [];
     labels.add(entry.label);
-    if (!earlier) batchByKey.set(candidate.canonicalKey, { index, candidate });
+    earlierItems.push({ index, candidate });
     return { index, candidate, expectedRevision: paperRevision(existing), duplicates, conflicts, warnings, checks: {
       fields: { status: fieldCheck.issues.length ? 'incomplete' : 'complete', issues: fieldCheck.issues },
       source: { status: 'unverified', reason: 'Imported metadata has not been matched against an external source.' }

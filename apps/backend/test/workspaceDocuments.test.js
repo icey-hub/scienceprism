@@ -21,9 +21,39 @@ test('a concurrent document change aborts the standalone insertion without retry
  assert.equal(stored,'human edit');assert.equal(writes,1);
 });
 test('bibliography merging handles literal keys, repeated entries and existing empty files without rewriting duplicates',async()=>{
- const existing='@article{key+1, title={Keep human metadata}}\n';
- const result=mergeBibEntries(existing,['@article{key+1, title={Model rewrite}}','@article{new, title={Added}}','@article{new, title={Duplicate}}']);
- assert.deepEqual(result.keys,['key+1','new']);assert.match(result.content,/Keep human metadata/);assert.doesNotMatch(result.content,/Model rewrite|Duplicate/);assert.equal((result.content.match(/@article\{new/g)||[]).length,1);
- let writes=0;await updateProjectDocument(async()=>({content:existing,version:{exists:true,sha256:'same'}}),async()=>writes++,'references.bib',content=>mergeBibEntries(content,['@article{key+1, title={Do not replace}}']).content);assert.equal(writes,0);
+ const existing='@article{key+1,\n  title = {Keep human metadata}\n}\n';
+ const identical='@article{key+1,title={Keep human metadata}}';
+ const result=mergeBibEntries(existing,[identical,'@article{new, title={Added}}','@article{new, title={Added}}']);
+ assert.deepEqual(result.keys,['key+1','new']);assert.ok(result.content.startsWith(existing));assert.equal((result.content.match(/@article\{new/g)||[]).length,1);
+ let writes=0;await updateProjectDocument(async()=>({content:existing,version:{exists:true,sha256:'same'}}),async()=>writes++,'references.bib',content=>mergeBibEntries(content,[identical]).content);assert.equal(writes,0);
  assert.throws(()=>mergeBibEntries('', ['broken model output']),/BibTeX/);
+});
+
+test('same citation key with another DOI or metadata aborts before any file write',async()=>{
+ const existing='@article{smith2024, title={Human title}, doi={10.1000/old}}\n';
+ let writes=0;
+ for(const incoming of [
+  '@article{smith2024, title={Another paper}, doi={10.1000/new}}',
+  '@article{smith2024, title={Model changed metadata}, doi={10.1000/old}}',
+  '@article{smith2024, title={Human title}, doi={10.1000/old}, author={Added author}}'
+ ]) await assert.rejects(updateProjectDocument(async()=>({content:existing,version:{exists:true,sha256:'same'}}),async()=>writes++,'references.bib',content=>mergeBibEntries(content,[incoming]).content),/引用键.*smith2024.*不同/);
+ assert.equal(writes,0);
+ assert.throws(()=>mergeBibEntries('', ['@article{new,title={First}}','@article{new,title={Second}}']),/引用键.*不同/);
+ assert.throws(()=>mergeBibEntries(existing+existing.replace('Human title','Conflicting duplicate'),[existing.trim()]),/引用键.*不同/);
+});
+
+test('full-entry comparison respects nested braces, quotes, comments, TeX commands and word boundaries',()=>{
+ const entries=[
+  String.raw`@article{tex, title={A {Nested} title with \nu and \newcommand{\name}{value}}}`,
+  '@article{quoted,title="Quoted {value} with @ inside"}',
+  '@book(paren,title={Parenthesized entry})',
+  '@article{nested,title={Literal @article{fake, title={Text}}}}'
+ ];
+ const existing='% @article{tex, title={Only a comment}}\n@comment{An unmatched " is comment text}\n'+entries.join('\n')+'\n';
+ const result=mergeBibEntries(existing,entries);
+ assert.equal(result.content,existing);
+ assert.match(mergeBibEntries('',[entries[0]]).content,/\\nu and \\newcommand/);
+ assert.throws(()=>mergeBibEntries('@article{key,title={New York}}',['@article{key,title={NewYork}}']),/引用键.*不同/);
+ assert.throws(()=>mergeBibEntries('@article{broken,title={Missing close}',['@article{new,title={Fine}}']),/未闭合/);
+ assert.throws(()=>mergeBibEntries('', ['@article{one,title={One}} @article{two,title={Two}}']),/一条完整/);
 });
