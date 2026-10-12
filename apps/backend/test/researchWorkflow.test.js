@@ -270,3 +270,21 @@ test('the writing gate rejects claims that carry no Evidence even when ready is 
   stage.data = { ready: true, claims: [] };
   assert.equal(getStageReadiness(workflow, 'writing').ready, true);
 });
+
+test('workflow HTTP projection preserves unavailable saved Skill bindings separately from effective runtime bindings', async t => {
+  const projectId = 'workflow-uninstalled-skill';
+  const root = path.join(dataDir, projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, 'project.json'), '{}');
+  const workflow = createWorkflowDocument(projectId);
+  workflow.skillBindings = { writing: ['uninstalled-skill'], ideation: [] };
+  await writeFile(path.join(root, '.scienceprism/research-workflow.json'), JSON.stringify(workflow));
+  const app = Fastify(); registerResearchWorkflowRoutes(app); t.after(() => app.close());
+  const response = await app.inject({ method: 'GET', url: `/api/projects/${projectId}/research-workflow` });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json().workflow.skillBindings, workflow.skillBindings);
+  const effective = await app.inject({ method: 'GET', url: `/api/projects/${projectId}/research-workflow/skills` });
+  assert.equal(effective.statusCode, 200);
+  assert.deepEqual(effective.json().bindings.writing, []);
+  assert.deepEqual(effective.json().bindings.ideation, []);
+});

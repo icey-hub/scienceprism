@@ -8,6 +8,7 @@ import { isBundledSkillPath } from '../researchResearch/researchSkills.js';
 
 const MAX_PATCH_FILE_BYTES = 1024 * 1024;
 const IGNORED_FILES = new Set(['project.json', '.compile']);
+const isSkillSource = relative => ['.agents/skills', '.dsh/skills'].some(base => relative === base || relative.startsWith(`${base}/`));
 
 function toPosix(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -20,6 +21,7 @@ export async function collectFiles(root, relative = '') {
   for (const entry of entries) {
     if (IGNORED_FILES.has(entry.name) || isSensitivePath(entry.name)) continue;
     const child = path.join(relative, entry.name);
+    if (isSkillSource(toPosix(child))) continue;
     if (entry.isDirectory()) files.push(...await collectFiles(root, child));
     else if (entry.isFile()) files.push(toPosix(child));
   }
@@ -42,7 +44,7 @@ export async function copyWorkspace(sourceRoot, targetRoot, policy = {}) {
       const relative = toPosix(path.relative(sourceRoot, source));
       if (!relative) return true;
       const name = path.basename(source);
-      if (IGNORED_FILES.has(name) || isSensitivePath(relative)) return false;
+      if (IGNORED_FILES.has(name) || isSensitivePath(relative) || isSkillSource(relative)) return false;
       if (!hasPathScope) return true;
       return isPathAllowed(relative, policy) || allowedPaths.some((allowedPath) => allowedPath.startsWith(`${relative}/`));
     }
@@ -75,6 +77,7 @@ export async function collectPatches(snapshot, workspaceRoot, policy, excludedPa
   const patches = [];
 
   for (const relativePath of allPaths) {
+    if (isSkillSource(relativePath)) continue;
     if (isBundledSkillPath(relativePath, excludedPaths)) continue;
     if (!isPathAllowed(relativePath, policy, { operation: 'patch' })) continue;
     const original = originalSet.has(relativePath) ? snapshot.get(relativePath) : '';

@@ -16,8 +16,8 @@ async function project(id) {
   await writeFile(path.join(root, 'project.json'), JSON.stringify({ id }));
   return root;
 }
-async function skill(root, name, stages = '', body = 'Actual skill body') {
-  const folder = path.join(root, '.dsh/skills', name);
+async function skill(root, name, stages = '', body = 'Actual skill body', base = '.dsh/skills') {
+  const folder = path.join(root, base, name);
   await mkdir(folder, { recursive: true });
   await writeFile(path.join(folder, 'SKILL.md'), `---\nname: ${name}\ndescription: A useful text skill for manuscript checks.\n${stages}---\n${body}`);
   return folder;
@@ -36,6 +36,25 @@ test('generic text skills are discoverable and readable but never automatically 
   assert.ok(research.some(s => s.name === 'stage-text'));
   assert.match(await readEnabledSkillDocument({ projectId: 'generic', name: 'plain-text', enabledSkillNames: ['plain-text'] }), /Actual skill body/);
   await assert.rejects(readEnabledSkillDocument({ projectId: 'generic', name: 'plain-text' }), /not enabled/);
+});
+
+test('managed skills share the catalog owner and override legacy sources without silent fallback', async () => {
+  const root = await project('managed');
+  await skill(root, 'research-writing', 'stages: [writing]\n', 'Legacy body');
+  const folder = await skill(root, 'research-writing', '', 'Installed standard Skill', '.agents/skills');
+  await writeFile(path.join(folder, 'guide.md'), 'Read this reference on demand.');
+  const args = { projectId: 'managed', name: 'research-writing', enabledSkillNames: ['research-writing'] };
+  const catalog = await listSkillCatalog({ projectId: 'managed' });
+  const item = catalog.skills.find(s => s.name === 'research-writing');
+  assert.equal(item.relativePath, '.agents/skills/research-writing/SKILL.md');
+  assert.equal(item.shadowedPath, '.dsh/skills/research-writing/SKILL.md');
+  assert.deepEqual(item.stages, []);
+  assert.match(await readEnabledSkillDocument(args), /Installed standard Skill/);
+  assert.match(await readEnabledSkillDocument({ ...args, file: 'guide.md' }), /on demand/);
+  await assert.rejects(readEnabledSkillDocument({ ...args, capabilityPolicy: { granted: ['project.read'], allowedPaths: ['.dsh/skills'] } }), /path denied/);
+  await writeFile(path.join(folder, 'SKILL.md'), 'broken managed definition');
+  await assert.rejects(readEnabledSkillDocument(args), /INVALID_METADATA/);
+  assert.equal((await listSkillCatalog({ projectId: 'managed' })).skills.find(s => s.name === 'research-writing').available, false);
 });
 
 test('missing, malformed and invalid-stage definitions report reasons instead of disappearing', async () => {

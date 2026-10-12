@@ -10,7 +10,7 @@ export const DEFAULT_CONTEXT_TOKEN_BUDGET = 12_000;
 const MAX_CONTEXT_FILE_BYTES = 512 * 1024;
 const MAX_CONTEXT_FILE_CANDIDATES = 80;
 const IGNORED_CONTEXT_FILES = new Set(['project.json', '.compile']);
-const IGNORED_CONTEXT_PREFIXES = ['.dsh/skills/'];
+const IGNORED_CONTEXT_PREFIXES = ['.dsh/skills/', '.agents/skills/'];
 const MAX_EVIDENCE_ITEMS = 80;
 const MAX_DECISIONS = 40;
 const MAX_HISTORY_ITEMS = 8;
@@ -471,11 +471,12 @@ function truncateToBudget(pack, budget) {
 /** Build the exact, constrained context that a Harness Adapter receives. */
 export async function buildContextPack({ projectId, projectRoot: providedRoot, request = {}, policy = {}, constraints = {}, workflow: providedWorkflow } = {}) {
   const projectRoot = providedRoot || await getProjectRoot(projectId);
-  const workflow = providedWorkflow || await readWorkflow(projectRoot);
-  const ledgerResult = await readJsonIfExists(projectRoot, [
+  const canReadProject = policy.granted?.includes('project.read');
+  const workflow = canReadProject ? providedWorkflow || await readWorkflow(projectRoot) : null;
+  const ledgerResult = canReadProject ? await readJsonIfExists(projectRoot, [
     path.join('.scienceprism', 'evidence-ledger.json'),
     path.join('.scienceprism', 'evidence.json')
-  ]);
+  ]) : { value: null };
   const ledger = Array.isArray(ledgerResult.value) ? ledgerResult.value : ledgerResult.value?.entries;
   const ledgerRelations = Array.isArray(ledgerResult.value?.relations)
     ? ledgerResult.value.relations
@@ -496,8 +497,8 @@ export async function buildContextPack({ projectId, projectRoot: providedRoot, r
   const stage = normalizeStage(request.stage);
   const requested = getPriorityPathItems(request.contextFiles || request.files);
   const configuredPriority = getPriorityPathItems(constraints.contextFilePriority || constraints.filePriority);
-  const available = await listFiles(projectRoot);
-  const candidatePaths = [...new Set([
+  const available = canReadProject ? await listFiles(projectRoot) : [];
+  const candidatePaths = canReadProject ? [...new Set([
     ...requested.map((item) => item.path),
     request.activePath,
     ...available
@@ -507,7 +508,7 @@ export async function buildContextPack({ projectId, projectRoot: providedRoot, r
       const rightPriority = filePriority(right, { activePath: request.activePath, requested, configuredPriority, stage }).score;
       return rightPriority - leftPriority || left.localeCompare(right);
     })
-    .slice(0, MAX_CONTEXT_FILE_CANDIDATES);
+    .slice(0, MAX_CONTEXT_FILE_CANDIDATES) : [];
   const fileCandidates = (await Promise.all(candidatePaths.map((filePath) => createFileCandidate(projectRoot, filePath, {
     policy,
     requested,

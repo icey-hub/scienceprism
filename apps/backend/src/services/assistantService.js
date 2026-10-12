@@ -99,7 +99,7 @@ export async function startAssistantRun(projectId, input = {}, overrides = {}) {
       llmConfig: { ...request.llmConfig, apiKey: input.llmConfig?.apiKey },
       adapter: request.llmConfig.runtime === 'deepseek-harness' ? 'deepseek' : 'legacy',
       role: 'project-agent',
-      capabilities: permission === 'read' ? ['project.read'] : ['project.read', 'patch.propose'],
+      capabilities: request.task === 'skill_recommendation' ? [] : permission === 'read' ? ['project.read'] : ['project.read', 'patch.propose'],
       fallback: true,
       ...overrides
     });

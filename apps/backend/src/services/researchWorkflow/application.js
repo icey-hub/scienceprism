@@ -335,13 +335,13 @@ export async function recoverFromRequest(projectId, body, actor) {
 }
 
 export async function getSkillsProjection(projectId) {
-  const [catalog, bindings] = await Promise.all([listResearchSkills({ projectId }), getResearchSkillBindings(projectId)]);
+  const [catalog, bindings] = await Promise.all([listResearchSkills({ projectId, includeGeneric: true }), getResearchSkillBindings(projectId)]);
   return { skills: catalog, bindings: resolveResearchSkillBindings(bindings, catalog) };
 }
 
 export async function updateSkillsFromRequest(projectId, body, actor) {
   if (!Object.prototype.hasOwnProperty.call(body, 'bindings')) throw new ResearchWorkflowError(400, 'MISSING_SKILL_BINDINGS', 'Provide a bindings object.');
-  const [catalog, currentBindings] = await Promise.all([listResearchSkills({ projectId }), getResearchSkillBindings(projectId)]);
+  const [catalog, currentBindings] = await Promise.all([listResearchSkills({ projectId, includeGeneric: true }), getResearchSkillBindings(projectId)]);
   let requestedBindings;
   try { requestedBindings = validateResearchSkillBindings(body.bindings, catalog); }
   catch (error) { throw new ResearchWorkflowError(400, 'INVALID_SKILL_BINDINGS', error instanceof Error ? error.message : 'Invalid skill bindings.'); }

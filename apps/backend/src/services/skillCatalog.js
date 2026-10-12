@@ -162,7 +162,7 @@ function unavailable(code) {
   return error;
 }
 
-async function readDocument(root, name, file, capabilityPolicy, source) {
+async function readDocument(root, name, file, capabilityPolicy, source, base = '.dsh/skills') {
   if (!SKILL_NAME_PATTERN.test(name)) throw unavailable('INVALID_NAME');
   const relativeFile = String(file || 'SKILL.md').replace(/\\/g, '/');
   if (!relativeFile.endsWith('.md') || path.posix.isAbsolute(relativeFile) || /[\x00-\x1f:]/.test(relativeFile) || relativeFile.split('/').some((part) => !part || part === '.' || part === '..')) {
@@ -170,10 +170,10 @@ async function readDocument(root, name, file, capabilityPolicy, source) {
   }
   if (capabilityPolicy) assertCapability(capabilityPolicy, 'project.read');
   if (source === 'project' && capabilityPolicy) {
-    assertProjectPath(path.posix.join('.dsh', 'skills', name, relativeFile), capabilityPolicy, { operation: 'read' });
+    assertProjectPath(path.posix.join(base, name, relativeFile), capabilityPolicy, { operation: 'read' });
   }
   const rootReal = await fs.realpath(root);
-  const folder = path.join(root, '.dsh', 'skills', name);
+  const folder = path.join(root, base, name);
   const folderReal = await fs.realpath(folder);
   if (!folderReal.startsWith(`${rootReal}${path.sep}`)) throw unavailable('PATH_ESCAPE');
   const fileReal = await fs.realpath(path.join(folder, relativeFile));
@@ -183,9 +183,9 @@ async function readDocument(root, name, file, capabilityPolicy, source) {
   return fs.readFile(fileReal, 'utf8');
 }
 
-async function scan(root, source, capabilityPolicy) {
+async function scan(root, source, capabilityPolicy, base = '.dsh/skills', names) {
   let entries;
-  const folder = path.join(root, '.dsh', 'skills');
+  const folder = path.join(root, base);
   try { entries = await fs.readdir(folder, { withFileTypes: true }); }
   catch (error) {
     if (error.code === 'ENOENT') return [];
@@ -193,10 +193,11 @@ async function scan(root, source, capabilityPolicy) {
   }
   const skills = [];
   for (const entry of entries) {
+    if (names && !names.includes(entry.name)) continue;
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    const skill = { name: entry.name, description: '', stages: [], source, relativePath: path.posix.join('.dsh', 'skills', entry.name, 'SKILL.md'), available: false, reason: null };
+    const skill = { name: entry.name, description: '', stages: [], source, relativePath: path.posix.join(base, entry.name, 'SKILL.md'), available: false, reason: null };
     try {
-      const metadata = parseSkillFrontmatter(await readDocument(root, entry.name, 'SKILL.md', capabilityPolicy, source));
+      const metadata = parseSkillFrontmatter(await readDocument(root, entry.name, 'SKILL.md', capabilityPolicy, source, base));
       if (!metadata || metadata.name !== entry.name) throw unavailable('INVALID_METADATA');
       Object.assign(skill, metadata, { available: true });
     } catch (error) {
@@ -210,29 +211,33 @@ async function scan(root, source, capabilityPolicy) {
 }
 
 /** Metadata only. A project definition shadows its built-in even when invalid. */
-export async function listSkillCatalog({ projectId, projectRoot, capabilityPolicy } = {}) {
+export async function listSkillCatalog({ projectId, projectRoot, capabilityPolicy, names } = {}) {
   const root = projectRoot || (projectId ? await getProjectRoot(projectId) : null);
-  const [bundled, local] = await Promise.all([
-    scan(REPO_ROOT, 'built-in', capabilityPolicy), root ? scan(root, 'project', capabilityPolicy) : []
+  const [bundled, local, managed] = await Promise.all([
+    scan(REPO_ROOT, 'built-in', capabilityPolicy, '.dsh/skills', names), root ? scan(root, 'project', capabilityPolicy, '.dsh/skills', names) : [],
+    root ? scan(root, 'project', capabilityPolicy, '.agents/skills', names) : []
   ]);
   const byName = new Map(bundled.map((skill) => [skill.name, skill]));
-  for (const skill of local) {
-    if (byName.has(skill.name)) skill.shadows = 'built-in';
+  for (const skill of [...local, ...managed]) {
+    const previous = byName.get(skill.name);
+    if (previous?.source === 'built-in' || previous?.shadows === 'built-in') skill.shadows = 'built-in';
+    if (previous) skill.shadowedPath = previous.relativePath;
     byName.set(skill.name, skill);
   }
   return { skills: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
 /** On-demand Markdown only; selection never grants new execution capabilities. */
-export async function readEnabledSkillDocument({ projectId, enabledSkillNames = [], name, file = 'SKILL.md', capabilityPolicy } = {}) {
+export async function readEnabledSkillDocument({ projectId, enabledSkillNames = [], name, file = 'SKILL.md', capabilityPolicy, fullDocument = false } = {}) {
   if (!projectId || !uniqueStrings(enabledSkillNames).includes(name)) throw new Error('Skill is not enabled for this Run.');
-  const { skills } = await listSkillCatalog({ projectId, capabilityPolicy });
+  const { skills } = await listSkillCatalog({ projectId, capabilityPolicy, names: [name] });
   const skill = skills.find((item) => item.name === name);
   if (!skill?.available) {
     if (skill?.reason === 'PERMISSION_DENIED') throw new Error('Harness path denied for Skill.');
     throw new Error(`Skill is unavailable: ${skill?.reason || 'NOT_FOUND'}`);
   }
   const root = skill.source === 'project' ? await getProjectRoot(projectId) : REPO_ROOT;
-  const content = await readDocument(root, name, file, capabilityPolicy, skill.source);
-  return content.length > 40_000 ? `${content.slice(0, 40_000)}\n\n[Skill document truncated after 40,000 characters]` : content;
+  const base = skill.relativePath.startsWith('.agents/skills/') ? '.agents/skills' : '.dsh/skills';
+  const content = await readDocument(root, name, file, capabilityPolicy, skill.source, base);
+  return !fullDocument && content.length > 40_000 ? `${content.slice(0, 40_000)}\n\n[Skill document truncated after 40,000 characters]` : content;
 }

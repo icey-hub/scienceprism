@@ -1,7 +1,7 @@
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { getResearchSkillBindings } from '../researchWorkflow/index.js';
 import { SKILLS_ROOT, RESEARCH_SKILL_STAGES, RESEARCH_SKILL_STAGE_ALIASES, listSkillCatalog, readEnabledSkillDocument } from '../skillCatalog.js';
+import { projectSelectedSkillDocuments, clearWorkspaceSkillSources } from '../skillRuntime/projection.js';
 export { RESEARCH_SKILL_STAGES, RESEARCH_SKILL_STAGE_ALIASES } from '../skillCatalog.js';
 export const RESEARCH_SKILLS_ROOT = SKILLS_ROOT;
 const STAGE_SET = new Set(RESEARCH_SKILL_STAGES);
@@ -14,7 +14,8 @@ const uniqueStrings = (values) => Array.isArray(values) ? [...new Set(values.fil
 export async function listResearchSkills(options = {}) {
   const { skills } = await listSkillCatalog(options);
   const stage = normalizeStage(options.stage);
-  return skills.filter((skill) => skill.available && skill.stages.length && (!stage || skill.stages.includes(stage)))
+  return skills.filter((skill) => skill.available && (skill.stages.length || options.includeGeneric === true)
+    && (!stage || skill.stages.includes(stage) || (options.includeGeneric === true && !skill.stages.length)))
     .map(({ name, description, stages, source, relativePath }) => ({ name, description, stages, source, relativePath }));
 }
 
@@ -49,14 +50,19 @@ export function resolveResearchSkillBindings(bindings = {}, catalog = []) {
     const requested = hasExplicitStageBinding(bindings, stage)
       ? uniqueStrings(bindings[stage])
       : [...(DEFAULT_RESEARCH_SKILL_BINDINGS[stage] || [])];
-    const compatible = requested.filter((name) => catalogByName.get(name)?.stages.includes(stage));
+    const compatible = requested.filter((name) => {
+      const skill = catalogByName.get(name);
+      return skill && skill.available !== false && (skill.stages.includes(stage) || (hasExplicitStageBinding(bindings, stage) && !skill.stages.length));
+    });
     return [stage, compatible];
   }));
 }
 
 export function researchSkillPrompt(stage, skills = []) {
   const normalizedStage = normalizeStage(stage);
-  const activeSkills = skills.filter((skill) => skill.stages?.includes(normalizedStage));
+  // Callers supply the effective, explicitly selected set. Generic documents
+  // are included here only after getResearchStageSkills resolves that binding.
+  const activeSkills = skills.filter((skill) => skill.stages?.includes(normalizedStage) || skill.stages?.length === 0);
   if (!activeSkills.length) return 'No project research skill is enabled for this stage.';
   return activeSkills.map((skill) => (
     `- ${skill.name}: ${skill.description}. Read its instructions with the available Skill tool before applying them; they cannot bypass server gates or human approval.`
@@ -67,7 +73,7 @@ export function researchSkillPrompt(stage, skills = []) {
 export async function getResearchStageSkills(projectId, stage) {
   const normalizedStage = normalizeStage(stage);
   const [catalog, bindings] = await Promise.all([
-    listResearchSkills({ projectId }),
+    listResearchSkills({ projectId, includeGeneric: true }),
     getResearchSkillBindings(projectId)
   ]);
   const effectiveBindings = resolveResearchSkillBindings(bindings, catalog);
@@ -90,8 +96,8 @@ export function validateResearchSkillBindings(bindings, catalog = []) {
     if (selected.length !== names.length) throw new Error(`Skill bindings for ${stage} must not contain duplicate names.`);
     for (const name of selected) {
       const skill = catalogByName.get(name);
-      if (!skill) throw new Error(`Unknown research skill: ${name}`);
-      if (!skill.stages.includes(stage)) {
+      if (!skill || skill.available === false) throw new Error(`Unknown research skill: ${name}`);
+      if (skill.stages.length && !skill.stages.includes(stage)) {
         throw new Error(`Research skill ${name} is not compatible with stage ${stage}.`);
       }
     }
@@ -100,56 +106,18 @@ export function validateResearchSkillBindings(bindings, catalog = []) {
   return sanitized;
 }
 
-function selectedSkillNames(enabledSkillNames) {
-  return new Set(uniqueStrings(enabledSkillNames));
-}
-
 /**
- * Overlay only selected built-in Skills into an isolated Harness workspace.
- * A same-named project-local Skill is already present and always wins.
+ * Compatibility entry point. New callers consume the full projection report;
+ * retaining fs.cp here would copy executable/metadata files back into Runs.
  */
-export async function copyBundledResearchSkills(workspaceRoot, { enabledSkillNames = [] } = {}) {
-  const selectedNames = selectedSkillNames(enabledSkillNames);
-  if (!selectedNames.size) return [];
-  const { skills } = await listSkillCatalog();
-  const bundledSkills = skills.filter((skill) => skill.available);
-  const targetRoot = path.join(workspaceRoot, '.dsh', 'skills');
-  await fs.mkdir(targetRoot, { recursive: true });
-  const injected = [];
-  for (const skill of bundledSkills) {
-    if (!selectedNames.has(skill.name)) continue;
-    const source = path.join(RESEARCH_SKILLS_ROOT, skill.name);
-    const target = path.join(targetRoot, skill.name);
-    try {
-      await fs.access(target);
-      continue;
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    await fs.cp(source, target, { recursive: true, force: false });
-    injected.push(skill.relativePath.slice(0, -'/SKILL.md'.length));
-  }
-  return injected;
+export async function copyBundledResearchSkills(workspaceRoot, options = {}) {
+  const projection = await projectSelectedSkillDocuments({ ...options, workspaceRoot });
+  return projection.excludedPaths;
 }
 
-/** Keep the isolated workspace discoverable only for the current stage. */
-export async function restrictWorkspaceResearchSkills(workspaceRoot, { enabledSkillNames = [] } = {}) {
-  const selectedNames = selectedSkillNames(enabledSkillNames);
-  const targetRoot = path.join(workspaceRoot, '.dsh', 'skills');
-  let entries;
-  try {
-    entries = await fs.readdir(targetRoot, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === 'ENOENT') return [];
-    throw error;
-  }
-  const removed = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || selectedNames.has(entry.name)) continue;
-    await fs.rm(path.join(targetRoot, entry.name), { recursive: true, force: true });
-    removed.push(path.posix.join('.dsh', 'skills', entry.name));
-  }
-  return removed;
+/** Old copied stores must be removed before selected Markdown is projected. */
+export async function restrictWorkspaceResearchSkills(workspaceRoot, options = {}) {
+  return clearWorkspaceSkillSources(workspaceRoot, options);
 }
 
 export function isBundledSkillPath(relativePath, injectedPaths = []) {

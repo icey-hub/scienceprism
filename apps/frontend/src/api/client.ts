@@ -452,6 +452,9 @@ export function getProjectExploration(projectId: string, query: Record<string,st
 }
 export interface HarnessRun {
   id: string;
+  kind?: 'codex-worker';
+  sessionId?: string;
+  output?: { codex?: { threadId: string; turnId: string | null }; proposalOwnerRunId?: string };
   projectId: string;
   parentRunId?: string | null;
   delegationTask?: string | null;
@@ -1298,7 +1301,7 @@ export function updateResearchWorkflowSkillBindings(
     bindings: Partial<Record<HarnessResearchStageId, string[]>>;
   }>(`/api/projects/${projectId}/research-workflow/skills/bindings`, {
     method: 'PUT',
-    body: JSON.stringify({ bindings, ...(note ? { note } : {}), ...(concurrency || {}) })
+    body: JSON.stringify({ bindings, actor: 'human', ...(note ? { note } : {}), ...(concurrency || {}) })
   });
 }
 
