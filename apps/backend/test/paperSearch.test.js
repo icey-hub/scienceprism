@@ -69,3 +69,13 @@ test('HTTP search returns actionable validation and persistent project-scoped se
   assert.equal(history.json().projectName, 'Empty research project');
   assert.equal((await app.inject('/api/projects/missing/paper-search')).statusCode, 404);
 });
+
+test('batch filtering keeps pagination based on fetched records and does not call missing metadata a match', async () => {
+  await project('filters');
+  const session = await searchProjectPapers('filters', { query: 'x', pageSize: 2, filters: { yearFrom: 2024, openAccessOnly: true } }, { search: async () => ({
+    batches: [{ source: 'arxiv', candidates: [{ ...candidate(1), year: 2024, isOpenAccess: true }, { ...candidate(2), year: null }, { ...candidate(3), year: 2025, isOpenAccess: true }] }], failures: []
+  }) });
+  assert.equal(session.candidates.length, 1); assert.equal(session.nextOffset, 2);
+  assert.equal(session.sourceResults[0].filterMode, 'batch'); assert.equal(session.sourceResults[0].total, null);
+  for (const filters of [{ yearFrom: 2025, yearTo: 2020 }, { yearFrom: '2024' }, { hidden: true }, { publicationType: 'unknown' }]) assert.throws(() => normalizeSearchInput({ query: 'x', filters }), { code: 'INVALID_SEARCH' });
+});

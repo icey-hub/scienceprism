@@ -15,6 +15,9 @@
 .project-hub-shell .paper-search-filters label{display:flex;align-items:center;gap:7px}
 .project-hub-shell .paper-search-filters input{accent-color:#4d5c78}
 .project-hub-shell .paper-search-filters select{border:0;border-radius:4px;background:transparent;color:#454c58;padding:4px;font:inherit}
+.project-hub-shell .paper-search-detail-filters input[type=number]{width:66px;background:#fff;border:1px solid #e1e4e9;border-radius:4px;padding:5px;color:#454c58;font:inherit}
+.project-hub-shell .paper-search-detail-filters small{flex-basis:100%;font-size:11px;color:#88909d;line-height:1.6}
+.project-hub-shell .paper-search-source-status{font-size:11px;color:#858e9c;line-height:1.7;margin:0 0 16px}
 .project-hub-shell .paper-search-body{display:grid;grid-template-columns:minmax(0,1fr) 215px;gap:34px}
 .project-hub-shell .paper-search-results-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
 .project-hub-shell .paper-search-results-heading h2,.project-hub-shell .paper-search-history h2{font-size:13px;font-weight:600;margin:0}

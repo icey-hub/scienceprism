@@ -57,8 +57,10 @@ export function usePaperSearch(projectId: string) {
       const { result } = await importProjectPaper(projectId, {
         title: candidate.title, authors: candidate.authors, abstract: candidate.abstract,
         year: candidate.year, url: candidate.url, doi: candidate.doi, arxivId: candidate.arxivId, venue: candidate.venue,
+        publicationType: candidate.publicationType, isOpenAccess: candidate.isOpenAccess, oaPdfUrl: candidate.oaPdfUrl,
+        oaVersion: candidate.oaVersion, oaLicense: candidate.oaLicense, issns: candidate.issns,
         source: { provider: candidate.source, url: candidate.url },
-        sourceRecords: [{ ...candidate.sourceRecord, provider: candidate.source, retrievedAt: candidate.retrievedAt }]
+        sourceRecords: candidate.sourceRecords || [{ ...candidate.sourceRecord, provider: candidate.source, retrievedAt: candidate.retrievedAt }]
       });
       if (!mounted.current) return;
       setPapers(value => [...value.filter(paper => paper.id !== result.paper.id), result.paper]);

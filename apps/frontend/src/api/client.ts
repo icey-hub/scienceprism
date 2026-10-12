@@ -669,6 +669,12 @@ export interface PaperLibraryRecord {
   doi?: string;
   arxivId?: string;
   venue?: string;
+  publicationType?: string;
+  isOpenAccess?: boolean | null;
+  oaPdfUrl?: string;
+  oaVersion?: string;
+  oaLicense?: string;
+  issns?: string[];
   year?: number | null;
   source?: { provider?: string | null; url?: string | null; path?: string | null };
   sourceRecords?: { provider?: string; id?: string; retrievedAt?: string; externalVersion?: string | null }[];

@@ -18,6 +18,8 @@ function entryToCandidate(entry) {
     url,
     source: 'arxiv',
     publicationType: 'preprint',
+    isOpenAccess: true,
+    oaPdfUrl: arxivId ? `https://arxiv.org/pdf/${arxivId}` : '',
     peerReviewed: null,
     metadataSource: 'arxiv'
   };

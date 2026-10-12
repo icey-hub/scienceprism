@@ -1,7 +1,8 @@
 import { arxivSourceAdapter } from './arxivAdapter.js';
+import { openAlexSourceAdapter } from './openAlexAdapter.js';
 import { assertSourceAdapter, normalizeSourceCandidate, ResearchSourceError, searchWithAdapter } from './sourceAdapter.js';
 
-const adapters = new Map([[arxivSourceAdapter.id, arxivSourceAdapter]]);
+const adapters = new Map([arxivSourceAdapter, openAlexSourceAdapter].map(adapter => [adapter.id, adapter]));
 
 /**
  * Intentionally unused today, and deliberately kept: the roadmap commits to a
@@ -19,10 +20,10 @@ export function getResearchSourceAdapter(id = 'arxiv') {
 }
 
 export function listResearchSourceAdapters() {
-  return [...adapters.values()].map(({ id, label, priority }) => ({ id, label, priority: priority ?? 0 }));
+  return [...adapters.values()].map(({ id, label, priority, filterMode }) => ({ id, label, priority: priority ?? 0, filterMode: filterMode || 'batch' }));
 }
 
-export async function searchResearchSources({ queries = [], sources = ['arxiv'], maxResults = 12, offset = 0, signal } = {}) {
+export async function searchResearchSources({ queries = [], sources = ['arxiv'], maxResults = 12, offset = 0, filters = {}, signal } = {}) {
   const normalizedQueries = [...new Set((Array.isArray(queries) ? queries : [queries]).map((query) => String(query || '').trim()).filter(Boolean))];
   const normalizedSources = [...new Set((Array.isArray(sources) ? sources : [sources]).map((source) => String(source || '').trim().toLowerCase()).filter(Boolean))];
   if (!normalizedQueries.length) throw new ResearchSourceError('At least one search query is required.', { code: 'MISSING_QUERY' });
@@ -31,15 +32,18 @@ export async function searchResearchSources({ queries = [], sources = ['arxiv'],
   const batches = [];
   const failures = [];
   for (const sourceId of normalizedSources) {
+    signal?.throwIfAborted();
     const adapter = getResearchSourceAdapter(sourceId);
     if (!adapter) {
       failures.push({ source: sourceId, code: 'SOURCE_NOT_CONFIGURED', message: `No Source Adapter is registered for ${sourceId}.` });
       continue;
     }
     for (const query of normalizedQueries) {
+      signal?.throwIfAborted();
       try {
-        batches.push(await searchWithAdapter(adapter, { query, maxResults, offset, signal }));
+        batches.push(await searchWithAdapter(adapter, { query, maxResults, offset, filters, signal }));
       } catch (error) {
+        signal?.throwIfAborted();
         failures.push({ source: sourceId, query, code: error.code || 'SOURCE_ERROR', message: error.message, retryable: error.retryable === true });
       }
     }

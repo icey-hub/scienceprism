@@ -4,6 +4,7 @@ import path from 'node:path';
 import { getProjectRoot } from './projectService.js';
 import { listResearchSourceAdapters, searchResearchSources } from './researchSources/index.js';
 import { readHubJson, withHubLock, writeHubJson } from './projectHub/repository.js';
+import { mergeSourceCandidates } from './researchSources/candidateIdentity.js';
 
 const FILE = 'paper-searches.json';
 const HISTORY_LIMIT = 30;
@@ -28,7 +29,23 @@ export function normalizeSearchInput(input = {}) {
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 40 || !Number.isInteger(offset) || offset < 0 || offset > 5000) {
     throw new PaperSearchError('检索分页参数无效。');
   }
-  return { query, sources: [...new Set(sources)], pageSize, offset };
+  const filters = input.filters ?? {};
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters) || Object.keys(filters).some(key => !['yearFrom', 'yearTo', 'publicationType', 'openAccessOnly'].includes(key))) throw new PaperSearchError('筛选参数无效。');
+  for (const key of ['yearFrom', 'yearTo']) if (filters[key] !== undefined && filters[key] !== null && (!Number.isInteger(filters[key]) || filters[key] < 1800 || filters[key] > 2100)) throw new PaperSearchError('年份需在 1800–2100 内。');
+  if (filters.yearFrom && filters.yearTo && filters.yearFrom > filters.yearTo) throw new PaperSearchError('起始年份不能晚于结束年份。');
+  if (filters.publicationType && !['journal', 'conference', 'preprint'].includes(filters.publicationType)) throw new PaperSearchError('论文类型无效。');
+  if (filters.openAccessOnly !== undefined && typeof filters.openAccessOnly !== 'boolean') throw new PaperSearchError('开放获取筛选无效。');
+  return { query, sources: [...new Set(sources)], pageSize, offset, filters: {
+    yearFrom: filters.yearFrom || null, yearTo: filters.yearTo || null, publicationType: filters.publicationType || '', openAccessOnly: filters.openAccessOnly === true
+  } };
+}
+
+function matchesFilters(candidate, filters) {
+  if (filters.yearFrom && (!candidate.year || candidate.year < filters.yearFrom)) return false;
+  if (filters.yearTo && (!candidate.year || candidate.year > filters.yearTo)) return false;
+  if (filters.publicationType && candidate.publicationType !== filters.publicationType) return false;
+  if (filters.openAccessOnly && candidate.isOpenAccess !== true) return false;
+  return true;
 }
 
 export async function loadPaperSearches(projectId) {
@@ -43,20 +60,23 @@ export async function searchProjectPapers(projectId, input, { signal, search = s
   await getProjectRoot(projectId);
   const criteria = normalizeSearchInput(input);
   signal?.throwIfAborted();
-  const result = await search({ queries: [criteria.query], sources: criteria.sources, maxResults: criteria.pageSize + 1, offset: criteria.offset, signal });
+  const result = await search({ queries: [criteria.query], sources: criteria.sources, maxResults: criteria.pageSize + 1, offset: criteria.offset, filters: criteria.filters, signal });
   signal?.throwIfAborted();
-  const candidates = result.batches.flatMap(batch => batch.candidates.slice(0, criteria.pageSize));
+  const candidates = mergeSourceCandidates(result.batches.flatMap(batch => batch.candidates.slice(0, criteria.pageSize).filter(candidate => matchesFilters(candidate, criteria.filters))));
   const session = {
     id: randomUUID(), projectId, createdAt: new Date().toISOString(), criteria,
     status: result.failures.length ? (result.batches.length ? 'partial' : 'failed') : 'completed',
     candidates, failures: result.failures,
+    sourceResults: result.batches.map(batch => ({ source: batch.source || null, retrievedAt: batch.retrievedAt || null, total: batch.total ?? null, filterMode: batch.filterMode || 'batch', received: Math.min(batch.candidates.length, criteria.pageSize), matched: batch.candidates.slice(0, criteria.pageSize).filter(candidate => matchesFilters(candidate, criteria.filters)).length })),
     nextOffset: criteria.offset < 5000 && result.batches.some(batch => batch.candidates.length > criteria.pageSize)
       ? Math.min(5000, criteria.offset + criteria.pageSize) : null
   };
   await withHubLock(projectId, async () => {
     signal?.throwIfAborted();
     const history = await readHubJson(projectId, FILE, () => ({ sessions: [] }));
-    await writeHubJson(projectId, FILE, { schemaVersion: 1, sessions: [session, ...history.sessions].slice(0, HISTORY_LIMIT) });
+    const sessions = [session, ...history.sessions].slice(0, HISTORY_LIMIT);
+    while (sessions.length > 1 && Buffer.byteLength(JSON.stringify(sessions)) > 8 * 1024 * 1024) sessions.pop();
+    await writeHubJson(projectId, FILE, { schemaVersion: 1, sessions });
   });
   return session;
 }

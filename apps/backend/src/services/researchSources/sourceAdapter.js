@@ -35,19 +35,17 @@ export function normalizeSourceCandidate(candidate, { source, retrievedAt = new 
     id,
     source: sourceId || null,
     retrievedAt: asText(input.retrievedAt) || retrievedAt,
-    sourceRecord: input.sourceRecord && typeof input.sourceRecord === 'object'
-      ? input.sourceRecord
-      : { provider: sourceId || null, id }
+    sourceRecord: { ...(input.sourceRecord && typeof input.sourceRecord === 'object' ? input.sourceRecord : {}), provider: sourceId || null, id, retrievedAt }
   };
 }
 
-export async function searchWithAdapter(adapterInput, { query, maxResults = 20, offset = 0, signal } = {}) {
+export async function searchWithAdapter(adapterInput, { query, maxResults = 20, offset = 0, filters = {}, signal } = {}) {
   const adapter = assertSourceAdapter(adapterInput);
   const normalizedQuery = asText(query);
   if (!normalizedQuery) throw new ResearchSourceError('A search query is required.', { code: 'MISSING_QUERY', source: adapter.id });
   const startedAt = new Date().toISOString();
   try {
-    const result = await adapter.search({ query: normalizedQuery, maxResults, offset, signal });
+    const result = await adapter.search({ query: normalizedQuery, maxResults, offset, filters, signal });
     const candidates = Array.isArray(result) ? result : result?.candidates;
     if (!Array.isArray(candidates)) {
       throw new ResearchSourceError(`Source Adapter ${adapter.id} returned an invalid result.`, { code: 'INVALID_SOURCE_RESULT', source: adapter.id });
@@ -56,6 +54,8 @@ export async function searchWithAdapter(adapterInput, { query, maxResults = 20, 
       source: adapter.id,
       query: normalizedQuery,
       retrievedAt: startedAt,
+      total: Number.isSafeInteger(result?.total) ? result.total : null,
+      filterMode: adapter.filterMode || 'batch',
       candidates: candidates.map((candidate) => normalizeSourceCandidate(candidate, { source: adapter.id, retrievedAt: startedAt }))
     };
   } catch (error) {

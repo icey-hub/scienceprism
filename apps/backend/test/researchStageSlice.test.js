@@ -389,9 +389,10 @@ test('an unregistered source name from the model is reported and still searches 
     }, 'human');
 
     const search = stageData(workflow, 'search');
-    assert.deepEqual(search.sources, ['arxiv'], 'the registered source is used instead of the prose name');
+    assert.deepEqual(search.sources, ['arxiv', 'openalex'], 'registered sources are used instead of the prose name');
     assert.equal(search.unregisteredSources.length, 1);
     assert.ok(search.sourceFailures.some((failure) => failure.code === 'SOURCE_NOT_REGISTERED'));
+    assert.ok(search.sourceFailures.some((failure) => failure.source === 'openalex' && failure.code === 'SOURCE_INVALID_RESPONSE'), 'one failed provider does not discard the successful arXiv batch');
     assert.equal(search.papers.length, 1, 'the fallback source still produced a paper');
   } finally {
     globalThis.fetch = originalFetch;
