@@ -15,7 +15,7 @@ const error = (code, message) => new HarnessRuntimeError(503, code, message);
 const DISABLED = ['apps', 'plugins', 'remote_plugin', 'multi_agent', 'hooks', 'shell_tool', 'unified_exec', 'shell_snapshot', 'code_mode', 'code_mode_host', 'computer_use', 'browser_use', 'browser_use_external', 'in_app_browser', 'image_generation', 'view_image', 'workspace_dependencies', 'goals', 'sleep_tool', 'skill_search'];
 
 export const CODEX_WORKER_TOOLS = Object.freeze([
-  { type: 'function', name: 'project_read_file', description: 'Read up to 1000 lines of a project text file. Returns its SHA256 for a later proposal.', inputSchema: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' }, fromLine: { type: 'integer', minimum: 1 }, toLine: { type: 'integer', minimum: 1 } } } },
+  { type: 'function', name: 'project_read_file', description: 'Read up to 1000 lines of a project text file. Returns its SHA256 for a later proposal. A missing file returns exists:false and sha256:null; propose a new file with expectedSha256:null.', inputSchema: { type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' }, fromLine: { type: 'integer', minimum: 1 }, toLine: { type: 'integer', minimum: 1 } } } },
   { type: 'function', name: 'project_propose_patch', description: 'Propose replacement text in the temporary project copy. Use the SHA256 from project_read_file, or null for a new file. This does not apply the change to the original project.', inputSchema: { type: 'object', additionalProperties: false, required: ['path', 'content', 'expectedSha256'], properties: { path: { type: 'string' }, content: { type: 'string' }, expectedSha256: { type: ['string', 'null'] } } } }
 ]);
 
@@ -111,6 +111,12 @@ export function createCodexWorker({ executable, spawnProcess = spawn } = {}) {
               emit({ type: 'tool/end', data: { ...event, output: result } });
               return result;
             } catch (reason) {
+              if (reason instanceof HarnessRuntimeError && reason.code === 'CODEX_RECEIPT_FILE_NOT_FOUND' && call.tool === 'project_read_file'
+                && !toolSignal.aborted && !combined.aborted) {
+                const result = { path: call.arguments.path, exists: false, sha256: null, code: 'PROJECT_FILE_NOT_FOUND' };
+                emit({ type: 'tool/end', data: { ...event, output: result } });
+                return result;
+              }
               emit({ type: 'tool/error', data: { ...event, error: { code: reason instanceof HarnessRuntimeError ? reason.code : 'CODEX_TOOL_FAILED', message: 'The controlled project tool could not complete.' } } });
               throw reason;
             }
@@ -138,7 +144,7 @@ export function createCodexWorker({ executable, spawnProcess = spawn } = {}) {
             await saveStorage(value);
             await onSession(value);
             if (value.turnId) {
-              receipts = await createCodexToolReceipts({ directory: path.join(root, 'receipts'), workspace: project, skillProjection, readPolicy,
+              receipts = await createCodexToolReceipts({ directory: path.join(root, 'receipts'), workspace: project, skillProjection, readPolicy, onDecision,
                 binding: { projectId: broker.ceiling.projectId, parentRunId, workerRunId: broker.ceiling.runId, ...value,
                   workerVersion: `${CODEX_PROTOCOL_VERSION}:${IMPLEMENTATION_HASH}`, toolSchemaHash, policyVersion: broker.ceiling.version, role: broker.ceiling.role, task: broker.ceiling.task } });
               identity = value; resolveIdentity();

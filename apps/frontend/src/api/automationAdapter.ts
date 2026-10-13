@@ -3,7 +3,8 @@ type AutomationModel = Omit<LLMConfig,'apiKey'> & {apiKey?: string};
 export type ConfirmationMode = 'inherit' | 'auto' | 'manual';
 export interface DatasetScope {allowedHosts:string[];maxBytes:number;maxDatasets:number;}
 export interface EnvironmentScope {allowedPaths:string[];maxPackages:number;maxPrepareMs:number;maxOutputBytes:number;maxEnvironments:number;}
-export interface AutomationPolicy { enabled: boolean; agentMode: 'specialists' | 'generalist'; overrides: Record<string, ConfirmationMode>; datasetScope?:DatasetScope|null; environmentScope?:EnvironmentScope|null; }
+export interface CodeScope {allowedPaths:string[];maxTokens:number;timeoutMs:number;maxVersions:number;}
+export interface AutomationPolicy { enabled: boolean; agentMode: 'specialists' | 'generalist'; overrides: Record<string, ConfirmationMode>; datasetScope?:DatasetScope|null; environmentScope?:EnvironmentScope|null; codeScope?:CodeScope|null; }
 export interface AutomationExecutionPlan { dataset: string; datasetVersion: string; execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?:string }; [key: string]: unknown; }
 export interface AutomationStep { stage: string; status: string; runIds: string[]; experimentRunId?: string; result?: { status: string; metrics: {name: string; value: number}[] };
   executionPlanBinding?: { version: number; sha256: string };

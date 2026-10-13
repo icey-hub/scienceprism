@@ -23,6 +23,9 @@ import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 import { applyPatchTransaction, selectPatchPaths } from './patchApplication.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
 import { readFileState, sameVersion } from './fileVersions.js';
+import { intersectPaths } from './currentToolPolicy.js';
+import { readAutomation, allowsAutomatic } from '../researchAutomation/policy.js';
+import { validateCodeScope, assertCodeProducerRequest } from '../researchAutomation/codeAuthorization.js';
 import { createRunRecovery } from './runRecovery.js';
 import { createCodexWorker } from './adapters/codexWorker.js';
 import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../llmService.js';
@@ -244,10 +247,15 @@ function assertCoordinatorControl(run, automationSessionId) {
 }
 
 // The automation service owns this ledger record; it never starts a model.
-export function createAutomationCoordinator(projectId, sessionId, workflowId) {
+export async function createAutomationCoordinator(projectId, sessionId, workflowId) {
   if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 100 || typeof workflowId !== 'string' || !workflowId || workflowId.length > 100) throw new HarnessRuntimeError(400, 'INVALID_AUTOMATION_COORDINATOR', 'A saved research session and workflow are required.');
-  return createHarnessRun(projectId, { task: 'research:automation-coordinator', role: 'research-stage-assistant',
-    adapter: 'fake', capabilities: ['project.read'], source: 'research-automation', requestId: sessionId, input: { sessionId, workflowId } }, { coordinatorSessionId: sessionId });
+  const state = await readAutomation(projectId);
+  const scope = state.session?.id === sessionId && state.session.workflowId === workflowId && allowsAutomatic(state.policy, 'code')
+    ? validateCodeScope(state.policy.codeScope) : null;
+  return createHarnessRun(projectId, { task: 'research:automation-coordinator', role: scope ? 'research-code-coordinator' : 'research-stage-assistant',
+    adapter: 'fake', capabilities: scope ? ['project.read', 'patch.propose'] : ['project.read'], source: 'research-automation', requestId: sessionId,
+    ...(scope ? { limits: { maxTokens: scope.maxTokens, timeoutMs: scope.timeoutMs } } : {}),
+    input: { sessionId, workflowId, ...(scope ? { codeScope: scope } : {}) } }, { coordinatorSessionId: sessionId });
 }
 
 export function recordAutomationCoordinator(projectId, runId, { sessionId, status, currentStage }) {
@@ -261,6 +269,7 @@ export function recordAutomationCoordinator(projectId, runId, { sessionId, statu
 }
 
 export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId } = {}) {
+  if (request.role === 'research-code-coordinator' && !coordinatorSessionId) throw new HarnessRuntimeError(403, 'AUTOMATION_OWNS_COORDINATOR', 'The internal code coordinator cannot be started as an ordinary model Run.');
   const projectRoot = await resolveHarnessProjectRoot(projectId);
   assertLocalAutomationWriter(projectRoot);
   const constraintPolicy = await readConstraintPolicy(projectId);
@@ -309,6 +318,24 @@ export async function createHarnessRun(projectId, request = {}, { coordinatorSes
         roleAuthority: role.authority
       }
     : capabilities;
+  if (parent) {
+    const inheritedPaths = intersectPaths(parent.capabilities.allowedPaths || [], effectiveCapabilities.allowedPaths || []);
+    if (parent.capabilities.allowedPaths?.length && effectiveCapabilities.allowedPaths?.length && !inheritedPaths.length) {
+      throw new HarnessRuntimeError(403, 'DELEGATION_PATH_DENIED', 'The child has no file scope within its original parent ceiling.');
+    }
+    effectiveCapabilities.allowedPaths = [...inheritedPaths];
+  }
+  if (automationSessionId && effectiveCapabilities.granted.includes('patch.propose')
+    && (request.role !== 'experiment-code-producer' || !request.context?.codeAuthorization)) {
+    throw new HarnessRuntimeError(403, 'AUTOMATION_CODE_PRODUCER_INVALID', 'Automatic proposals require the scope-bound code producer.');
+  }
+  if (automationSessionId && request.role === 'experiment-code-producer' || request.context?.codeAuthorization) {
+    if (!automationSessionId || parent?.kind !== 'research-coordinator') throw new HarnessRuntimeError(403, 'AUTOMATION_CODE_PRODUCER_INVALID', 'Only the research chain can admit this code grant.');
+    const scope = assertCodeProducerRequest({ state: await readAutomation(projectId), request,
+      parentRunId: parent.id, parentScope: parent.request?.input?.codeScope || null });
+    if (request.context.codeAuthorization.projectId !== projectId) throw new HarnessRuntimeError(403, 'AUTOMATION_CODE_PRODUCER_INVALID', 'Code grant belongs to another project.');
+    effectiveCapabilities.patchPaths = [...scope.allowedPaths];
+  }
   const documentVersions = normalizeDocumentVersions(request);
   await assertDocumentVersions(projectRoot, documentVersions, effectiveCapabilities);
   const contextPack = await buildContextPack({

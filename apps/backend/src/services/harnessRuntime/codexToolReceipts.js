@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { HarnessRuntimeError } from './errors.js';
 import { isPathAllowed } from './capabilities.js';
-import { DSH_FILE_TOOLS } from './dshFileBroker.js';
+import { DSH_FILE_TOOLS, allowsControlledCodePatch } from './dshFileBroker.js';
 import { withHubLock } from '../projectHub/repository.js';
 
 const MAX_FILE_BYTES = 1_048_576;
@@ -89,7 +89,7 @@ function boundedFile(root, relative, allowMissing, maxBytes = MAX_FILE_BYTES) {
  * No arguments, read text, proposal text, provider credentials or raw errors are
  * persisted. A prepared receipt is ambiguous and can never authorize redispatch.
  */
-export async function createCodexToolReceipts({ directory, workspace, binding: inputBinding, readPolicy, skillProjection,
+export async function createCodexToolReceipts({ directory, workspace, binding: inputBinding, readPolicy, onDecision, skillProjection,
   maxReceipts = 128, maxBytes = 4_194_304 } = {}) {
   const binding = parse(bindingSchema, inputBinding);
   if (typeof readPolicy !== 'function' || typeof directory !== 'string' || typeof workspace !== 'string'
@@ -100,6 +100,7 @@ export async function createCodexToolReceipts({ directory, workspace, binding: i
   catch (error) { if (error instanceof HarnessRuntimeError) throw error; fail('STORAGE_INVALID', 'The private receipt directories are unavailable.'); }
   const file = path.join(directory, 'tool-receipts.json');
   const skillDocuments = new Map();
+  let initialCapabilities;
   for (const document of skillProjection?.documents || []) {
     const manifest = parse(z.object({ projectionPath: relativePath.refine(value => /^\.dsh\/skills\/[a-z][a-z0-9-]*\/.+\.md$/.test(value)),
       sha256: hash, bytes: z.number().int().min(0).max(MAX_FILE_BYTES) }).passthrough(), document);
@@ -131,6 +132,14 @@ export async function createCodexToolReceipts({ directory, workspace, binding: i
       || !['granted', 'allowedPaths', 'networkAllowlist'].every(key => Array.isArray(policy.capabilities?.[key]) && policy.capabilities[key].every(value => typeof value === 'string'))
       || !policy.capabilities.granted.includes(call ? DSH_FILE_TOOLS[call.tool] : 'project.read')
       || call && !skill && !isPathAllowed(call.arguments.path, policy.capabilities)) fail('POLICY_DENIED', 'The current Run does not authorize this receipt or tool.', 403);
+    // Capture the first authorized snapshot without an extra policy read at
+    // construction. The broker independently preserves its creation ceiling.
+    initialCapabilities ??= Object.freeze(Object.hasOwn(policy.capabilities, 'patchPaths')
+      ? { patchPaths: Array.isArray(policy.capabilities.patchPaths) ? Object.freeze([...policy.capabilities.patchPaths]) : policy.capabilities.patchPaths } : {});
+    if (call?.tool === 'project_propose_patch' && (Object.hasOwn(initialCapabilities, 'patchPaths') && !Object.hasOwn(policy.capabilities, 'patchPaths')
+      || !allowsControlledCodePatch(call.arguments.path, initialCapabilities) || !allowsControlledCodePatch(call.arguments.path, policy.capabilities))) {
+      fail('POLICY_DENIED', 'The current Run does not authorize this controlled code proposal path.', 403);
+    }
     if (signal?.aborted) fail('CANCELLED', 'The controlled tool call was cancelled.');
   }
 
@@ -237,8 +246,22 @@ export async function createCodexToolReceipts({ directory, workspace, binding: i
         }
         if (state.receipts.length >= maxReceipts) fail('CAPACITY', 'The worker receipt identity limit has been reached.', 503);
         let before;
-        try { before = boundedFile(workspace, args.path, call.tool === 'project_propose_patch'); }
+        try { before = boundedFile(workspace, args.path, true); }
         catch (error) { if (error instanceof HarnessRuntimeError) throw error; fail('RESULT_UNAVAILABLE', 'The tool input file is unavailable.'); }
+        if (call.tool === 'project_read_file' && before === null) {
+          if (skillDocuments.has(args.path)) fail('RESULT_UNAVAILABLE', 'The selected Skill document is unavailable.');
+          if (typeof onDecision !== 'function') fail('AUDIT_UNAVAILABLE', 'The missing-file observation requires a persisted policy decision.');
+          try {
+            await onDecision({ type: 'tool/policy', projectId: binding.projectId, runId: binding.workerRunId, callId: call.callId,
+              tool: call.tool, capability: 'project.read', actor: 'system', policyVersion: binding.policyVersion, decision: 'allow', path: args.path });
+          } catch { fail('AUDIT_UNAVAILABLE', 'The missing-file policy decision could not be persisted.'); }
+          await authorize(call, signal);
+          // Only relative ENOENT is a domain observation. Broken workspace roots,
+          // linked files, old receipts and unknown outcomes retain fatal errors.
+          try { before = boundedFile(workspace, args.path, true); }
+          catch (error) { if (error instanceof HarnessRuntimeError) throw error; fail('RESULT_UNAVAILABLE', 'The tool input file is unavailable.'); }
+          if (before === null) fail('FILE_NOT_FOUND', 'The requested project file does not exist.', 404);
+        }
         const beforeSha256 = before === null ? null : digest(before);
         if (call.tool === 'project_propose_patch' && beforeSha256 !== args.expectedSha256) fail('INPUT_CONFLICT', 'The proposal input file changed before receipt preparation.');
         receipt = { callId: call.callId, tool: call.tool, requestHash, path: args.path, beforeSha256,

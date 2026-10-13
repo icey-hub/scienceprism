@@ -1,8 +1,10 @@
+import { HarnessRuntimeError } from './errors.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createTwoFilesPatch } from 'diff';
 import { safeJoin } from '../../utils/pathUtils.js';
 import { isPathAllowed, isSensitivePath } from './capabilities.js';
+import { allowsControlledCodePatch } from './dshFileBroker.js';
 import { fileVersion } from './fileVersions.js';
 import { isBundledSkillPath } from '../researchResearch/researchSkills.js';
 
@@ -84,6 +86,7 @@ export async function collectPatches(snapshot, workspaceRoot, policy, excludedPa
     const original = originalSet.has(relativePath) ? snapshot.get(relativePath) : '';
     const proposed = workspaceSet.has(relativePath) ? await readTextFile(workspaceRoot, relativePath) : '';
     if (original === null || proposed === null || (original === proposed && originalSet.has(relativePath) === workspaceSet.has(relativePath))) continue;
+    if (!allowsControlledCodePatch(relativePath, policy)) throw new HarnessRuntimeError(403, 'CODE_PROPOSAL_PATH_DENIED', 'Changed worker files exceed the admitted code proposal scope.');
     patches.push({
       path: relativePath,
       original,

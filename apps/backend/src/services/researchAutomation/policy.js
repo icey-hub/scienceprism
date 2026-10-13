@@ -12,8 +12,9 @@ import { appendAudit } from '../researchWorkflow/audit.js';
 import { inspectAutomationOwner } from './owner.js';
 import { validateDatasetScope } from './datasetAuthorization.js';
 import { validateEnvironmentScope } from './environmentAuthorization.js';
+import { validateCodeScope } from './codeAuthorization.js';
 
-export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'dataset', 'environment', 'execution', 'patches'];
+export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'dataset', 'environment', 'code', 'execution', 'patches'];
 const FILE = '.scienceprism/research-automation.json';
 const modes = ['inherit', 'auto', 'manual'];
 const invalid = message => { throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_POLICY', message); };
@@ -33,11 +34,11 @@ export function validateAutomationExecution(value) {
 }
 
 export function validateAutomationPolicy(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['enabled', 'overrides', 'agentMode', 'datasetScope', 'environmentScope'].includes(key))) invalid('策略包含未知字段。');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['enabled', 'overrides', 'agentMode', 'datasetScope', 'environmentScope', 'codeScope'].includes(key))) invalid('策略包含未知字段。');
   if (typeof value.enabled !== 'boolean' || !['specialists', 'generalist'].includes(value.agentMode)) invalid('请提供自动研究开关和Agent模式。');
   if (!value.overrides || typeof value.overrides !== 'object' || Array.isArray(value.overrides)) invalid('环节策略必须为对象。');
   for (const [part, mode] of Object.entries(value.overrides)) if (!AUTOMATION_PARTS.includes(part) || !modes.includes(mode)) invalid('未知环节或确认模式。');
-  return { enabled: value.enabled, agentMode: value.agentMode, overrides: { ...value.overrides }, ...(value.datasetScope !== undefined ? { datasetScope: validateDatasetScope(value.datasetScope) } : {}), ...(value.environmentScope !== undefined ? { environmentScope: validateEnvironmentScope(value.environmentScope) } : {}) };
+  return { enabled: value.enabled, agentMode: value.agentMode, overrides: { ...value.overrides }, ...(value.datasetScope !== undefined ? { datasetScope: validateDatasetScope(value.datasetScope) } : {}), ...(value.environmentScope !== undefined ? { environmentScope: validateEnvironmentScope(value.environmentScope) } : {}), ...(value.codeScope !== undefined ? { codeScope: validateCodeScope(value.codeScope) } : {}) };
 }
 
 export function allowsAutomatic(policy, part) {

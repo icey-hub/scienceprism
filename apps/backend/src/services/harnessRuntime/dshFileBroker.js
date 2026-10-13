@@ -10,6 +10,18 @@ const MAX_BYTES = 1_048_576;
 const fail = (code, message) => new HarnessRuntimeError(403, code, message);
 const digest = value => createHash('sha256').update(value).digest('hex');
 
+/** Optional code-producer ceiling; absence preserves ordinary manual proposals. */
+export function allowsControlledCodePatch(relative, capabilities) {
+  if (!Object.hasOwn(capabilities, 'patchPaths')) return true;
+  const prefixes = capabilities.patchPaths;
+  return Array.isArray(prefixes) && prefixes.length > 0 && prefixes.every(prefix => typeof prefix === 'string'
+    && prefix.isWellFormed() && prefix === prefix.trim() && prefix.length > 0 && prefix.length <= 1024
+    && !/[\\:*?\x00-\x1f\x7f]/.test(prefix) && !path.posix.isAbsolute(prefix) && path.posix.normalize(prefix) === prefix
+    && !prefix.split('/').some(part => !part || part.startsWith('.') || part === '..')
+    && isPathAllowed(prefix, { allowedPaths: [prefix] }))
+    && /\.(?:py|mjs|js|cjs)$/.test(relative) && isPathAllowed(relative, { ...capabilities, allowedPaths: prefixes });
+}
+
 function policySnapshot(value) {
   if (!value || !['projectId', 'runId', 'role', 'task'].every(key => typeof value[key] === 'string' && value[key])
     || !['auto', 'manual'].includes(value.mode) || typeof value.active !== 'boolean'
@@ -22,6 +34,9 @@ function policySnapshot(value) {
       throw fail('DSH_POLICY_UNAVAILABLE', 'The current Run capability policy is invalid.');
     }
     capabilities[key] = Object.freeze([...value.capabilities[key]]);
+  }
+  if (Object.hasOwn(value.capabilities, 'patchPaths')) {
+    capabilities.patchPaths = Array.isArray(value.capabilities.patchPaths) ? Object.freeze([...value.capabilities.patchPaths]) : value.capabilities.patchPaths;
   }
   return Object.freeze(Object.fromEntries([...['projectId', 'runId', 'role', 'task', 'mode', 'active', 'version'].map(key => [key, value[key]]), ['capabilities', Object.freeze(capabilities)]]));
 }
@@ -112,10 +127,12 @@ export async function createDshFileBroker({ workspace, readPolicy, onDecision, s
     if (!current.active || !ceiling.active) throw fail('DSH_RUN_INACTIVE', 'The owning Run is inactive.');
     if (['projectId', 'runId', 'role', 'task'].some(key => current[key] !== ceiling[key])) throw fail('DSH_OWNER_CHANGED', 'The tool no longer belongs to its bound Run, role and task.');
     if (current.mode !== 'auto' || ceiling.mode !== 'auto') throw fail('DSH_APPROVAL_UNAVAILABLE', 'Manual tools require a project approval channel.');
+    if (tool === 'project_propose_patch' && Object.hasOwn(ceiling.capabilities, 'patchPaths') && !Object.hasOwn(current.capabilities, 'patchPaths')) throw fail('PATH_DENIED', 'The controlled code proposal scope was removed.');
     const capability = DSH_FILE_TOOLS[tool];
     for (const policy of [ceiling, current]) {
       if (!policy.capabilities.granted.includes(capability)) throw fail('CAPABILITY_DENIED', 'The required capability is not granted.');
       if (!(tool === 'project_read_file' && skillDocuments.has(args.path)) && !isPathAllowed(args.path, policy.capabilities)) throw fail('PATH_DENIED', 'The project file is outside the allowed paths.');
+      if (tool === 'project_propose_patch' && !allowsControlledCodePatch(args.path, policy.capabilities)) throw fail('PATH_DENIED', 'Only source code within the controlled proposal paths can be changed.');
     }
   };
   const record = (tool, callId, args, current, decision, reasonCode) => onDecision({

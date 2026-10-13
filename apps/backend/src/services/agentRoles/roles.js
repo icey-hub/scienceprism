@@ -37,6 +37,13 @@ export const ENFORCEMENT_MODULES = Object.freeze([
 ]);
 
 export const AGENT_ROLES = Object.freeze([
+  {
+    id: 'research-code-coordinator', purpose: 'Internal research ledger with an explicit code proposal ceiling; never runs a model.',
+    stageScope: ['replication', 'experiment'], authority: 'propose-patch', allowedCapabilities: ['project.read', 'patch.propose'],
+    allowedSkills: [], outputContract: 'internal:coordinator', handoff: 'Scope-bound stage producers propose code; the application owns execution.',
+    forbiddenActions: ['running a model', 'executing Shell commands', 'writing the original project', 'granting capabilities to old Runs'],
+    entrypoints: [{ module: 'services/harnessRuntime/index.js', symbol: 'createAutomationCoordinator' }]
+  },
   ...RESEARCH_SPECIALISTS.map(role => ({
     id: role.id, purpose: role.purpose, stageScope: [role.stage], authority: 'suggest-only',
     allowedCapabilities: role.stage === 'search' ? ['project.read', 'research.search'] : ['project.read'], allowedSkills: [], outputContract: 'json:research-stage-contract',

@@ -19,12 +19,13 @@ async function fixture(t, options = {}) {
   let policy = { projectId: binding.projectId, runId: binding.workerRunId, role: binding.role, task: binding.task, version: binding.policyVersion,
     active: true, mode: 'auto', capabilities: { granted: ['project.read', 'patch.propose'], allowedPaths: ['experiments'], networkAllowlist: [] } };
   const readPolicy = async () => structuredClone(policy);
-  const broker = await createDshFileBroker({ workspace, readPolicy, onDecision: async event => options.onDecision?.(event, value => { policy = { ...policy, ...value }; }) });
+  const decisions = [], onDecision = async event => { decisions.push(event); await options.onDecision?.(event, value => { policy = { ...policy, ...value }; }); };
+  const broker = await createDshFileBroker({ workspace, readPolicy, onDecision });
   t.after(() => broker.close());
-  const config = { directory: path.join(root, 'receipts'), workspace, binding, readPolicy };
+  const config = { directory: path.join(root, 'receipts'), workspace, binding, readPolicy, onDecision };
   const receipts = await createCodexToolReceipts(config); let calls = 0;
   const executeTool = call => { calls++; return broker.execute(call); };
-  return { root, workspace, project, broker, receipts, executeTool, config, count: () => calls,
+  return { root, workspace, project, broker, receipts, executeTool, config, decisions, count: () => calls,
     setPolicy: patch => { policy = { ...policy, ...patch }; } };
 }
 
@@ -44,12 +45,35 @@ test('real receipt handoff creates a wholly missing nested suffix once and cold 
 test('missing reads and read-only proposals never create parent directories', async t => {
   const f = await fixture(t);
   const read = { threadId: binding.threadId, turnId: binding.turnId, callId: 'missing-read', tool: 'project_read_file', arguments: { path: relative } };
-  await assert.rejects(f.receipts.execute(read, { executeTool: f.executeTool }), { code: 'CODEX_RECEIPT_RESULT_UNAVAILABLE' });
+  await assert.rejects(f.receipts.execute(read, { executeTool: f.executeTool }), { code: 'CODEX_RECEIPT_FILE_NOT_FOUND' });
+  assert.equal(f.decisions[0].decision, 'allow'); assert.equal(f.decisions[0].path, relative);
+  assert.deepEqual(await fs.readdir(f.config.directory), []);
   await assert.rejects(f.broker.execute(read), { code: 'DSH_FILE_UNAVAILABLE' });
   f.setPolicy({ capabilities: { granted: ['project.read'], allowedPaths: ['experiments'], networkAllowlist: [] } });
   await assert.rejects(f.receipts.execute(proposal(), { executeTool: f.executeTool }), { code: 'CODEX_RECEIPT_POLICY_DENIED' });
   await assert.rejects(f.broker.execute(proposal()), { code: 'CAPABILITY_DENIED' });
   assert.deepEqual(await fs.readdir(f.workspace), []); assert.equal(f.count(), 0);
+});
+
+test('only fresh relative absence is recoverable; completed evidence loss and a broken workspace root remain fatal', async t => {
+  const f = await fixture(t); await f.receipts.execute(proposal(), { executeTool: f.executeTool });
+  const read = { threadId: binding.threadId, turnId: binding.turnId, callId: 'stored-read', tool: 'project_read_file', arguments: { path: relative } };
+  await f.receipts.execute(read, { executeTool: f.executeTool });
+  await fs.unlink(path.join(f.workspace, relative));
+  await assert.rejects(f.receipts.execute(read, { executeTool: f.executeTool }), { code: 'CODEX_RECEIPT_RESULT_UNAVAILABLE' });
+  assert.equal(f.count(), 2);
+  await fs.rename(f.workspace, `${f.workspace}-preserved`);
+  await assert.rejects(f.receipts.execute({ ...read, callId: 'fresh-root-missing' }, { executeTool: f.executeTool }), { code: 'CODEX_RECEIPT_RESULT_UNAVAILABLE' });
+  assert.equal(f.count(), 2);
+});
+
+test('missing read audit failure or revocation cannot produce a recoverable observation or create directories', async t => {
+  const read = { threadId: binding.threadId, turnId: binding.turnId, callId: 'missing-read', tool: 'project_read_file', arguments: { path: relative } };
+  const failed = await fixture(t, { onDecision: () => { throw new Error('disk failure'); } });
+  await assert.rejects(failed.receipts.execute(read, { executeTool: failed.executeTool }), { code: 'CODEX_RECEIPT_AUDIT_UNAVAILABLE' });
+  const revoked = await fixture(t, { onDecision: (_event, setPolicy) => setPolicy({ active: false }) });
+  await assert.rejects(revoked.receipts.execute(read, { executeTool: revoked.executeTool }), { code: 'CODEX_RECEIPT_POLICY_DENIED' });
+  for (const f of [failed, revoked]) { assert.deepEqual(await fs.readdir(f.workspace), []); assert.deepEqual(await fs.readdir(f.config.directory), []); assert.equal(f.count(), 0); }
 });
 
 test('canonical and actual allowed paths are enforced before nested creation', async t => {
