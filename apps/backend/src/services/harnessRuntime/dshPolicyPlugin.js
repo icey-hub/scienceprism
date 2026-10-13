@@ -16,6 +16,22 @@ export const DSH_TOOL_DEFINITIONS = [
   } },
   { name: 'research_delegate_codex', description: 'Delegate a bounded coding task to the controlled Codex CLI worker. It returns the real child Run result and proposed changes; it cannot choose a provider, commands, directories, roles or permissions.', capability: 'patch.propose', parameters: {
     type: 'object', additionalProperties: false, properties: { task: { type: 'string' }, maxTokens: { type: 'integer' }, timeoutMs: { type: 'integer' } }, required: ['task']
+  } },
+  { name: 'research_search_papers', description: 'Search arXiv/OpenAlex through the project paper search and save one search session. Returns source failures, publication metadata, imported venue ranks and searchSessionId; unknown ranks are never guessed. Requires research.search and the source host allowlist. Does not collect papers, download PDFs, or edit manuscripts.', capability: 'research.search', parameters: {
+    type: 'object', additionalProperties: false, required: ['query'], properties: {
+      query: { type: 'string', minLength: 1, maxLength: 1000 },
+      sources: { type: 'array', minItems: 1, maxItems: 2, uniqueItems: true, items: { type: 'string', enum: ['arxiv', 'openalex'] } },
+      pageSize: { type: 'integer', minimum: 1, maximum: 40 }, offset: { type: 'integer', minimum: 0, maximum: 5000 },
+      filters: { type: 'object', additionalProperties: false, properties: {
+        yearFrom: { type: 'integer', minimum: 1800, maximum: 2100 }, yearTo: { type: 'integer', minimum: 1800, maximum: 2100 },
+        publicationType: { type: 'string', enum: ['journal', 'conference', 'preprint'] }, openAccessOnly: { type: 'boolean' }
+      } },
+      ranking: { type: 'object', additionalProperties: false, properties: {
+        scheme: { type: 'string', enum: ['JCR', 'CAS', 'CCF', 'custom'] }, editionYear: { type: 'integer', minimum: 1800, maximum: 2100 },
+        subject: { type: 'string', maxLength: 200 }, ranks: { type: 'array', maxItems: 40, items: { type: 'string', maxLength: 40 } },
+        unknown: { type: 'string', enum: ['include', 'exclude', 'only'] }
+      } }
+    }
   } }
 ];
 

@@ -414,6 +414,7 @@ export interface RuntimeEvent {
   type?: string; name?: string; callId?: string; capability?: string; text?: string; at?: string;
   arguments?: string; output?: string; error?: string; outcome?: string; truncated?: boolean;
   path?: string; version?: FileVersion; usage?: Record<string, number>;
+  searchSessionId?: string; searchQuery?: string; searchStatus?: 'completed' | 'partial' | 'failed';
 }
 export interface ToolCatalogue {
   tools:{id:string;name:string;source:string;capability:string|null;calls:number;success:number;error:number;incomplete:number;cancelled:number;unknown:number;serverId?:string;enabled?:boolean;bound?:boolean;dshRestricted?:boolean;recent:{runId:string;callId:string;outcome:string;at:string|null}[]}[];

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { HarnessRun, RuntimeEvent } from '../../api/client';
 
 function EventBody({ event }: { event: RuntimeEvent }) {
@@ -14,6 +15,8 @@ export function RuntimeEventsView({ run }: { run: HarnessRun }) {
   </div>;
 }
 export function RuntimeToolCalls({ run }: { run: HarnessRun }) {
+  const searches = [...new Map((run.events || []).filter(event => event.type === 'research/search' && event.searchSessionId)
+    .map(event => [event.searchSessionId, event])).values()];
   const calls = new Map<string, { start?: RuntimeEvent; end?: RuntimeEvent }>();
   for (const event of run.events || []) {
     if (!event.type?.startsWith('tool/') || !event.callId) continue;
@@ -23,5 +26,5 @@ export function RuntimeToolCalls({ run }: { run: HarnessRun }) {
     else if (['tool/end','tool/error','tool/result'].includes(event.type)) pair.end = event;
     calls.set(key,pair);
   }
-  return <div className="runtime-calls"><h3>工具调用 · {calls.size} 组已记录 ID</h3>{!calls.size && <p className="hub-muted">没有可关联的调用记录；不能据此判断工具从未使用。</p>}{Array.from(calls).map(([id,pair]) => <details className="runtime-event" key={id}><summary><strong>{pair.start?.name || pair.end?.name || '工具名未记录'}</strong><span>{pair.end ? pair.end.outcome === 'error' ? '错误' : '已返回' : '未记录结束'}</span><code>{id}</code></summary>{!pair.start && <p className="hub-muted">开始记录未保留，无法完整还原此调用。</p>}{pair.start && <EventBody event={pair.start} />}{pair.end && <EventBody event={pair.end} />}</details>)}</div>;
+  return <div className="runtime-calls">{!!searches.length && <section><h3>已保存的论文检索</h3>{searches.map(event => <p key={event.searchSessionId}><Link to={`/project/${encodeURIComponent(run.projectId)}/papers/search?${new URLSearchParams({ q: event.searchQuery || '', search: event.searchSessionId! })}`}>{event.searchQuery || '查看检索结果'}</Link> · {{ completed: '已完成', partial: '部分来源可用', failed: '来源请求失败' }[event.searchStatus || 'failed']}</p>)}<p className="hub-muted">检索结果保留来源与筛选条件，尚未作为科学证据确认。</p></section>}<h3>工具调用 · {calls.size} 组已记录 ID</h3>{!calls.size && <p className="hub-muted">没有可关联的调用记录；不能据此判断工具从未使用。</p>}{Array.from(calls).map(([id,pair]) => <details className="runtime-event" key={id}><summary><strong>{pair.start?.name || pair.end?.name || '工具名未记录'}</strong><span>{pair.end ? pair.end.outcome === 'error' ? '错误' : '已返回' : '未记录结束'}</span><code>{id}</code></summary>{!pair.start && <p className="hub-muted">开始记录未保留，无法完整还原此调用。</p>}{pair.start && <EventBody event={pair.start} />}{pair.end && <EventBody event={pair.end} />}</details>)}</div>;
 }

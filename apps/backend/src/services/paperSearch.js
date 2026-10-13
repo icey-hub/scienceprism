@@ -58,12 +58,12 @@ export async function loadPaperSearches(projectId) {
 }
 
 /** Shared search command. It never selects a manuscript or writes bibliography files. */
-export async function searchProjectPapers(projectId, input, { signal, search = searchResearchSources } = {}) {
+export async function searchProjectPapers(projectId, input, { signal, search = searchResearchSources, beforeRequest, beforePersist } = {}) {
   await getProjectRoot(projectId);
   const criteria = normalizeSearchInput(input);
   signal?.throwIfAborted();
   const catalogs = await loadRankingCatalogs(projectId);
-  const result = await search({ queries: [criteria.query], sources: criteria.sources, maxResults: criteria.pageSize + 1, offset: criteria.offset, filters: criteria.filters, signal });
+  const result = await search({ queries: [criteria.query], sources: criteria.sources, maxResults: criteria.pageSize + 1, offset: criteria.offset, filters: criteria.filters, signal, beforeRequest });
   signal?.throwIfAborted();
   const candidates = mergeSourceCandidates(result.batches.flatMap(batch => batch.candidates.slice(0, criteria.pageSize).filter(candidate => matchesFilters(candidate, criteria.filters))));
   const ranked = applyPaperRankings(candidates, catalogs.catalogs, criteria.ranking);
@@ -81,6 +81,8 @@ export async function searchProjectPapers(projectId, input, { signal, search = s
     const history = await readHubJson(projectId, FILE, () => ({ sessions: [] }));
     const sessions = [session, ...history.sessions].slice(0, HISTORY_LIMIT);
     while (sessions.length > 1 && Buffer.byteLength(JSON.stringify(sessions)) > 8 * 1024 * 1024) sessions.pop();
+    await beforePersist?.();
+    signal?.throwIfAborted();
     await writeHubJson(projectId, FILE, { schemaVersion: 1, sessions });
   });
   return session;

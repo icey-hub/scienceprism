@@ -1,5 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
+// Only trusted pre-request hooks mark these errors. Authorization failures must
+// cross transport wrappers unchanged, rather than become partial source results.
+const policyFailures = new WeakSet();
+export const isSourcePolicyFailure = error => error && typeof error === 'object' && policyFailures.has(error);
+export async function checkSourceRequest(beforeRequest, request) {
+  if (!beforeRequest) return;
+  try { await beforeRequest(request); }
+  catch (error) { if (error && typeof error === 'object') policyFailures.add(error); throw error; }
+}
+
 export class ResearchSourceError extends Error {
   constructor(message, { code = 'SOURCE_ERROR', source, retryable = false } = {}) {
     super(message);
@@ -39,13 +49,13 @@ export function normalizeSourceCandidate(candidate, { source, retrievedAt = new 
   };
 }
 
-export async function searchWithAdapter(adapterInput, { query, maxResults = 20, offset = 0, filters = {}, signal } = {}) {
+export async function searchWithAdapter(adapterInput, { query, maxResults = 20, offset = 0, filters = {}, signal, beforeRequest } = {}) {
   const adapter = assertSourceAdapter(adapterInput);
   const normalizedQuery = asText(query);
   if (!normalizedQuery) throw new ResearchSourceError('A search query is required.', { code: 'MISSING_QUERY', source: adapter.id });
   const startedAt = new Date().toISOString();
   try {
-    const result = await adapter.search({ query: normalizedQuery, maxResults, offset, filters, signal });
+    const result = await adapter.search({ query: normalizedQuery, maxResults, offset, filters, signal, beforeRequest });
     const candidates = Array.isArray(result) ? result : result?.candidates;
     if (!Array.isArray(candidates)) {
       throw new ResearchSourceError(`Source Adapter ${adapter.id} returned an invalid result.`, { code: 'INVALID_SOURCE_RESULT', source: adapter.id });
@@ -59,6 +69,7 @@ export async function searchWithAdapter(adapterInput, { query, maxResults = 20, 
       candidates: candidates.map((candidate) => normalizeSourceCandidate(candidate, { source: adapter.id, retrievedAt: startedAt }))
     };
   } catch (error) {
+    if (isSourcePolicyFailure(error)) throw error;
     if (error instanceof ResearchSourceError) throw error;
     throw new ResearchSourceError(`Source Adapter ${adapter.id} failed: ${error.message || error}`, {
       code: error?.name === 'AbortError' ? 'SOURCE_TIMEOUT' : 'SOURCE_REQUEST_FAILED',

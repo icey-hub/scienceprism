@@ -16,8 +16,9 @@ async function fixture(t, options = {}) {
   const workspace = path.join(root, 'workspace'); const dshHome = path.join(root, 'controls');
   await fs.mkdir(workspace); await fs.writeFile(path.join(workspace, 'main.tex'), 'old');
   let policy = { projectId: 'project', runId: 'run', version: 'v1', role: 'writer', task: 'draft', active: true, mode: 'auto', capabilities: { granted: ['project.read', 'patch.propose'], allowedPaths: ['main.tex'], networkAllowlist: [] } };
+  if (options.research) { policy.capabilities.granted.push('research.search'); policy.capabilities.networkAllowlist.push('export.arxiv.org'); }
   const decisions = []; const ctx = createDshToolFixture();
-  const profile = await createDshProfile({ workspace, dshHome, provider: options.provider, readPolicy: async () => policy, onDecision: async event => { decisions.push(event); await options.audit?.(event); }, signal: options.signal, delegateCodex: options.delegateCodex });
+  const profile = await createDshProfile({ workspace, dshHome, provider: options.provider, readPolicy: async () => policy, onDecision: async event => { decisions.push(event); await options.audit?.(event); }, signal: options.signal, delegateCodex: options.delegateCodex, searchPapers: options.searchPapers });
   t.after(async () => { await ctx.dispose(); await profile.close(); });
   const patch = JSON.parse(await fs.readFile(profile.patchPath, 'utf8'));
   const plugin = patch.at(-1).insert.at(-1);
@@ -79,6 +80,25 @@ test('DSH configuration rejects unverified packages and delegation schema extens
   for (const input of [{ task: '' }, { task: 'x', cwd: '/tmp' }, { task: 'x', maxTokens: 1 }, { task: 'x', timeoutMs: Infinity }, { task: 'x', provider: 'other' }]) assert.throws(() => delegateArguments(input), { code: 'DSH_ARGUMENTS_INVALID' });
 });
 
+test('actual DSH plugin dispatches search through its authenticated bridge and fixed source hooks', async t => {
+  let searches = 0;
+  const f = await fixture(t, { research: true, searchPapers: async (projectId, criteria, options) => {
+    searches++;
+    assert.equal(projectId, 'project');
+    await options.beforeRequest({ source: 'arxiv', url: 'https://export.arxiv.org/api/query?search_query=study' });
+    await options.beforePersist();
+    return { id: 'search-session', projectId, criteria, status: 'completed', createdAt: new Date().toISOString(), candidates: [], sourceResults: [], failures: [] };
+  } });
+  await f.boot();
+  const invoke = args => f.execute('research_search_papers', args, 'search-sdk-call');
+  const result = await invoke({ query: 'study', sources: ['arxiv'], pageSize: 2 });
+  assert.equal(result.isError, false, JSON.stringify(result)); assert.equal(result.value.searchSessionId, 'search-session');
+  assert.equal((await invoke({ query: 'study', sources: ['arxiv'], pageSize: 2 })).value.searchSessionId, 'search-session');
+  assert.equal(searches, 1);
+  assert.equal((await invoke({ query: 'other' })).isError, true);
+  assert.equal(f.decisions.find(event => event.tool === 'research_search_papers').capability, 'research.search');
+});
+
 test('DSH raw registration exposes standard object JSON Schemas, not the defineTool author DSL', () => {
   for (const definition of DSH_TOOL_DEFINITIONS) {
     const schema = definition.parameters;
@@ -88,8 +108,9 @@ test('DSH raw registration exposes standard object JSON Schemas, not the defineT
     const visit = node => {
       assert.notEqual(node.type, 'json'); assert.notEqual(typeof node.required, 'boolean');
       if (node.oneOf) { assert.deepEqual(node.oneOf.map(branch => branch.type), ['string', 'null']); node.oneOf.forEach(visit); }
-      else assert.ok(['object', 'string', 'integer', 'null'].includes(node.type));
+      else assert.ok(['object', 'string', 'integer', 'null', 'array', 'boolean'].includes(node.type));
       Object.values(node.properties || {}).forEach(visit);
+      if (node.items) visit(node.items);
     };
     visit(schema);
   }

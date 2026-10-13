@@ -39,7 +39,7 @@ export const ENFORCEMENT_MODULES = Object.freeze([
 export const AGENT_ROLES = Object.freeze([
   ...RESEARCH_SPECIALISTS.map(role => ({
     id: role.id, purpose: role.purpose, stageScope: [role.stage], authority: 'suggest-only',
-    allowedCapabilities: ['project.read'], allowedSkills: [], outputContract: 'json:research-stage-contract',
+    allowedCapabilities: role.stage === 'search' ? ['project.read', 'research.search'] : ['project.read'], allowedSkills: [], outputContract: 'json:research-stage-contract',
     handoff: '输出交给编排器；编排器按用户保存的确认策略推进，实验由受控运行器执行。',
     forbiddenActions: ['改变确认策略', '授予执行权限', '直接执行命令', '将推测或待核验结果标记为已验证'],
     entrypoints: [{ module: 'services/researchResearch/harnessAdapter.js', symbol: 'runResearchHarnessStage' }]

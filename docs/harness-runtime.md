@@ -47,10 +47,12 @@ never applies it. Writes are expressed as `patch.propose` plus the owning Patch
 application command and its saved human/automatic policy, so the grantable vocabulary holds only capabilities the
 Runtime can enforce.
 
-The verified DSH profile currently exposes only bounded project reads, text
-proposals and Codex delegation. A request for research search or experiment
-execution through that profile is explicitly rejected until its domain broker is
-available; a capability grant alone does not implement a tool.
+The verified DSH profile exposes bounded project reads, text proposals, Codex
+delegation and paper search. Its search broker uses the shared paper-search
+history and source adapters, with current role/capability/network checks before
+each request and persistence. Search results retain partial failures and imported
+ranking provenance; they are not automatically confirmed evidence. Experiment
+execution remains rejected until its domain broker is available.
 
 ## HTTP Interface
 
@@ -70,8 +72,8 @@ Within one Codex worker connection, repeated dynamic tool requests with the same
 call ID and parameters share one execution and its bounded result, including
 sanitized failures. Changing the thread, turn, tool or arguments under that ID is
 rejected. Retransmissions do not add another tool execution or proposal to the
-graph. This does not provide cross-process recovery or replay an interrupted
-worker after a server restart. The connection retains at most 128 tool identities
+graph. Cross-process result reconciliation uses the retained-work recovery
+interface below; it does not replay an interrupted worker. The connection retains at most 128 tool identities
 and 8 pending responses. Pending input writes are limited to 4 MiB; a stalled
 connection that exceeds this limit fails and is closed by the owning worker.
 

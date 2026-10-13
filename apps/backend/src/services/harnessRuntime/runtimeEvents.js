@@ -51,6 +51,9 @@ export function summarizeEvent(event = {}) {
     ...(type === 'runtime/fallback' ? { from: data.from, to: data.to, error: bounded(data.error,2000,state) } : {}),
     ...(type === 'runtime/delegation' ? { childRunId: String(data.childRunId || '').slice(0,100), parentRunId: String(data.parentRunId || '').slice(0,100),
       runtime: data.runtime === 'codex' ? 'codex' : undefined, phase: ['started', 'completed', 'failed', 'cancelled'].includes(data.phase) ? data.phase : undefined } : {}),
+    ...(type === 'research/search' ? { searchSessionId: String(data.searchSessionId || '').slice(0,100),
+      searchQuery: typeof (data.criteria?.query ?? data.searchQuery) === 'string' ? (data.criteria?.query ?? data.searchQuery).slice(0,1000) : undefined,
+      searchStatus: ['completed', 'partial', 'failed'].includes(data.status ?? data.searchStatus) ? (data.status ?? data.searchStatus) : undefined } : {}),
     sourceSequence: Number.isSafeInteger(source.seq) ? source.seq : undefined,
     at: time || new Date().toISOString(), truncated: state.truncated
   };

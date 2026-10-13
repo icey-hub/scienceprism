@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { ResearchSourceError } from './sourceAdapter.js';
+import { ResearchSourceError, checkSourceRequest, isSourcePolicyFailure } from './sourceAdapter.js';
 
 function sourceError(code, message, retryable = false) {
   return new ResearchSourceError(message, { code, source: 'arxiv', retryable });
@@ -40,7 +40,7 @@ export function createArxivClient({ fetchImpl = (...args) => globalThis.fetch(..
   let pending = 0;
   let nextStart = 0;
   let cooldownUntil = 0;
-  return async function queryArxiv(parameters, { signal } = {}) {
+  return async function queryArxiv(parameters, { signal, beforeRequest } = {}) {
     if (pending >= maxPending) throw sourceError('SOURCE_BUSY', 'arXiv request queue is full. Try again later.', true);
     const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
     const abortError = () => sourceError(signal?.aborted ? 'SOURCE_CANCELLED' : 'SOURCE_TIMEOUT', signal?.aborted ? 'arXiv query cancelled.' : 'arXiv query timed out.', !signal?.aborted);
@@ -62,6 +62,8 @@ export function createArxivClient({ fetchImpl = (...args) => globalThis.fetch(..
         if (now() < cooldownUntil) throw sourceError('SOURCE_RATE_LIMITED', 'arXiv rate limit cooldown is active. Retry later.', true);
         while (nextStart > now()) await delay(nextStart - now(), undefined, { signal: requestSignal });
         requestSignal.throwIfAborted();
+        await checkSourceRequest(beforeRequest, { source: 'arxiv', url: url.toString() });
+        requestSignal.throwIfAborted();
         nextStart = now() + intervalMs;
         const response = await fetchImpl(url.toString(), { redirect: 'error', headers: { Accept: 'application/atom+xml', 'User-Agent': 'SciencePrism/1.0 (bibliographic lookup)' }, signal: requestSignal });
         if (!response.ok) {
@@ -76,6 +78,7 @@ export function createArxivClient({ fetchImpl = (...args) => globalThis.fetch(..
         }
         return await readFeed(response);
       } catch (error) {
+        if (isSourcePolicyFailure(error)) throw error;
         if (requestSignal.aborted) throw abortError();
         if (error instanceof ResearchSourceError) throw error;
         throw sourceError('SOURCE_REQUEST_FAILED', 'arXiv is unavailable. Try again later.', true);

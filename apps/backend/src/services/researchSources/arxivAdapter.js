@@ -29,10 +29,10 @@ export const arxivSourceAdapter = Object.freeze({
   id: 'arxiv',
   label: 'arXiv',
   priority: 10,
-  async search({ query, maxResults = 20, offset = 0, signal } = {}) {
+  async search({ query, maxResults = 20, offset = 0, signal, beforeRequest } = {}) {
     const limit = Math.min(50, Math.max(1, Number(maxResults) || 20));
     const start = Math.min(5000, Math.max(0, Math.floor(Number(offset) || 0)));
-    const entries = await queryArxiv({ search_query: `all:${query}`, start, max_results: limit }, { signal });
+    const entries = await queryArxiv({ search_query: `all:${query}`, start, max_results: limit }, { signal, beforeRequest });
     return entries.map(entryToCandidate);
   }
 });

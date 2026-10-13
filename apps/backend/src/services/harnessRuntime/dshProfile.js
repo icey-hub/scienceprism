@@ -5,11 +5,12 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDshFileBroker } from './dshFileBroker.js';
+import { createDshResearchBroker } from './dshResearchBroker.js';
 import { HarnessRuntimeError } from './errors.js';
 
 export const DSH_VERSION = '0.2.0-rc.2';
 export const DSH_PROVIDER = 'scienceprism-configured';
-export const DSH_PRODUCT_TOOLS = Object.freeze(['project_read_file', 'project_propose_patch', 'research_delegate_codex']);
+export const DSH_PRODUCT_TOOLS = Object.freeze(['project_read_file', 'project_propose_patch', 'research_delegate_codex', 'research_search_papers']);
 const error = (code, message) => new HarnessRuntimeError(503, code, message);
 
 export async function loadVerifiedDshSdk(configuredEntry) {
@@ -42,10 +43,10 @@ export function delegateArguments(input) {
   return { task: input.task, ...(input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens }), ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }) };
 }
 
-/** Private loopback bridge. Three product tools share one execution queue so
+/** Private loopback bridge. Product tools share one execution queue so
  * a delegated child cannot race parent file edits while its result is merged.
  */
-export async function createDshProfile({ workspace, dshHome, provider, readPolicy, onDecision, delegateCodex, skillProjection, emit, signal, timeoutMs = 600_000 }) {
+export async function createDshProfile({ workspace, dshHome, provider, readPolicy, onDecision, delegateCodex, searchPapers, skillProjection, emit, signal, timeoutMs = 600_000 }) {
   if (provider) {
     let endpoint;
     try { endpoint = new URL(provider.baseUrl); } catch { throw error('DSH_PROVIDER_INVALID', 'An explicit compatible provider endpoint is required.'); }
@@ -60,6 +61,7 @@ export async function createDshProfile({ workspace, dshHome, provider, readPolic
   const controller = new AbortController();
   const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   let broker;
+  let research;
   let queue = Promise.resolve();
   let resolveReady;
   let rejectReady;
@@ -72,6 +74,7 @@ export async function createDshProfile({ workspace, dshHome, provider, readPolic
   let closed;
   try {
     broker = await createDshFileBroker({ workspace: project, readPolicy, onDecision, skillProjection, emit, signal: combined });
+    research = await createDshResearchBroker({ readPolicy, onDecision, emit, signal: combined, ...(searchPapers ? { search: searchPapers } : {}) });
     const ceiling = broker.ceiling;
     async function policy() {
       const value = await readPolicy();
@@ -86,6 +89,7 @@ export async function createDshProfile({ workspace, dshHome, provider, readPolic
       if (!current.capabilities.granted.includes('patch.propose') || typeof delegateCodex !== 'function') throw error('CAPABILITY_DENIED', 'Codex delegation is unavailable for this Run.');
     };
     async function execute(message) {
+      if (message.tool === 'research_search_papers') return research.execute({ tool: message.tool, callId: message.callId, arguments: message.arguments });
       if (message.tool !== 'research_delegate_codex') return broker.execute(message);
       let current;
       const record = (decision, reasonCode) => onDecision({ type: 'tool/policy', projectId: ceiling.projectId, runId: ceiling.runId, tool: message.tool, callId: message.callId,
@@ -155,11 +159,11 @@ export async function createDshProfile({ workspace, dshHome, provider, readPolic
       },
       close() {
         if (closed) return closed;
-        closed = (async () => { controller.abort(); await queue; await broker.close(); for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve)); combined.removeEventListener('abort', abort); await rm(controls, { recursive: true, force: true }); })();
+        closed = (async () => { controller.abort(); await queue; await broker.close(); await research.close(); for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve)); combined.removeEventListener('abort', abort); await rm(controls, { recursive: true, force: true }); })();
         return closed;
       }
     };
   } catch (reason) {
-    controller.abort(); for (const socket of sockets) socket.destroy(); if (server?.listening) await new Promise(resolve => server.close(resolve)); if (broker) await broker.close(); await rm(controls, { recursive: true, force: true }); throw reason;
+    controller.abort(); for (const socket of sockets) socket.destroy(); if (server?.listening) await new Promise(resolve => server.close(resolve)); if (broker) await broker.close(); if (research) await research.close(); await rm(controls, { recursive: true, force: true }); throw reason;
   }
 }

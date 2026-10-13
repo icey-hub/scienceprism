@@ -146,9 +146,9 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         if (run.model !== resolvedModel) {
           await updateRun(projectId, runId, current => { current.model = resolvedModel; return current; });
         }
-        const unenforceable = run.capabilities.granted.filter((capability) => ['research.search', 'experiment.execute'].includes(capability));
+        const unenforceable = run.capabilities.granted.filter((capability) => capability === 'experiment.execute');
         if (unenforceable.length) {
-          throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The verified DSH profile does not yet expose controlled research search or experiment tools.', { capabilities: unenforceable });
+          throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The verified DSH profile does not yet expose controlled experiment tools.', { capabilities: unenforceable });
         }
         // Only the SDK executes in a workspace. Legacy reads the project through
         // guarded tools; Fake needs no files. Copying for them was unused work.

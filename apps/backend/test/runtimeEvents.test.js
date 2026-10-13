@@ -32,6 +32,15 @@ test('provider usage is summed across messages with disjoint SDK cache counters'
   assert.equal(sumEventUsage([{ type: 'assistant/message', data: {} }]), null);
 });
 
+test('saved search references survive repeated event summaries without inventing evidence', () => {
+  const event = summarizeEvent(summarizeEvent({ type: 'research/search', data: {
+    name: 'research_search_papers', callId: 'search-call', searchSessionId: 'session', criteria: { query: 'real literature' }, status: 'partial', evidenceConfirmed: false
+  } }));
+  assert.equal(event.searchSessionId, 'session'); assert.equal(event.searchQuery, 'real literature');
+  assert.equal(event.searchStatus, 'partial'); assert.equal(event.capability, 'research.search');
+  assert.equal(event.evidenceConfirmed, undefined);
+});
+
 test('actual runtime persists stable bounded events and pairs terminal calls by attempt', async () => {
   const projectId = 'bounded';
   await mkdir(path.join(dataDir, projectId));

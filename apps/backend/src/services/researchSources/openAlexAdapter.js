@@ -1,5 +1,5 @@
 import { getEnv } from '../../config/constants.js';
-import { ResearchSourceError } from './sourceAdapter.js';
+import { ResearchSourceError, checkSourceRequest, isSourcePolicyFailure } from './sourceAdapter.js';
 
 const error = (code, message, retryable = false) => new ResearchSourceError(message, { code, source: 'openalex', retryable });
 const text = value => typeof value === 'string' ? value.trim() : '';
@@ -60,7 +60,7 @@ export function createOpenAlexAdapter({ fetchImpl = (...args) => globalThis.fetc
   let cooldownUntil = 0;
   return Object.freeze({
     id: 'openalex', label: 'OpenAlex', priority: 20, filterMode: 'server',
-    async search({ query, maxResults = 20, offset = 0, filters = {}, signal } = {}) {
+    async search({ query, maxResults = 20, offset = 0, filters = {}, signal, beforeRequest } = {}) {
       if (now() < cooldownUntil) throw error('SOURCE_RATE_LIMITED', 'OpenAlex 正处于限流冷却，请稍后重试。', true);
       const limit = Math.min(50, Math.max(1, Math.floor(Number(maxResults) || 20)));
       if (!Number.isInteger(offset) || offset < 0 || offset > 5000) throw error('SOURCE_INVALID_QUERY', 'OpenAlex 检索偏移需在 0–5000 内。');
@@ -83,6 +83,8 @@ export function createOpenAlexAdapter({ fetchImpl = (...args) => globalThis.fetc
           url.searchParams.set('search', query); url.searchParams.set('page', String(page)); url.searchParams.set('per_page', '100');
           url.searchParams.set('select', 'id,title,doi,authorships,publication_year,type,primary_location,best_oa_location,open_access,abstract_inverted_index,updated_date');
           if (rules.length) url.searchParams.set('filter', rules.join(','));
+          await checkSourceRequest(beforeRequest, { source: 'openalex', url: url.toString() });
+          requestSignal.throwIfAborted();
           const key = apiKey();
           const response = await fetchImpl(url.toString(), { redirect: 'error', signal: requestSignal,
             headers: { Accept: 'application/json', 'User-Agent': 'SciencePrism/1.0 (paper search)', ...(key ? { Authorization: `Bearer ${key}` } : {}) } });
@@ -102,6 +104,7 @@ export function createOpenAlexAdapter({ fetchImpl = (...args) => globalThis.fetc
         requestSignal.throwIfAborted();
         return { candidates: items.slice(offset % 100, offset % 100 + limit).map(normalizeOpenAlexWork), total, filterMode: 'server' };
       } catch (cause) {
+        if (isSourcePolicyFailure(cause)) throw cause;
         if (signal?.aborted) throw error('SOURCE_CANCELLED', 'OpenAlex 检索已取消。');
         if (deadline.aborted) throw error('SOURCE_TIMEOUT', 'OpenAlex 检索超时。', true);
         if (cause instanceof ResearchSourceError) throw cause;
