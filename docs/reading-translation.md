@@ -26,9 +26,10 @@ and application `usage`. Update settings through `PATCH` on the same URL:
 A stale revision returns `409 TRANSLATION_SETTINGS_CONFLICT`; reload before
 saving. Cache options also include `ttlMs` (1 second to 24 hours) and `maxEntries`
 (1–2000). Default content caching is 30 minutes and 200 entries. Changing settings
-does not edit PDF annotations or enable a paid provider. The reader's persistent
-settings controls are a subsequent integration; existing reader controls still
-select the source and automatic translation locally.
+does not edit PDF annotations or enable a paid provider. The reader's right panel saves the source, target language and automatic
+translation to the project. Its ‘Usage and cache’ section controls the monthly
+application limit, cache lifetime and entry count. Refresh reloads current
+settings and usage; conflicting saves require an explicit reload before retry.
 
 ## Request identity and caching
 
@@ -50,6 +51,9 @@ Operation identities remain on disk. After clearing, eviction or restart, an
 already recorded request with no retained result returns
 `409 TRANSLATION_RESULT_UNAVAILABLE` rather than contacting the provider again.
 A deliberately new request needs a new ID and remains subject to its budget.
+The reader retains the same ID while retrying its current selection and language.
+After a failed request, its explicit new-request action warns that earlier
+reservations remain and another request may consume additional characters.
 
 ## Application usage
 
