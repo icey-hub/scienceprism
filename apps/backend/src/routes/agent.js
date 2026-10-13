@@ -42,7 +42,7 @@ export function registerAgentRoutes(fastify, { callModel = callOpenAICompatible 
     }
   });
   fastify.get('/api/agent/runtime', async (req) => {
-    return { ok: true, ...getAgentRuntimeStatus(req.query || {}) };
+    return { ok: true, ...await getAgentRuntimeStatus(req.query || {}) };
   });
 
   // Visibility before a run: which role acts for a stage, with what authority,

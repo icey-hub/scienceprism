@@ -1,9 +1,7 @@
 import { getRole } from './agentRoles/index.js';
 import { listHarnessAdapters, runHarnessRequest } from './harnessRuntime/index.js';
-import { existsSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { getEnv } from '../config/constants.js';
+import { loadVerifiedDshSdk, DSH_VERSION } from './harnessRuntime/dshProfile.js';
 
 export function resolveAgentRuntime(llmConfig) {
   const value = llmConfig?.runtime || getEnv('AGENT_RUNTIME') || 'legacy';
@@ -11,13 +9,14 @@ export function resolveAgentRuntime(llmConfig) {
   return normalized === 'deepseek-harness' || normalized === 'harness' ? 'deepseek-harness' : 'legacy';
 }
 
-export function getAgentRuntimeStatus(llmConfig) {
+export async function getAgentRuntimeStatus(llmConfig) {
   const runtime = resolveAgentRuntime(llmConfig);
-  const localSdk = path.join(os.homedir(), 'Desktop/DeepSeek Harness/deepseek-harness/packages/sdk/client/lib/index.js');
-  const configuredSdk = getEnv('HARNESS_SDK');
+  let harnessConfigured = false;
+  try { await loadVerifiedDshSdk(getEnv('HARNESS_SDK')); harnessConfigured = true; } catch { /* Configuration remains unavailable until the execution profile verifies. */ }
   return {
     runtime,
-    harnessConfigured: Boolean((configuredSdk && existsSync(configuredSdk)) || existsSync(localSdk)),
+    harnessConfigured,
+    sdkVersion: DSH_VERSION,
     fallback: getEnv('HARNESS_FALLBACK') !== 'false',
     adapters: listHarnessAdapters()
   };
