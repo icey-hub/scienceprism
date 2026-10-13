@@ -79,6 +79,63 @@ test('a stopped parent without delegated children resumes from its fixed workspa
   assert.equal(f.reads(), 0);
 });
 
+async function readOnlyStageFixture(t, { noChild = true } = {}) {
+  const f = await fixture(t, { noChild });
+  const parent = f.runs.get('parent');
+  Object.assign(parent, { kind: 'research-stage', role: 'research-stage-assistant',
+    error: { code: 'HARNESS_INTERRUPTED', message: 'Interrupted before the stage result was saved.', retryable: true } });
+  parent.capabilities = { ...parent.capabilities, granted: ['project.read'] };
+  f.setConstraints({ capabilities: ['project.read'] });
+  return f;
+}
+
+test('a stopped read-only research stage recovers without patch authority or worker calls', async t => {
+  const f = await readOnlyStageFixture(t);
+  const previousError = structuredClone(f.runs.get('parent').error);
+  const recovered = await f.create()('project', 'parent');
+  assert.equal(recovered.id, 'parent'); assert.equal(recovered.attempt, 1);
+  assert.equal(recovered.status, 'paused'); assert.equal(recovered.recovery.status, 'ready');
+  assert.deepEqual(recovered.capabilities.granted, ['project.read']);
+  assert.deepEqual(recovered.recovery.children, []); assert.deepEqual(recovered.patches, []);
+  assert.equal(recovered.humanDecision.status, 'none'); assert.equal(recovered.error, null);
+  assert.deepEqual(recovered.recovery.previousError, previousError);
+  assert.deepEqual(recovered.events, []); assert.equal(f.reads(), 0);
+  for (const root of [f.projectRoot, f.owner.workspace, path.join(f.owner.root, 'baseline')]) {
+    assert.equal(await fs.readFile(path.join(root, 'main.tex'), 'utf8'), 'old');
+  }
+  await assert.rejects(fs.stat(path.join(f.childRoot, 'handoff-receipts')), { code: 'ENOENT' });
+  const repeated = await f.create()('project', 'parent');
+  assert.equal(repeated.status, 'paused'); assert.equal(repeated.recovery.status, 'ready');
+  assert.deepEqual(repeated.patches, []); assert.deepEqual(repeated.recovery.children, []);
+  assert.equal(f.reads(), 0);
+});
+
+test('a read-only research stage cannot recover delegated children or saved write proposals', async t => {
+  for (const delegatedChild of [true, false]) {
+    const f = await readOnlyStageFixture(t, { noChild: !delegatedChild });
+    if (!delegatedChild) f.runs.get('parent').patches = [{ path: 'main.tex', content: 'unapplied proposal' }];
+    await assert.rejects(f.create()('project', 'parent'), { code: 'HARNESS_RECOVERY_POLICY_DENIED' });
+    assert.equal(f.runs.get('parent').status, 'failed');
+    assert.equal(f.runs.get('parent').recovery, undefined); assert.equal(f.reads(), 0);
+    assert.equal(await fs.readFile(path.join(f.projectRoot, 'main.tex'), 'utf8'), 'old');
+    assert.equal(await fs.readFile(path.join(f.owner.workspace, 'main.tex'), 'utf8'), 'old');
+  }
+});
+
+test('read-only recovery refuses changed original, baseline or workspace files without blessing a result', async t => {
+  for (const location of ['original', 'baseline', 'workspace', 'outside-scope']) {
+    const f = await readOnlyStageFixture(t);
+    const root = location === 'original' ? f.projectRoot : location === 'baseline' ? path.join(f.owner.root, 'baseline') : f.owner.workspace;
+    const file = path.join(root, location === 'outside-scope' ? 'unexpected.txt' : 'main.tex');
+    await fs.writeFile(file, 'changed');
+    await assert.rejects(f.create()('project', 'parent'), { code: 'HARNESS_RECOVERY_BASELINE_CONFLICT' });
+    assert.equal(f.runs.get('parent').status, 'failed');
+    assert.equal(f.runs.get('parent').recovery, undefined); assert.deepEqual(f.runs.get('parent').patches, []);
+    assert.equal(f.reads(), 0); assert.equal(await fs.readFile(file, 'utf8'), 'changed');
+    if (location !== 'original') assert.equal(await fs.readFile(path.join(f.projectRoot, 'main.tex'), 'utf8'), 'old');
+  }
+});
+
 test('stopped stored results reconcile real file receipts without provider calls or modifying the original', async t => {
   const f = await fixture(t); const recovered = await f.create()('project', 'parent');
   assert.equal(recovered.status, 'paused'); assert.equal(recovered.recovery.status, 'ready'); assert.equal(f.reads(), 0);

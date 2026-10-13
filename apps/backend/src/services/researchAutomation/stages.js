@@ -28,6 +28,7 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
       if (previous.parentRunId !== session.coordinatorRunId || previous.request?.context?.automationHandoff?.sessionId !== session.id) throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_OWNER_CHANGED', '阶段Run不属于当前交接。');
       if (previous.cleanup?.modelSlotRetained || previous.error?.code === 'HARNESS_INTERRUPTED') throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '上次Run的进程或持久结果尚未对账，不能自动重跑。');
       if (previous.status === 'completed') return cachedResult(previous);
+      if (previous.status === 'paused' && previous.recovery?.status === 'ready') return runHarnessRequest({ ...request, existingRunId: previous.id, signal: runtime.signal }, { automationSessionId: session.id });
       if (previous.retainedWorkspace && previous.recovery?.status !== 'ready') throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '未结束Run的持久结果尚未对账，不能自动重跑。');
       if (previous.status === 'created') return runHarnessRequest({ ...request, existingRunId: previous.id, signal: runtime.signal }, { automationSessionId: session.id });
       if (!['failed', 'cancelled'].includes(previous.status) || (saved.attempt || 0) >= (session.attempt || 0)) throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '已记录阶段Run；不会重复启动未知或未结束的调用。');

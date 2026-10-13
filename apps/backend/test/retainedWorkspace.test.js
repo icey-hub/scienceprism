@@ -66,6 +66,30 @@ test('another live instance cannot take ownership even in the same process', asy
   await owner.release({ status: 'cancelled', stopConfirmed: true });
 });
 
+test('a closed executor can reclaim its own lease only after its real runtime exits', async t => {
+  const f = await fixture(t);
+  const runtime = await processFixture(t, 'console.log(JSON.stringify({pid:process.pid})); setInterval(()=>{},1000);');
+  const owner = await f.create();
+  await owner.update({ runtimeProcess: { pid: runtime.ready.pid, stopConfirmed: false } });
+  await owner.release({ status: 'ambiguous', stopConfirmed: false, reclaimStopped: true });
+  await assert.rejects(f.create({ recover: true }), code('OWNER_ACTIVE'));
+  runtime.child.kill('SIGKILL'); await runtime.exit;
+  assert.throws(() => process.kill(runtime.ready.pid, 0), error => error.code === 'ESRCH');
+  const recovered = await f.create({ recover: true });
+  assert.equal(recovered.root, owner.root);
+  assert.equal((await recovered.read()).runtimeProcess.pid, runtime.ready.pid);
+  await recovered.release({ status: 'ambiguous', stopConfirmed: true });
+});
+
+test('an inspection failure cannot opt into executor reclamation or infer a missing PID', async t => {
+  for (const [pid, reclaimStopped] of [[null, true], [null, false]]) {
+    const f = await fixture(t); const owner = await f.create();
+    await owner.update({ runtimeProcess: { pid, stopConfirmed: false } });
+    await owner.release({ status: 'ambiguous', stopConfirmed: false, reclaimStopped });
+    await assert.rejects(f.create({ recover: true }), code('OWNER_ACTIVE'));
+  }
+});
+
 test('a real dead owner can be reopened without resetting its checkpoint or workspace', async t => {
   const f = await fixture(t);
   const proc = await processFixture(t, `import {createRetainedWorkspace} from ${JSON.stringify(moduleUrl)};

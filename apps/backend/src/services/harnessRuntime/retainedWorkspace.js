@@ -152,7 +152,9 @@ export async function createRetainedWorkspace({ projectRoot, runId, attempt, rec
       if (expectedVersions && JSON.stringify(state.versions) !== JSON.stringify(expectedVersions)) fail('VERSION_CONFLICT', 'The retained runtime versions do not match.');
       for (const entry of state.children) workerDirectory(root, entry.workerRoot);
       if (!recover) fail('RECOVERY_REQUIRED', 'This workspace already exists; explicit recovery is required.');
-      const trustedRelease = owner.released && owner.pid === process.pid && releasedOwners.get(root) === owner.token;
+      const closedOwner = releasedOwners.get(root);
+      const trustedRelease = owner.pid === process.pid && closedOwner?.token === owner.token
+        && (owner.released || closedOwner.reclaimStopped && state.runtimeProcess?.pid !== null && state.runtimeProcess?.pid !== undefined && childrenStopped(state));
       if ((!trustedRelease && !dead(owner.pid)) || !childrenStopped(state)) fail('OWNER_ACTIVE', 'The previous owner or child process has not been confirmed stopped.');
     }
     directory(path.join(root, 'workspace'), { create: true, privateMode: true });
@@ -204,15 +206,16 @@ export async function createRetainedWorkspace({ projectRoot, runId, attempt, rec
       if (next.stopConfirmed && !childrenStopped(next)) fail('CHILD_ACTIVE', 'Not all child processes are confirmed stopped.');
       write(root, 'checkpoint.json', next); state = next; return structuredClone(next);
     },
-    async release({ status: terminalStatus, stopConfirmed } = {}) {
+    async release({ status: terminalStatus, stopConfirmed, reclaimStopped = false } = {}) {
       parse(z.enum(['completed', 'failed', 'cancelled', 'ambiguous']), terminalStatus); parse(z.boolean(), stopConfirmed);
+      parse(z.boolean(), reclaimStopped);
       const current = read();
       if (stopConfirmed && !childrenStopped(current)) fail('CHILD_ACTIVE', 'Not all child processes are confirmed stopped.');
       const next = { ...current, revision: current.revision + 1, status: terminalStatus, stopConfirmed, updatedAt: new Date().toISOString() };
       write(root, 'checkpoint.json', next);
       state = next;
       write(root, 'owner.json', { ...owner, released: stopConfirmed });
-      if (stopConfirmed) releasedOwners.set(root, owner.token);
+      releasedOwners.set(root, { token: owner.token, reclaimStopped });
       closed = true; return structuredClone(next);
     }
   });

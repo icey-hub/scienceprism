@@ -6,7 +6,7 @@ export interface AutomationStep { stage: string; status: string; runIds: string[
   handoff?: { parentRunId: string; workflowVersion: number; role: string; inputArtifacts: {stage: string; dataSha256: string; producerRunIds: string[]; searchSessionIds: string[]; experimentRunId: string | null}[] }; }
 export interface AutomationState {
   version: number; policy: AutomationPolicy; agents: {stage: string; id: string; label: string; purpose: string}[];
-  session: null | { id: string; coordinatorRunId?: string; status: string; currentStage?: string; targetStage: string; message?: string; steps: AutomationStep[]; error?: {code: string; details?: {part?: string}} };
+  session: null | { id: string; coordinatorRunId?: string; ownerPid?: number; status: string; currentStage?: string; targetStage: string; message?: string; steps: AutomationStep[]; error?: {code: string; details?: {part?: string}} };
 }
 async function request<T>(projectId: string, suffix = '', method = 'GET', body?: object): Promise<T> {
   const token = sessionStorage.getItem('scienceprism-collab-token') || sessionStorage.getItem('openprism-collab-token');

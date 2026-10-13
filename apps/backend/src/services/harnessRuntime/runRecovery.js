@@ -118,8 +118,11 @@ export function createRunRecovery({ getRun, updateRun, readProjectConstraints, w
       }
       await owner.update({ status: 'running', stopConfirmed: false });
       const parentPolicy = await readParentPolicy();
-      if (!parentPolicy.active || !parentPolicy.capabilities.granted.includes('project.read') || !parentPolicy.capabilities.granted.includes('patch.propose')) fail('POLICY_DENIED', 'The current parent policy does not permit recovery.');
-      const { snapshot: parentBaseline, skillProjection } = await loadRetainedRecoveryInputs({ retained: owner, run: original, projectRoot });
+      const readOnlyStage = original.kind === 'research-stage' && original.capabilities.granted.every(capability => capability === 'project.read');
+      if (!parentPolicy.active || !parentPolicy.capabilities.granted.includes('project.read') || !readOnlyStage && !parentPolicy.capabilities.granted.includes('patch.propose')) fail('POLICY_DENIED', 'The current parent policy does not permit recovery.');
+      if (readOnlyStage && (state.children.length || original.patches?.length)) fail('POLICY_DENIED', 'A read-only stage cannot recover delegated writes.');
+      const { snapshot: parentBaseline, skillProjection } = await loadRetainedRecoveryInputs({ retained: owner, run: original, projectRoot, capabilities: parentPolicy.capabilities });
+      if (readOnlyStage) verifyManifest(snapshot(owner.workspace, { ...parentPolicy.capabilities, allowedPaths: [] }), state.baseFiles);
       const documents = skillProjection.documents;
       const ready = original.recovery?.format === FORMAT && original.recovery.status === 'ready' && original.recovery.workspaceAttempt === original.attempt;
       if (ready) {
@@ -270,6 +273,8 @@ export function createRunRecovery({ getRun, updateRun, readProjectConstraints, w
         signal.throwIfAborted(); current.status = 'paused'; current.patches = patches;
         current.humanDecision = { status: patches.length ? 'pending' : 'none' };
         current.recovery = { format: FORMAT, status: 'ready', workspaceAttempt: original.attempt, children };
+        if (current.error) current.recovery.previousError = current.error;
+        current.error = null;
         current.updatedAt = new Date().toISOString(); return current;
       });
     } catch (error) { failure = error; throw error; }

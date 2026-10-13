@@ -9,6 +9,7 @@ import { mutateWorkflow } from '../researchWorkflow/commands.js';
 import { applyApprovalDecision } from '../researchWorkflow/stateMachine.js';
 import { applyPaperSelection } from '../researchWorkflow/paperSelection.js';
 import { appendAudit } from '../researchWorkflow/audit.js';
+import { inspectAutomationOwner } from './owner.js';
 
 export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'execution', 'patches'];
 const FILE = '.scienceprism/research-automation.json';
@@ -57,9 +58,12 @@ export async function readAutomation(projectId) {
 
 export async function mutateAutomation(projectId, mutate) {
   return withWorkflowLock(projectId, async () => {
+    const root = await resolveProjectRoot(projectId);
+    const owner = inspectAutomationOwner({ projectRoot: root });
+    if (owner && !owner.released && owner.present !== false && owner.pid !== process.pid) throw new ResearchWorkflowError(409, 'AUTOMATION_OWNER_BUSY', '另一个后端仍持有该项目的研究链路。');
     const state = await readAutomation(projectId);
     await mutate(state);
-    const root = await resolveProjectRoot(projectId), target = path.join(root, FILE);
+    const target = path.join(root, FILE);
     await fs.mkdir(path.dirname(target), { recursive: true });
     const temporary = `${target}.${randomUUID()}.tmp`;
     try { await fs.writeFile(temporary, JSON.stringify(state, null, 2) + '\n'); await fs.rename(temporary, target); }

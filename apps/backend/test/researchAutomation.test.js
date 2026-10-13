@@ -275,6 +275,25 @@ test('a workflow save failure resumes from durable model and search results with
   assert.equal((await model.getHarnessRun('save-recovery', done.session.coordinatorRunId)).status, 'completed');
 });
 
+test('a ready recovery with a retained slot still requires trusted reconciliation before queueing', async t => {
+  await project('ready-slot'); await enable('ready-slot');
+  interruptSearchSave(t);
+  await startAutomation('ready-slot', { actor: 'human', question: 'Question', targetStage: 'search' }, runtime);
+  const blocked = await settled('ready-slot'); assert.equal(blocked.session.status, 'blocked');
+  const ledgerPath = path.join(process.env.SCIENCEPRISM_DATA_DIR, 'ready-slot/.scienceprism/harness-runs.json');
+  const ledger = JSON.parse(await readFile(ledgerPath, 'utf8'));
+  const original = ledger.runs.find(run => run.kind === 'research-stage');
+  // Deliberately inconsistent fixture: ready cannot bypass the retained slot,
+  // and a fake adapter cannot supply a real retained recovery workspace.
+  original.status = 'paused'; original.recovery = { status: 'ready' };
+  original.cleanup = { modelSlotRetained: true };
+  await writeFile(ledgerPath, JSON.stringify(ledger));
+  await assert.rejects(() => resumeAutomation('ready-slot', { actor: 'human', recoverExisting: true }, runtime), { code: 'AUTOMATION_RUN_UNRESOLVED' });
+  const saved = await readAutomation('ready-slot'); assert.equal(saved.session.status, 'blocked');
+  assert.equal(saved.session.steps.find(step => step.stage === 'search').calls[0].runId, original.id);
+  assert.equal((await listHarnessRuns('ready-slot')).length, 2);
+});
+
 test('the research coordinator cannot independently run, replay, cancel or approve model work', async () => {
   await project('coordinator-control');
   await startAutomation('coordinator-control', { actor: 'human', question: 'Question', targetStage: 'search' }, runtime);

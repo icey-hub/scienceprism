@@ -385,7 +385,8 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         const current = await getRun(projectId, runId);
         await retained.release({ status: current.status === 'completed' || current.status === 'awaiting_approval' ? 'completed'
           : current.status === 'cancelled' ? 'cancelled' : control.stopUnconfirmed ? 'ambiguous' : 'failed',
-          stopConfirmed: !control.stopUnconfirmed && !delegation?.preserveWorkspace });
+          stopConfirmed: !control.stopUnconfirmed && !delegation?.preserveWorkspace,
+          reclaimStopped: Boolean(control.stopUnconfirmed) });
       }
     }
   }

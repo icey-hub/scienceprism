@@ -26,6 +26,7 @@ import { readFileState, sameVersion } from './fileVersions.js';
 import { createRunRecovery } from './runRecovery.js';
 import { createCodexWorker } from './adapters/codexWorker.js';
 import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../llmService.js';
+import { inspectAutomationOwner } from '../researchAutomation/owner.js';
 
 const MAX_RECENT_RUNS = 100;
 
@@ -117,6 +118,10 @@ async function getRunDocument(projectId) {
   const root = await resolveHarnessProjectRoot(projectId);
   const document = await withHarnessRunLock(projectId, async () => {
     const stored = await readHarnessRuns(root, projectId);
+    const owner = inspectAutomationOwner({ projectRoot: root });
+    // Another backend can serve read-only views without rewriting the live
+    // coordinator's history as a restart of this process.
+    if (owner && !owner.released && owner.present !== false && owner.pid !== process.pid) return stored;
     let recovered = false;
     for (const run of stored.runs) {
       if ((run.status === 'running' && !activeRuns.has(run.id)) ||
@@ -125,6 +130,7 @@ async function getRunDocument(projectId) {
         run.finishedAt = now();
         run.updatedAt = run.finishedAt;
         run.error = { code: 'HARNESS_INTERRUPTED', message: 'The server restarted before this task finished. Retry with the current document.', retryable: true };
+        if (run.retainedWorkspace) run.cleanup = { ...run.cleanup, workspaceRetained: true, modelSlotRetained: true };
         recovered = true;
       }
     }
@@ -136,6 +142,7 @@ async function getRunDocument(projectId) {
 
 async function updateRun(projectId, runId, updater) {
   const { root } = await getRunDocument(projectId);
+  assertLocalAutomationWriter(root);
   return withHarnessRunLock(projectId, async () => {
     const document = await readHarnessRuns(root, projectId);
     const index = document.runs.findIndex((run) => run.id === runId);
@@ -146,6 +153,13 @@ async function updateRun(projectId, runId, updater) {
     await writeHarnessRuns(root, document);
     return clone(document.runs[index]);
   });
+}
+
+function assertLocalAutomationWriter(projectRoot) {
+  const owner = inspectAutomationOwner({ projectRoot });
+  if (owner && !owner.released && owner.present !== false && owner.pid !== process.pid) {
+    throw new HarnessRuntimeError(409, 'AUTOMATION_OWNER_BUSY', '另一个后端仍持有该项目的研究链路。');
+  }
 }
 
 function activeCount(projectId) {
@@ -248,6 +262,7 @@ export function recordAutomationCoordinator(projectId, runId, { sessionId, statu
 
 export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId } = {}) {
   const projectRoot = await resolveHarnessProjectRoot(projectId);
+  assertLocalAutomationWriter(projectRoot);
   const constraintPolicy = await readConstraintPolicy(projectId);
   const parent = request.parentRunId ? await getHarnessRun(projectId, request.parentRunId) : null;
   if (parent?.kind === 'research-coordinator' && parent.coordinatorSessionId !== automationSessionId) throw new HarnessRuntimeError(409, 'AUTOMATION_OWNS_STAGE', 'Only the research chain can delegate from this coordinator.');
@@ -409,6 +424,7 @@ export async function listHarnessRuns(projectId, { status, stage, parentRunId, s
 
 export async function startHarnessRun(projectId, runId, { wait = false, request = {}, signal, automationSessionId } = {}) {
   signal?.throwIfAborted();
+  assertLocalAutomationWriter(await resolveHarnessProjectRoot(projectId));
   assertCoordinatorControl(await getHarnessRun(projectId, runId), automationSessionId);
   if (activeRuns.get(runId)?.recovering) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run is reconciling retained results.');
   const run = await getHarnessRun(projectId, runId);
@@ -502,25 +518,43 @@ export async function resumeHarnessRun(projectId, runId, options = {}) {
   return startHarnessRun(projectId, runId, options);
 }
 
-export async function recoverHarnessRun(projectId, runId, { request = {} } = {}) {
-  assertCoordinatorControl(await getHarnessRun(projectId, runId));
-  if (activeRuns.has(runId)) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run still has an active execution or recovery.');
+export async function recoverHarnessRun(projectId, runId, { request = {}, signal, automationSessionId } = {}) {
+  signal?.throwIfAborted();
+  assertLocalAutomationWriter(await resolveHarnessProjectRoot(projectId));
+  assertCoordinatorControl(await getHarnessRun(projectId, runId), automationSessionId);
+  const retained = activeRuns.get(runId);
+  if (retained) {
+    if (!retained.control.stopUnconfirmed || !retained.promise) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run still has an active execution or recovery.');
+    await retained.promise.catch(() => {});
+    if (activeRuns.get(runId) !== retained) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'Another recovery owns this Run.');
+  }
   const controller = new AbortController();
   const control = { controller, cancelRequested: false, stopUnconfirmed: false };
+  const abort = () => controller.abort(signal.reason);
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
   const entry = { projectId, controller, control, recovering: true, occupiesModelSlot: false, promise: null };
   activeRuns.set(runId, entry);
   const recover = createRunRecovery({ getRun: getHarnessRun, updateRun, readProjectConstraints,
     worker: createCodexWorker({ executable: getEnv('CODEX_EXECUTABLE') }) });
   entry.promise = (async () => {
-    try { const config = resolveLLMConfig(request.llmConfig); return await recover(projectId, runId, { signal: controller.signal,
-      provider: { baseUrl: normalizeBaseURL(normalizeChatEndpoint(config.endpoint)), model: config.model, apiKey: config.apiKey } }); }
+    try {
+      const config = resolveLLMConfig(request.llmConfig);
+      await recover(projectId, runId, { signal: controller.signal,
+        provider: { baseUrl: normalizeBaseURL(normalizeChatEndpoint(config.endpoint)), model: config.model, apiKey: config.apiKey } });
+      return await updateRun(projectId, runId, current => {
+        if (current.recovery?.status !== 'ready' || current.status !== 'paused') throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_INCOMPLETE', 'Recovery did not produce a stopped continuation.');
+        if (current.cleanup?.modelSlotRetained) current.cleanup = { status: 'recovery-stop-confirmed', workspaceRetained: true, modelSlotRetained: false };
+        return current;
+      });
+    }
     catch (error) {
-      if (['CODEX_STOP_FAILED', 'DSH_STOP_FAILED', 'HARNESS_STOP_UNCONFIRMED'].includes(error.code)) {
+      if (['CODEX_STOP_FAILED', 'DSH_STOP_FAILED', 'HARNESS_STOP_UNCONFIRMED', 'HARNESS_WORKSPACE_OWNER_ACTIVE', 'HARNESS_WORKSPACE_CHILD_ACTIVE', 'HARNESS_RECOVERY_PARENT_STOP_UNCONFIRMED', 'HARNESS_RECOVERY_WORKER_ACTIVE'].includes(error.code)) {
         control.stopUnconfirmed = true;
         await updateRun(projectId, runId, run => { run.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: true, modelSlotRetained: true }; return run; });
       }
       throw error;
-    } finally { if (!control.stopUnconfirmed) activeRuns.delete(runId); }
+    } finally { signal?.removeEventListener('abort', abort); if (!control.stopUnconfirmed) activeRuns.delete(runId); }
   })();
   return entry.promise;
 }
@@ -585,6 +619,7 @@ export async function decideHarnessRun(projectId, runId, { decision, actor = 'hu
  */
 export async function applyHarnessRunPatches(projectId, runId, { actor = 'human', paths } = {}) {
   const root = await resolveHarnessProjectRoot(projectId);
+  assertLocalAutomationWriter(root);
   return withHarnessRunLock(projectId, async () => {
     const document = await readHarnessRuns(root, projectId);
     const index = document.runs.findIndex((run) => run.id === runId);

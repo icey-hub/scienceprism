@@ -94,7 +94,7 @@ export function registerResearchWorkflowRoutes(fastify) {
     fastify.post(`${BASE_PATH}/automation/${action}`, valueRoute(async req => {
       const body = bodyOf(req);
       // Provider secrets live only in the worker, never in persisted policy/session.
-      return handler(req.params.id, { actor: actorFromRequest(req, body), question: body.question, targetStage: body.targetStage, skipReplication: body.skipReplication, executionPlan: body.executionPlan }, { llmConfig: body.llmConfig });
+      return handler(req.params.id, { actor: actorFromRequest(req, body), question: body.question, targetStage: body.targetStage, skipReplication: body.skipReplication, executionPlan: body.executionPlan, recoverExisting: body.recoverExisting }, { llmConfig: body.llmConfig });
     }));
   }
   fastify.post(`${BASE_PATH}/automation/patches/:runId/apply`, valueRoute(async req => ({ run: await automaticallyApplyPatches(req.params.id, req.params.runId) })));
