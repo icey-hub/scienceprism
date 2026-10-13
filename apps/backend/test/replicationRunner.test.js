@@ -331,3 +331,14 @@ test('replication retry creates a fresh approved Run and preserves old failure p
   const evidence = ledger.entries.find((entry) => entry.id === completed.evidence.runId);
   assert.deepEqual(evidence.metadata.replication, retried.manifest.replication);
 });
+
+// Snapshot scope is part of the approved preparation, not a Run-level override.
+test('replication snapshots only the approved input paths and rejects caller scope overrides', async () => {
+  const projectId = 'replication-approved-scope';
+  const workflow = await replicationProject(projectId, { plan: { ...preparation, codePaths: ['run.mjs'] } });
+  await writeFile(path.join(dataDir, projectId, 'unrelated.txt'), 'Unrelated project material');
+  const run = await createExperimentRun(projectId, runInput(workflow));
+  assert.deepEqual(run.manifest.code.paths, ['run.mjs']);
+  assert.deepEqual(run.manifest.code.files.map(file => file.path), ['run.mjs']);
+  await assert.rejects(createExperimentRun(projectId, runInput(workflow, { codePaths: ['unrelated.txt'] })), { code: 'REPLICATION_PLAN_OVERRIDE' });
+});

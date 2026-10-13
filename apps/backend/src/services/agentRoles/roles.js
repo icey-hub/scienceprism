@@ -142,6 +142,15 @@ export const AGENT_ROLES = Object.freeze([
     ]
   },
   {
+    id: 'experiment-code-producer',
+    purpose: 'Prepare bounded experiment source proposals through the controlled Codex worker.',
+    stageScope: ['replication', 'experiment'], authority: 'propose-patch',
+    allowedCapabilities: ['project.read', 'patch.propose'], allowedSkills: [], outputContract: 'patch',
+    handoff: 'The application freezes the real worker proposal as a code version; the isolated Runner records trial results separately.',
+    forbiddenActions: ['writing the original project', 'executing commands', 'changing the evaluation protocol', 'claiming that code generation verifies a result'],
+    entrypoints: [{ module: 'services/experimentRunner/codePreparations.js', symbol: 'createCodePreparationService' }]
+  },
+  {
     id: 'experiment-operator',
     purpose: 'Execute an already approved, fixed experiment through the isolated product runner.',
     stageScope: ['replication', 'experiment'], authority: 'execute',

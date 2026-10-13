@@ -13,6 +13,7 @@ import { artifactDirectory, clone, readExperimentRuns, resolveExperimentProjectR
 import { experimentAdapters } from './adapters.js';
 import { environmentService } from './environments.js';
 import { prepareExperimentDataset, assertExperimentDatasetInput } from './datasetInput.js';
+import { codePreparationService } from './codePreparations.js';
 import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary, experimentManifestHash } from './manifest.js';
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
@@ -308,6 +309,10 @@ function copyFilter(source, projectRoot, allowedPaths = []) {
     && (isPathAllowed(relative, { allowedPaths }) || allowedPaths.some(path => path.startsWith(`${relative}/`)));
 }
 
+function assertPreparedCodeScope(manifest, allowedPaths) {
+  if (manifest.command.codePreparationId && manifest.code.preparation.files.some(file => !isPathAllowed(file.path, { allowedPaths }))) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'Prepared code exceeds the parent execution file scope.');
+}
+
 async function copyProjectWorkspace(projectRoot, workspaceRoot, allowedPaths) {
   await fs.cp(projectRoot, workspaceRoot, { recursive: true, filter: (source) => copyFilter(source, projectRoot, allowedPaths) });
 }
@@ -503,7 +508,13 @@ async function executeRun(projectId, runId, control) {
   const startedAt = now();
   try {
     await copyProjectWorkspace(root, workspaceRoot, control.allowedPaths);
-    await assertExperimentCodeSnapshot(workspaceRoot, run.manifest);
+    await assertExperimentCodeSnapshot(workspaceRoot, run.manifest, { original: true });
+    if (run.manifest.command.codePreparationId) {
+      assertPreparedCodeScope(run.manifest, control.allowedPaths);
+      const code = run.manifest.code.preparation;
+      await codePreparationService.prepareWorkspace(projectId, code.id, code.sha256, workspaceRoot, { signal: control.controller.signal, beforeEffect: control.beforeLaunch });
+      await assertExperimentCodeSnapshot(workspaceRoot, run.manifest);
+    }
     if (run.manifest.dataset.input && !isPathAllowed(run.manifest.dataset.input.path, { allowedPaths: control.allowedPaths })) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed dataset exceeds the parent execution file scope.');
     // Declared outputs must be produced by this Run, not inherited from the project.
     for (const artifact of run.manifest.artifacts) {
@@ -524,6 +535,7 @@ async function executeRun(projectId, runId, control) {
         || !isDeepStrictEqual(intersectPaths(control.allowedPaths, latestScope), control.allowedPaths)) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_SCOPE_CHANGED', 'The copied workspace scope changed before launch.');
       const policy = await readConstraintPolicy(projectId);
       assertExecutionAllowed(constraints, latest, isConstraintEnabled(policy, 'C-16'));
+      assertPreparedCodeScope(latest.manifest, control.allowedPaths);
       if (latest.manifest.dataset.input && !isPathAllowed(latest.manifest.dataset.input.path, { allowedPaths: control.allowedPaths })) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed dataset exceeds the parent execution file scope.');
       if (latest.approval?.authorization) await requireAutomatic(projectId, 'execution', latest.approval.authorization.sessionId);
       if (latest.manifest.researchPlan || latest.manifest.replication) {
@@ -534,6 +546,7 @@ async function executeRun(projectId, runId, control) {
       await control.beforeLaunch?.();
       if (run.manifest.command.environmentId) await environmentService.verify(projectId, run.manifest.command.environmentId, run.manifest.environment.preparation?.sha256);
       await assertExperimentDatasetInput(workspaceRoot, run.manifest.dataset);
+      if (run.manifest.command.codePreparationId) await codePreparationService.assertWorkspace(projectId, run.manifest.code.preparation.id, run.manifest.code.preparation.sha256, workspaceRoot);
       control.controller.signal.throwIfAborted();
     };
     const onProcess = async state => {
@@ -549,6 +562,7 @@ async function executeRun(projectId, runId, control) {
     try {
       result = await task;
       await assertExperimentDatasetInput(workspaceRoot, run.manifest.dataset);
+      if (run.manifest.command.codePreparationId) await codePreparationService.assertWorkspace(projectId, run.manifest.code.preparation.id, run.manifest.code.preparation.sha256, workspaceRoot);
       if (control.timedOut) executionError = new ExperimentRunnerError(504, 'EXPERIMENT_TIMEOUT', 'Experiment Run exceeded its configured timeout.');
     }
     finally { clearTimeout(timer); }
@@ -634,6 +648,7 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
     } else if (next.executionBinding) throw new ExperimentRunnerError(409, 'EXPERIMENT_OWNER_CHANGED', 'This Experiment Run must be started by its bound parent.');
     if (next.approval?.authorization) await requireAutomatic(projectId, 'execution', next.approval.authorization.sessionId);
     assertExecutionAllowed(constraints, next, rolloutEnabled);
+    assertPreparedCodeScope(next.manifest, control.allowedPaths);
     if (next.manifest.dataset.input && !isPathAllowed(next.manifest.dataset.input.path, { allowedPaths: control.allowedPaths })) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed dataset exceeds the parent execution file scope.');
     if (next.manifest?.replication) {
       if (!workflow) throw new ExperimentRunnerError(409, 'REPLICATION_WORKFLOW_REQUIRED', 'The replication workflow must be available before execution.');

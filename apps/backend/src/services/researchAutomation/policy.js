@@ -19,7 +19,7 @@ const modes = ['inherit', 'auto', 'manual'];
 const invalid = message => { throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_POLICY', message); };
 const executionPlanSchema = z.object({
   dataset: z.string().trim().min(1).max(500), datasetVersion: z.string().trim().min(1).max(500), protocol: z.string().trim().min(1).max(4000),
-  execution: z.object({ adapter: z.enum(['node','python']), entrypoint: z.string().min(1).max(500), args: z.array(z.string().max(2000)).max(30).default([]), environmentId:z.string().regex(/^environment-[a-f0-9-]{36}$/).optional() }).strict(),
+  execution: z.object({ adapter: z.enum(['node','python']), entrypoint: z.string().min(1).max(500), args: z.array(z.string().max(2000)).max(30).default([]), environmentId:z.string().regex(/^environment-[a-f0-9-]{36}$/).optional(), codePreparationId: z.string().regex(/^code-preparation-[a-f0-9]{64}$/).optional() }).strict(),
   seed: z.union([z.string().max(100),z.number().int()]).default(0), successCriteria: z.array(z.string().max(2000)).min(1).max(30),
   artifacts: z.array(z.object({ path: z.string().min(1).max(500), kind: z.enum(['metric','output','chart','table','checkpoint','log']), name: z.string().max(200).optional() }).strict()).max(30).default([]),
   parameters: z.record(z.unknown()).optional(), codePaths: z.array(z.string().max(500)).max(100).optional(),

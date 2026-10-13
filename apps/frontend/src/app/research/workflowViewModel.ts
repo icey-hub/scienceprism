@@ -167,6 +167,7 @@ export function toResearchView(workflow: UiWorkflow, claimMatrix?: WritingEviden
     environment: workflow.replication?.environment || '', dataset: workflow.replication?.dataset || '',
     datasetVersion: workflow.replication?.datasetVersion || '', expectedMetrics: workflow.replication?.expectedMetrics || '',
     gaps: workflow.replication?.gaps || '', note: workflow.replication?.note || '',
+    ...(workflow.replication?.codePaths ? { codePaths: workflow.replication.codePaths } : {}),
     ...(workflow.replication?.execution ? { execution: workflow.replication.execution } : {}),
     ...(workflow.replication?.parameters ? { parameters: workflow.replication.parameters } : {}),
     ...(workflow.replication?.seed ? { seed: workflow.replication.seed } : {}),

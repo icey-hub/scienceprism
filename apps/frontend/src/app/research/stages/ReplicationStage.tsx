@@ -1,6 +1,7 @@
 import type { ExperimentRun } from '../../../api/client';
 import type { PaperCandidate, ReplicationPlan } from '../researchStages';
 import { DatasetVersionPicker } from './DatasetVersionPicker';
+import { CodePreparationPanel } from './CodePreparationPanel';
 
 export interface ReplicationStageProps {
   projectId?: string;
@@ -35,6 +36,7 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
   const metrics = run?.metrics || [];
   return (
     <div className="research-page-stack">
+      {projectId && <CodePreparationPanel key={`code:${projectId}`} projectId={projectId} value={execution.codePreparationId} entrypoint={execution.entrypoint} disabled={busy} onChange={(codePreparationId, entrypoint, adapter) => onChange({ ...value, execution: { ...execution, codePreparationId, ...(entrypoint ? { entrypoint } : {}), ...(adapter ? { adapter, environmentId: adapter === 'python' ? execution.environmentId : undefined } : {}) } })} />}
       <section className="research-panel">
         <div className="research-panel-heading">
           <div><span className="research-overline">OPTIONAL REPRODUCTION</span><h3>验证已有工作</h3></div>
@@ -63,6 +65,7 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
         <fieldset className="research-form-grid" disabled={busy}>
           <label className="research-field"><span>运行适配器</span><select value={execution.adapter} onChange={(event) => onChange({ ...value, execution: { ...execution, adapter: event.target.value as 'node' | 'python' } })}><option value="node">Node.js</option><option value="python">Python</option></select></label>
           <label className="research-field"><span>项目内入口文件</span><input value={execution.entrypoint} placeholder="例如 experiments/reproduce.mjs" onChange={(event) => onChange({ ...value, execution: { ...execution, entrypoint: event.target.value } })} /></label>
+          <label className="research-field"><span>输入文件范围（每行一个）</span><textarea value={(value.codePaths || []).join('\n')} placeholder="例如 protocol.json；留空使用项目范围。固定提案中的代码会自动包含。" onChange={(event) => onChange({ ...value, codePaths: event.target.value.split('\n').map(path => path.trim()).filter(Boolean) })} /></label>
           <label className="research-field research-field-wide"><span>入口参数（按空格分隔）</span><input value={execution.args.join(' ')} placeholder="可选" onChange={(event) => onChange({ ...value, execution: { ...execution, args: event.target.value.split(' ').filter(Boolean) } })} /></label>
           <label className="research-field"><span>运行上限（分钟）</span><input type="number" min="1" max="1440" value={Math.round((value.resources?.timeoutMs || 600000) / 60000)} onChange={(event) => onChange({ ...value, resources: { ...value.resources, timeoutMs: Math.max(1, Number(event.target.value) || 1) * 60000 } })} /></label>
           <label className="research-field research-field-wide"><span>声明产物路径（每行一个）</span><textarea value={artifactDeclarations(value)} rows={3} placeholder={'results/metrics.json\nresults/figure.svg'} onChange={(event) => onChange({ ...value, artifacts: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean).map((path, index) => ({ path, kind: index === 0 ? 'metric' : 'output' })) })} /></label>
@@ -73,6 +76,7 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
         <div className="research-panel-heading"><div><span className="research-overline">RUN MANIFEST</span><h3>复现运行状态</h3></div><span className="research-status-note">{run?.status || '尚未创建'}</span></div>
         {!run ? <div className="research-empty-inline">创建 Run 后，服务端生成的来源快照、代码版本和数据版本会在这里显示。</div> : <>
           {run.manifest?.dataset?.input && <p className="research-panel-copy">固定数据输入：{run.manifest.dataset.input.filename} · {run.manifest.dataset.input.byteLength.toLocaleString()} bytes · SHA256 {run.manifest.dataset.input.sha256.slice(0, 16)}。运行前后核对，原始数据独立归档。</p>}
+          {run.manifest?.code?.preparation && <p className="research-panel-copy">固定代码：{run.manifest.code.preparation.sha256.slice(0, 16)} · 来自 DeepSeek / Codex 提案。原项目未应用这些改动。</p>}
           <dl className="research-run-summary"><div><dt>来源阶段</dt><dd>{run.manifest?.replication?.sourceStage || 'replication'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>代码快照</dt><dd>{(run.manifest?.code?.snapshotHash || '未记录').slice(0, 16)}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控适配器'}</dd></div></dl>
           <div className="research-callout"><strong>证据状态</strong><p>{run.status === 'completed' ? '产物已归档为 pending，仍需人工核对后确认；运行成功不等于科学结论。' : run.status === 'failed' || run.status === 'cancelled' ? '该 Run 保持 unverified，未视为复现成功。' : '结果尚未完成，不能作为科学证据。'}</p></div>
           {run.error?.message && <div className="research-callout research-callout-warning"><strong>运行失败</strong><p>{run.error.message}</p></div>}

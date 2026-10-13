@@ -68,7 +68,7 @@ test('replication preparation survives backend projection, editing and clearing 
   const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
   const { toFrontendWorkflow } = await import('../src/services/researchWorkflow/projection.js');
   const source = createWorkflowDocument('replication-preparation');
-  const plan = { repository: 'code/baseline', codeVersion: 'commit-a', dataset: 'data/local.json', datasetVersion: 'sha256:recorded', environment: 'Node 22', expectedMetrics: 'Mean = 11; tolerance 0', gaps: 'GPU experiment unavailable', note: 'Reuse local data.' };
+  const plan = { codePaths: ['protocol.json'], repository: 'code/baseline', codeVersion: 'commit-a', dataset: 'data/local.json', datasetVersion: 'sha256:recorded', environment: 'Node 22', expectedMetrics: 'Mean = 11; tolerance 0', gaps: 'GPU experiment unavailable', note: 'Reuse local data.' };
   source.stages.find(stage => stage.id === 'replication').data = { replication: plan };
   const before = structuredClone(source);
   const workflow = mergeWorkflow(toFrontendWorkflow(source));

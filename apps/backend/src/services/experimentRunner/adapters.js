@@ -163,14 +163,14 @@ export function chooseIsolationStrategy({ platform = process.platform, osSandbox
   return null;
 }
 
-async function isolatedCommand(workspaceRoot, entrypoint, args, readOnlyPaths = []) {
+async function isolatedCommand(workspaceRoot, entrypoint, args, readOnlyPaths = [], preparedCode = false) {
   const applicability = process.platform === 'darwin' ? await macSandboxApplicability() : { ok: false, reason: `no OS sandbox is implemented for ${process.platform}` };
   const strategy = chooseIsolationStrategy({
     osSandboxApplicable: applicability.ok,
     nodePermissionSupported: supportsNodePermissionModel()
   });
   if (strategy === 'macos-sandbox-exec') return macSandboxCommand(workspaceRoot, process.execPath, entrypoint, args, [], readOnlyPaths);
-  if (readOnlyPaths.length) throw new ExperimentRunnerError(503, 'EXPERIMENT_DATASET_ISOLATION_REQUIRED', 'Fixed raw data requires OS-enforced read-only isolation; the Node permission fallback cannot protect it.');
+  if (readOnlyPaths.length) throw new ExperimentRunnerError(503, preparedCode ? 'EXPERIMENT_CODE_ISOLATION_REQUIRED' : 'EXPERIMENT_DATASET_ISOLATION_REQUIRED', 'Fixed experiment inputs require OS-enforced read-only isolation; the Node permission fallback cannot protect them.');
   if (strategy === 'node-permission') return nodePermissionCommand(workspaceRoot, entrypoint, args);
   throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `No enforceable Experiment Runner sandbox is available (${applicability.reason}; node permission model unsupported); the Experiment Run was not started.`);
 }
@@ -252,8 +252,8 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
 }
 
 export async function runNodeExperiment(manifest, options = {}) {
-  const readOnlyPaths = manifest.dataset?.input ? [path.join(options.workspaceRoot, manifest.dataset.input.path)] : [];
-  return runProcessExperiment(manifest, options, (root, entrypoint, args) => isolatedCommand(root, entrypoint, args, readOnlyPaths));
+  const readOnlyPaths = [...(manifest.dataset?.input ? [manifest.dataset.input.path] : []), ...(manifest.code?.preparation?.files || []).map(file => file.path)].map(file => path.join(options.workspaceRoot, file));
+  return runProcessExperiment(manifest, options, (root, entrypoint, args) => isolatedCommand(root, entrypoint, args, readOnlyPaths, Boolean(manifest.code?.preparation)));
 }
 
 export async function runPythonExperiment(manifest, options = {}) {
@@ -267,7 +267,7 @@ export async function runPythonExperiment(manifest, options = {}) {
   const applicability = await isOsSandboxApplicable();
   if (!applicability.ok) throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `Python runs require the macOS OS sandbox (${applicability.reason}).`);
   const venvRoot = path.dirname(path.dirname(configured));
-  const readOnlyPaths = manifest.dataset?.input ? [path.join(options.workspaceRoot, manifest.dataset.input.path)] : [];
+  const readOnlyPaths = [...(manifest.dataset?.input ? [manifest.dataset.input.path] : []), ...(manifest.code?.preparation?.files || []).map(file => file.path)].map(file => path.join(options.workspaceRoot, file));
   return runProcessExperiment(manifest, options, (workspaceRoot, entrypoint, args) =>
     macSandboxCommand(workspaceRoot, configured, entrypoint, args, [venvRoot], readOnlyPaths));
 }

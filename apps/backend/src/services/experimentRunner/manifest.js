@@ -5,6 +5,7 @@ import { isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { ExperimentRunnerError } from './errors.js';
 import { environmentService } from './environments.js';
 import { resolveExperimentDataset } from './datasetInput.js';
+import { codePreparationService } from './codePreparations.js';
 
 export const RUNNER_VERSION = '1';
 export const EXPERIMENT_ADAPTERS = Object.freeze(['node', 'python', 'fake']);
@@ -37,7 +38,9 @@ function normalizeExecution(value) {
   if (adapter === 'python' && !/\.py$/i.test(entrypoint)) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENTRYPOINT', 'The Python Adapter requires a .py entrypoint.');
   const environmentId = value.environmentId;
   if (environmentId !== undefined && (adapter !== 'python' || typeof environmentId !== 'string' || !/^environment-[a-f0-9-]{36}$/.test(environmentId))) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENVIRONMENT', 'A Python execution environment must reference a prepared project environment.');
-  return { adapter, entrypoint, args, ...(environmentId ? { environmentId } : {}) };
+  const codePreparationId = value.codePreparationId;
+  if (codePreparationId !== undefined && (typeof codePreparationId !== 'string' || !/^code-preparation-[a-f0-9]{64}$/.test(codePreparationId))) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_CODE', 'Select a fixed prepared code version.');
+  return { adapter, entrypoint, args, ...(environmentId ? { environmentId } : {}), ...(codePreparationId ? { codePreparationId } : {}) };
 }
 
 function normalizeArtifacts(value) {
@@ -102,17 +105,18 @@ export async function snapshotExperimentCode(root, codePaths = []) {
   return { hash, files: sorted, paths: normalizedPaths };
 }
 
-export async function assertExperimentCodeSnapshot(root, manifest) {
+export async function assertExperimentCodeSnapshot(root, manifest, { original = false } = {}) {
   const current = await snapshotExperimentCode(root, manifest.code?.paths || []);
-  if (current.hash === manifest.code?.snapshotHash) return current;
-  const recordedFiles = new Map((manifest.code?.files || []).map((file) => [file.path, file.sha256 || file.skipped]));
+  const expectedHash = original && manifest.code?.preparation ? manifest.code.originalSnapshotHash : manifest.code?.snapshotHash;
+  if (current.hash === expectedHash) return current;
+  const recordedFiles = new Map((original && manifest.code?.preparation ? manifest.code.originalFiles : manifest.code?.files || []).map((file) => [file.path, file.sha256 || file.skipped]));
   const currentFiles = new Map(current.files.map((file) => [file.path, file.sha256 || file.skipped]));
   const changedPaths = [...new Set([...recordedFiles.keys(), ...currentFiles.keys()])]
     .filter((filePath) => recordedFiles.get(filePath) !== currentFiles.get(filePath))
     .sort()
     .slice(0, 100);
   throw new ExperimentRunnerError(409, 'EXPERIMENT_CODE_CHANGED', 'Project code changed after the Experiment Run Manifest was created. Create or retry the Run to record a new snapshot.', {
-    recordedSnapshotHash: manifest.code?.snapshotHash || null,
+    recordedSnapshotHash: expectedHash || null,
     currentSnapshotHash: current.hash,
     changedPaths
   });
@@ -136,6 +140,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
       dataset: { id: replicationContext.plan.dataset, version: replicationContext.plan.datasetVersion },
       protocol: replicationContext.plan.note,
       codeVersion: replicationContext.plan.codeVersion,
+      codePaths: replicationContext.plan.codePaths,
       successCriteria: replicationContext.plan.expectedMetrics ? [replicationContext.plan.expectedMetrics] : []
     }
     : plainObject(input.plan) ? input.plan : plainObject(input.experiment) ? input.experiment : input;
@@ -147,11 +152,21 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
   const execution = normalizeExecution(source.execution || source.commandSpec);
   if (!execution) throw new ExperimentRunnerError(400, 'EXECUTION_SPEC_REQUIRED', 'A structured execution spec is required. A free-form command is only a plan note and cannot be executed.');
   const preparedEnvironment = execution.environmentId ? (await environmentService.verify(projectId, execution.environmentId)).environment : null;
+  const preparedCode = execution.codePreparationId ? await codePreparationService.verify(projectId, execution.codePreparationId, execution.codePreparationId.slice(17)) : null;
   if (execution.adapter === 'fake' && process.env.NODE_ENV !== 'test' && process.env.SCIENCEPRISM_ALLOW_EXPERIMENT_FAKE !== 'true') {
     throw new ExperimentRunnerError(403, 'FAKE_ADAPTER_DISABLED', 'The Fake Experiment Runner Adapter is only available in tests.');
   }
-  const snapshot = await snapshotExperimentCode(projectRoot, Array.isArray(source.codePaths) ? source.codePaths : []);
-  const codeVersion = text(source.codeVersion) || `workspace:${snapshot.hash}`;
+  const requestedPaths = Array.isArray(source.codePaths) ? source.codePaths : [];
+  const codePaths = preparedCode && requestedPaths.length ? [...new Set([...requestedPaths, ...preparedCode.files.map(file => file.path)])] : requestedPaths;
+  const originalSnapshot = await snapshotExperimentCode(projectRoot, codePaths);
+  let snapshot = originalSnapshot;
+  if (preparedCode) {
+    const files = new Map(originalSnapshot.files.map(file => [file.path, file]));
+    for (const file of preparedCode.files) files.set(file.path, { path: file.path, sha256: file.sha256, bytes: file.bytes });
+    const sorted = [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
+    snapshot = { ...originalSnapshot, files: sorted, hash: createHash('sha256').update(sorted.map(file => `${file.path}:${file.sha256 || file.skipped}`).join('\n')).digest('hex') };
+  }
+  const codeVersion = preparedCode ? preparedCode.preparation.id : text(source.codeVersion) || `workspace:${snapshot.hash}`;
   const parameters = plainObject(source.parameters) ? source.parameters : {};
   const successCriteria = Array.isArray(source.successCriteria) ? source.successCriteria.map(String).filter(Boolean) : [];
   const resources = {
@@ -161,6 +176,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
   };
   const dataset = await resolveExperimentDataset(projectId, { id: datasetId, version: datasetVersion, evidenceId: text(datasetValue.evidenceId) || null });
   const artifacts = normalizeArtifacts(source.artifacts || source.artifactPaths);
+  if (preparedCode && artifacts.some(artifact => preparedCode.files.some(file => file.path === artifact.path || file.path.startsWith(`${artifact.path}/`)))) throw new ExperimentRunnerError(409, 'EXPERIMENT_CODE_OUTPUT_COLLISION', 'Fixed prepared code cannot also be a declared output.');
   if (dataset.input) {
     if (dataset.input.byteLength > resources.maxArtifactBytes) throw new ExperimentRunnerError(413, 'EXPERIMENT_DATASET_BUDGET', 'The fixed dataset exceeds the input archive budget.');
     if (snapshot.files.some(file => file.path === dataset.input.path) || artifacts.some(file => file.path === dataset.input.path || dataset.input.path.startsWith(`${file.path}/`))) throw new ExperimentRunnerError(409, 'EXPERIMENT_DATASET_COLLISION', 'The fixed dataset input cannot replace project code or be declared as an output.');
@@ -176,6 +192,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
       snapshotHash: snapshot.hash,
       files: snapshot.files,
       paths: snapshot.paths,
+      ...(preparedCode ? { preparation: preparedCode.preparation, originalSnapshotHash: originalSnapshot.hash, originalFiles: originalSnapshot.files } : {}),
       ...(replicationContext ? { repository: text(replicationContext.plan.repository) } : {})
     },
     dataset,
@@ -188,7 +205,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
       ...(preparedEnvironment ? { preparation: { id: preparedEnvironment.id, sha256: preparedEnvironment.sha256, lockSha256: preparedEnvironment.lockSha256 }, python: preparedEnvironment.python, packages: preparedEnvironment.packages, hardware: preparedEnvironment.hardware, isolation: preparedEnvironment.isolation } : {}),
       ...(replicationContext ? { recorded: text(replicationContext.plan.environment) } : {})
     },
-    command: { adapter: execution.adapter, ...(execution.entrypoint ? { entrypoint: execution.entrypoint } : {}), args: execution.args, ...(execution.environmentId ? { environmentId: execution.environmentId } : {}) },
+    command: { ...execution },
     commandNote: text(source.command),
     permissions: {
       plan: 'recorded',

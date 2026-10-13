@@ -113,6 +113,7 @@ export interface PaperCandidate {
 }
 
 export interface ReplicationPlan {
+  codePaths?: string[];
   repository: string;
   codeVersion?: string;
   environment: string;
@@ -121,7 +122,7 @@ export interface ReplicationPlan {
   expectedMetrics?: string;
   gaps?: string;
   note: string;
-  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string };
+  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string; codePreparationId?: string };
   parameters?: Record<string, unknown>;
   seed?: string;
   resources?: { timeoutMs?: number };
@@ -169,7 +170,7 @@ export interface ExperimentPlan {
   budget?: string;
   expectedFailures?: string[];
   command?: string;
-  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string };
+  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string; codePreparationId?: string };
   parameters?: Record<string, unknown>;
   seed?: string;
   successCriteria?: string[];
