@@ -47,16 +47,33 @@ function parameters(tool, input, skillDocuments) {
 }
 
 function resolveFile(root, relative, allowMissing) {
+  assertDirectory(root);
   let current = root;
   const parts = relative.split('/');
   for (const [index, part] of parts.entries()) {
     current = path.join(current, part);
     let stat;
     try { stat = fs.lstatSync(current); }
-    catch (reason) { if (allowMissing && index === parts.length - 1 && reason.code === 'ENOENT') return { path: current, exists: false }; throw fail('DSH_FILE_UNAVAILABLE', 'The project file or its parent directory is unavailable.'); }
+    catch (reason) { if (allowMissing && reason.code === 'ENOENT') return { path: path.join(root, relative), exists: false }; throw fail('DSH_FILE_UNAVAILABLE', 'The project file or its parent directory is unavailable.'); }
     if (stat.isSymbolicLink() || (index < parts.length - 1 ? !stat.isDirectory() : !stat.isFile() || stat.nlink !== 1)) throw fail('PATH_DENIED', 'Only regular files without symbolic or hard links are supported.');
   }
   return { path: current, exists: true };
+}
+
+function assertDirectory(directory) {
+  const stat = fs.lstatSync(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(directory) !== directory) throw fail('PATH_DENIED', 'Only real workspace directories are supported.');
+}
+
+function createParents(root, relative) {
+  assertDirectory(root);
+  let current = root;
+  for (const part of relative.split('/').slice(0, -1)) {
+    current = path.join(current, part);
+    try { fs.mkdirSync(current, { mode: 0o700 }); }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    assertDirectory(current);
+  }
 }
 
 function readFile(file) {
@@ -133,8 +150,18 @@ export async function createDshFileBroker({ workspace, readPolicy, onDecision, s
         return { path: args.path, sha256, fromLine: args.fromLine, toLine: Math.min(lines.length, args.toLine), lineCount: lines.length, content: selected };
       }
       if ((content === null ? null : digest(content)) !== args.expectedSha256) throw fail('DSH_FILE_CONFLICT', 'The project file changed since it was read.');
+      createParents(root, args.path);
       const temporary = path.join(path.dirname(file.path), `.scienceprism-proposal-${randomUUID()}`);
-      try { fs.writeFileSync(temporary, args.content, { flag: 'wx', mode: 0o600 }); fs.renameSync(temporary, file.path); }
+      try {
+        fs.writeFileSync(temporary, args.content, { flag: 'wx', mode: 0o600 });
+        const latest = resolveFile(root, args.path, true), before = latest.exists ? readFile(latest.path) : null;
+        if ((before === null ? null : digest(before)) !== args.expectedSha256) throw fail('DSH_FILE_CONFLICT', 'The project file changed before proposal publication.');
+        if (latest.exists) fs.renameSync(temporary, file.path);
+        else {
+          try { fs.linkSync(temporary, file.path); }
+          catch (reason) { if (reason.code === 'EEXIST') throw fail('DSH_FILE_CONFLICT', 'The new proposal file already exists.'); throw reason; }
+        }
+      }
       finally { fs.rmSync(temporary, { force: true }); }
       return { path: args.path, sha256: digest(args.content), byteLength: Buffer.byteLength(args.content), proposed: true };
     } catch (reason) {

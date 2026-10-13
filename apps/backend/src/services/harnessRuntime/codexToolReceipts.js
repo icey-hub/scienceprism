@@ -67,7 +67,7 @@ function boundedFile(root, relative, allowMissing, maxBytes = MAX_FILE_BYTES) {
     file = path.join(file, part);
     let stat;
     try { stat = fs.lstatSync(file); }
-    catch (error) { if (allowMissing && index === parts.length - 1 && error.code === 'ENOENT') return null; throw error; }
+    catch (error) { if (allowMissing && error.code === 'ENOENT') return null; throw error; }
     if (stat.isSymbolicLink() || (index < parts.length - 1 ? !stat.isDirectory() : !stat.isFile() || stat.nlink !== 1)) fail('STORAGE_INVALID', 'Only regular files without links can provide receipt evidence.');
   }
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
