@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createCodexAdapter, CODEX_PROTOCOL_VERSION } from '../src/services/harnessRuntime/adapters/codexAdapter.js';
-import { createCodexProtocol, startCodexTurn, codexFailure } from '../src/services/harnessRuntime/adapters/codexProtocol.js';
+import { createCodexProtocol, startCodexTurn, readCodexCompletedTurn, codexFailure } from '../src/services/harnessRuntime/adapters/codexProtocol.js';
 
 // A pipe-only fake App Server. No model, executable, network, or user auth is used.
 function fakeServer(handler, { linger = false } = {}) {
@@ -261,6 +261,7 @@ test('controlled worker turn uses a named permission profile and no built-in env
     assert.equal(command.params.sandbox, undefined);
   }
   assert.deepEqual(child.commands[0].params.dynamicTools, tools);
+  assert.equal(child.commands[0].params.historyMode, 'paginated');
 });
 
 test('worker token budget uses cumulative CLI usage and stops instead of relying on model reminders', async () => {
@@ -433,4 +434,108 @@ test('missing/version-mismatched executable, external tools and unimplemented ca
       assert.ok(fake.children.every((child) => !child.commands.some((command) => command.method === 'turn/start')));
     }
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+const storedThread = () => ({ id: 'stored-thread', cwd: '/isolated/project', modelProvider: 'fixture', ephemeral: false,
+  historyMode: 'paginated', status: { type: 'notLoaded' }, turns: [] });
+const storedTurn = (extra = {}) => ({ id: 'saved-turn', status: 'completed', itemsView: 'full', error: null,
+  items: [{ type: 'agentMessage', id: 'message-1', text: 'Saved answer', phase: 'final_answer' }], ...extra });
+function historyServer(pages, thread = storedThread(), options) {
+  let page = 0;
+  return fakeServer((message, peer) => {
+    if (message.method === 'thread/read') peer.respond(message, { thread });
+    else if (message.method === 'thread/turns/list') peer.respond(message, typeof pages === 'function' ? pages(page++) : pages[page++]);
+    else assert.fail(`Read-only recovery sent ${message.method}`);
+  }, options);
+}
+const historyOptions = (child, transport = {}) => ({ protocol: createCodexProtocol(child, { requestTimeoutMs: 100, closeTimeoutMs: 10, ...transport }),
+  threadId: 'stored-thread', turnId: 'saved-turn', cwd: '/isolated/project', modelProvider: 'fixture' });
+
+test('completed turn recovery only reads full paginated history and combines actual agent messages once', async () => {
+  const first = { type: 'agentMessage', id: 'commentary', text: 'Earlier explanation', phase: 'commentary' };
+  const final = { type: 'agentMessage', id: 'answer', text: 'Final answer', phase: 'final_answer' };
+  const turn = storedTurn({ items: [
+    { type: 'userMessage', id: 'user', content: [{ type: 'text', text: 'Stored task', text_elements: [] }] },
+    { type: 'dynamicToolCall', id: 'tool', namespace: null, tool: 'project_read_file', arguments: { path: 'main.tex' },
+      status: 'completed', success: true, contentItems: [{ type: 'inputText', text: 'fixture file result' }], durationMs: 3 },
+    first, { ...first }, final
+  ] });
+  const child = historyServer([{ data: [storedTurn({ id: 'earlier-turn' })], nextCursor: 'next' }, { data: [turn], nextCursor: null }]);
+  const options = historyOptions(child);
+  try {
+    assert.deepEqual(await readCodexCompletedTurn(options), { ok: true, finalResponse: 'Earlier explanation\nFinal answer',
+      sessionId: 'stored-thread', patches: [], usage: undefined, output: { codex: { threadId: 'stored-thread', turnId: 'saved-turn' } } });
+    assert.deepEqual(child.commands.map(command => command.method), ['thread/read', 'thread/turns/list', 'thread/turns/list']);
+    assert.deepEqual(child.commands[0].params, { threadId: 'stored-thread', includeTurns: false });
+    assert.equal(child.commands[1].params.itemsView, 'full'); assert.equal(child.commands[1].params.sortDirection, 'asc');
+    assert.equal(child.commands[2].params.cursor, 'next'); assert.equal(child.exited, false);
+  } finally { await options.protocol.close(); }
+});
+
+test('failed, interrupted and in-progress saved turns never become completed results', async () => {
+  for (const [status, code] of [['failed', 'CODEX_AUTH_REQUIRED'], ['interrupted', 'CODEX_INTERRUPTED'], ['inProgress', 'CODEX_RECOVERY_NOT_TERMINAL']]) {
+    const child = historyServer([{ data: [storedTurn({ status, itemsView: 'notLoaded', error: { codexErrorInfo: 'unauthorized', message: 'private credential detail' } })] }]);
+    const options = historyOptions(child);
+    try { await assert.rejects(readCodexCompletedTurn(options), reason => reason.code === code && !reason.message.includes('private credential')); }
+    finally { await options.protocol.close(); }
+    assert.ok(child.commands.every(command => ['thread/read', 'thread/turns/list'].includes(command.method)));
+  }
+});
+
+test('stored thread, provider and workspace identity mismatches or malformed metadata fail closed', async () => {
+  for (const [patch, code] of [[{ id: 'other-thread' }, 'CODEX_RECOVERY_IDENTITY_CONFLICT'], [{ cwd: '/other/project' }, 'CODEX_RECOVERY_IDENTITY_CONFLICT'],
+    [{ modelProvider: 'other-provider' }, 'CODEX_RECOVERY_IDENTITY_CONFLICT'], [{ ephemeral: true }, 'CODEX_RECOVERY_IDENTITY_CONFLICT'],
+    [{ status: { type: 'future-status' } }, 'CODEX_PROTOCOL_INVALID'], [{ turns: null }, 'CODEX_PROTOCOL_INVALID']]) {
+    const child = historyServer([{ data: [storedTurn()] }], { ...storedThread(), ...patch }); const options = historyOptions(child);
+    try { await assert.rejects(readCodexCompletedTurn(options), { code }); assert.equal(child.commands.length, 1); }
+    finally { await options.protocol.close(); }
+  }
+  const child = historyServer([{ data: [storedTurn()] }]); const options = historyOptions(child);
+  try { await assert.rejects(readCodexCompletedTurn({ ...options, cwd: '/isolated/../project' }), { code: 'CODEX_RECOVERY_INPUT_INVALID' }); assert.equal(child.commands.length, 0); }
+  finally { await options.protocol.close(); }
+});
+
+test('missing saved turns, schema drift, summary payloads and conflicting duplicate items are unavailable', async () => {
+  const cases = [
+    [{ data: [storedTurn({ id: 'another-turn' })] }, 'CODEX_RECOVERY_TURN_MISSING'],
+    [{ data: [storedTurn({ itemsView: 'summary' })] }, 'CODEX_PROTOCOL_INVALID'],
+    [{ data: [storedTurn({ items: [{ type: 'future-message', id: 'new' }] })] }, 'CODEX_PROTOCOL_INVALID'],
+    [{ data: [storedTurn({ items: [{ type: 'agentMessage', id: 'answer', text: 10 }] })] }, 'CODEX_PROTOCOL_INVALID'],
+    [{ data: [storedTurn({ items: [] })] }, 'CODEX_RECOVERY_RESULT_UNAVAILABLE'],
+    [{ data: [storedTurn({ items: [{ type: 'agentMessage', id: 'same', text: 'first' }, { type: 'agentMessage', id: 'same', text: 'changed' }] })] }, 'CODEX_RECOVERY_HISTORY_CONFLICT'],
+    [{ data: [storedTurn({ status: 'future-terminal' })] }, 'CODEX_PROTOCOL_INVALID'],
+    [{ data: [storedTurn({ status: 'failed', error: { message: 'private provider error', codexErrorInfo: 'private credential detail' } })] }, 'CODEX_PROTOCOL_INVALID'],
+    [{ data: 'invalid' }, 'CODEX_PROTOCOL_INVALID']
+  ];
+  for (const [page, code] of cases) {
+    const child = historyServer([page]); const options = historyOptions(child);
+    try { await assert.rejects(readCodexCompletedTurn(options), { code }); }
+    finally { await options.protocol.close(); }
+  }
+});
+
+test('repeated cursors, changed duplicate turns and excessive pages cannot authorize recovery', async () => {
+  const cases = [
+    [[{ data: [storedTurn()], nextCursor: 'same' }, { data: [], nextCursor: 'same' }], 'CODEX_RECOVERY_HISTORY_CONFLICT'],
+    [[{ data: [storedTurn()], nextCursor: 'next' }, { data: [storedTurn({ status: 'failed' })] }], 'CODEX_RECOVERY_HISTORY_CONFLICT'],
+    [index => ({ data: [], nextCursor: `page-${index}` }), 'CODEX_RECOVERY_HISTORY_LIMIT']
+  ];
+  for (const [pages, code] of cases) {
+    const child = historyServer(pages); const options = historyOptions(child);
+    try { await assert.rejects(readCodexCompletedTurn(options), { code }); assert.ok(child.commands.length <= 33); }
+    finally { await options.protocol.close(); }
+  }
+});
+
+test('history recovery bounds UTF-8 agent output, item count and total history payload', async () => {
+  const cases = [
+    [[{ data: [storedTurn({ items: [{ type: 'agentMessage', id: 'large', text: '文'.repeat(350000) }] })] }], 'CODEX_OUTPUT_TOO_LARGE'],
+    [[{ data: [storedTurn({ items: Array.from({ length: 257 }, (_, index) => ({ type: 'agentMessage', id: `item-${index}`, text: '' })) })] }], 'CODEX_RECOVERY_HISTORY_LIMIT'],
+    [index => ({ data: [storedTurn({ id: index ? `other-${index}` : 'saved-turn', items: [{ type: 'userMessage', id: 'large', content: [{ type: 'text', text: 'x'.repeat(900000) }] }] })], nextCursor: `page-${index}` }), 'CODEX_RECOVERY_HISTORY_LIMIT']
+  ];
+  for (const [pages, code] of cases) {
+    const child = historyServer(pages); const options = historyOptions(child, { maxLineBytes: 2000000 });
+    try { await assert.rejects(readCodexCompletedTurn(options), { code }); }
+    finally { await options.protocol.close(); }
+  }
 });

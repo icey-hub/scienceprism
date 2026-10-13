@@ -1,7 +1,8 @@
 import { HarnessRuntimeError } from '../errors.js';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
-const METHODS = new Set(['initialize', 'thread/start', 'turn/start', 'turn/interrupt', 'command/exec', 'mcpServerStatus/list']);
+const METHODS = new Set(['initialize', 'thread/start', 'thread/read', 'thread/turns/list', 'turn/start', 'turn/interrupt', 'command/exec', 'mcpServerStatus/list']);
 const idPresent = (message) => Object.hasOwn(message, 'id');
 const error = (code, message, details, retryable = false) => new HarnessRuntimeError(502, code, message, details, { retryable });
 
@@ -18,6 +19,115 @@ export function codexFailure(value = {}) {
   }
   // Provider messages can echo credentials or whole prompts. Keep them out of the Run error.
   return error('CODEX_TURN_FAILED', 'Codex turn failed.', { reason: typeof code === 'string' ? code : 'unknown' });
+}
+
+/** Read a saved terminal result without loading/resuming a thread or starting work.
+ * The caller initializes/closes the protocol and proves exclusive process ownership.
+ * Thread status is only metadata; idle/notLoaded cannot prove an old owner stopped.
+ */
+export async function readCodexCompletedTurn({ protocol, threadId, turnId, cwd, modelProvider } = {}) {
+  const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 200 && !/[\x00-\x1f\x7f]/.test(value);
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const invalid = () => { throw error('CODEX_PROTOCOL_INVALID', 'The saved Codex history does not match the verified protocol.'); };
+  const fingerprint = value => createHash('sha256').update(JSON.stringify(value, (_key, item) =>
+    object(item) ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item)).digest('hex');
+  if (typeof protocol?.request !== 'function' || !identifier(threadId) || !identifier(turnId)
+    || typeof cwd !== 'string' || !path.isAbsolute(cwd) || path.resolve(cwd) !== cwd || /[\x00-\x1f\x7f]/.test(cwd)
+    || modelProvider !== undefined && !identifier(modelProvider)) throw error('CODEX_RECOVERY_INPUT_INVALID', 'A saved thread, turn and normalized workspace identity are required.');
+  let bytes = 0;
+  const account = value => {
+    let serialized;
+    try { serialized = JSON.stringify(value); } catch { invalid(); }
+    if (typeof serialized !== 'string') invalid();
+    bytes += Buffer.byteLength(serialized);
+    if (bytes > 4_194_304) throw error('CODEX_RECOVERY_HISTORY_LIMIT', 'Saved Codex history exceeded its recovery byte limit.');
+  };
+  const response = await protocol.request('thread/read', { threadId, includeTurns: false });
+  account(response);
+  const thread = response?.thread;
+  if (!object(thread) || !identifier(thread.id) || typeof thread.cwd !== 'string' || typeof thread.modelProvider !== 'string'
+    || typeof thread.ephemeral !== 'boolean' || !Array.isArray(thread.turns) || !object(thread.status)
+    || !['idle', 'notLoaded', 'active', 'systemError'].includes(thread.status.type)
+    || thread.status.type === 'active' && (!Array.isArray(thread.status.activeFlags) || thread.status.activeFlags.some(flag => typeof flag !== 'string'))) invalid();
+  if (thread.id !== threadId || thread.cwd !== cwd || thread.ephemeral || modelProvider !== undefined && thread.modelProvider !== modelProvider) {
+    throw error('CODEX_RECOVERY_IDENTITY_CONFLICT', 'The saved Codex thread belongs to a different worker identity.');
+  }
+  const cursors = new Set(), turns = new Map();
+  let cursor, saved, totalItems = 0;
+  for (let page = 0; page < 32; page++) {
+    const history = await protocol.request('thread/turns/list', { threadId, itemsView: 'full', sortDirection: 'asc', limit: 50, ...(cursor ? { cursor } : {}) });
+    account(history);
+    if (!object(history) || !Array.isArray(history.data) || history.data.length > 50
+      || history.nextCursor !== undefined && history.nextCursor !== null && (typeof history.nextCursor !== 'string' || !history.nextCursor || history.nextCursor.length > 2048)) invalid();
+    for (const turn of history.data) {
+      if (!object(turn) || !identifier(turn.id) || !['completed', 'failed', 'interrupted', 'inProgress'].includes(turn.status)
+        || !Array.isArray(turn.items) || !['full', 'summary', 'notLoaded'].includes(turn.itemsView)) invalid();
+      const hash = fingerprint(turn), previous = turns.get(turn.id);
+      if (previous && previous !== hash) throw error('CODEX_RECOVERY_HISTORY_CONFLICT', 'A saved Codex turn changed across history pages.');
+      turns.set(turn.id, hash);
+      totalItems += turn.items.length;
+      if (totalItems > 4096) throw error('CODEX_RECOVERY_HISTORY_LIMIT', 'Saved Codex history exceeded its item limit.');
+      if (turn.id === turnId) saved = turn;
+    }
+    if (history.nextCursor == null) break;
+    if (cursors.has(history.nextCursor)) throw error('CODEX_RECOVERY_HISTORY_CONFLICT', 'Saved Codex history repeated a pagination cursor.');
+    cursors.add(history.nextCursor); cursor = history.nextCursor;
+    if (page === 31) throw error('CODEX_RECOVERY_HISTORY_LIMIT', 'Saved Codex history exceeded its page limit.');
+  }
+  if (!saved) throw error('CODEX_RECOVERY_TURN_MISSING', 'The recorded Codex turn is absent; its task will not be restarted.');
+  if (saved.status === 'failed') {
+    if (!object(saved.error) || typeof saved.error.message !== 'string') invalid();
+    const info = saved.error.codexErrorInfo;
+    if (typeof info === 'string') {
+      if (!['contextWindowExceeded', 'sessionBudgetExceeded', 'usageLimitExceeded', 'rateLimitExceeded', 'flexUnavailable', 'serverOverloaded',
+        'cyberPolicy', 'misalignmentPolicyViolation', 'tooManyDenials', 'internalServerError', 'unauthorized', 'badRequest', 'threadRollbackFailed', 'sandboxError', 'other'].includes(info)) invalid();
+    } else if (info != null) {
+      if (!object(info) || Object.keys(info).length !== 1 || !['httpConnectionFailed', 'responseStreamConnectionFailed', 'responseStreamDisconnected',
+        'responseTooManyFailedAttempts', 'activeTurnNotSteerable'].includes(Object.keys(info)[0])) invalid();
+    }
+    throw codexFailure(saved.error);
+  }
+  if (saved.status === 'interrupted') throw new HarnessRuntimeError(409, 'CODEX_INTERRUPTED', 'The saved Codex turn was interrupted.');
+  if (saved.status !== 'completed') throw new HarnessRuntimeError(409, 'CODEX_RECOVERY_NOT_TERMINAL', 'The recorded Codex turn is still in progress; history is not proof that its owner stopped.');
+  if (saved.itemsView !== 'full' || saved.error != null) invalid();
+  if (saved.items.length > 256) throw error('CODEX_RECOVERY_HISTORY_LIMIT', 'The saved Codex turn exceeded its item limit.');
+  const items = new Map(), messages = [];
+  let outputBytes = 0;
+  for (const item of saved.items) {
+    if (!object(item) || !identifier(item.id)) invalid();
+    switch (item.type) {
+      case 'agentMessage': case 'plan':
+        if (typeof item.text !== 'string') invalid();
+        break;
+      case 'userMessage':
+        if (!Array.isArray(item.content) || item.content.some(input => !object(input) || input.type !== 'text' || typeof input.text !== 'string')) invalid();
+        break;
+      case 'reasoning':
+        if (['summary', 'content'].some(key => item[key] !== undefined && (!Array.isArray(item[key]) || item[key].some(line => typeof line !== 'string')))) invalid();
+        break;
+      case 'dynamicToolCall':
+        if (!identifier(item.tool) || !Object.hasOwn(item, 'arguments') || !['completed', 'failed'].includes(item.status)) invalid();
+        break;
+      case 'functionCallOutput':
+        if (!identifier(item.name) || !Object.hasOwn(item, 'output')) invalid();
+        break;
+      case 'contextCompaction': break;
+      default: invalid();
+    }
+    const hash = fingerprint(item), previous = items.get(item.id);
+    if (previous) {
+      if (previous !== hash) throw error('CODEX_RECOVERY_HISTORY_CONFLICT', 'A saved Codex item identity has conflicting content.');
+      continue;
+    }
+    items.set(item.id, hash);
+    if (item.type === 'agentMessage') {
+      outputBytes += Buffer.byteLength(item.text) + (messages.length ? 1 : 0);
+      if (outputBytes > 1_048_576) throw error('CODEX_OUTPUT_TOO_LARGE', 'Saved Codex output exceeded its byte limit.');
+      messages.push(item.text);
+    }
+  }
+  if (!messages.length) throw error('CODEX_RECOVERY_RESULT_UNAVAILABLE', 'The completed Codex turn has no recoverable agent message.');
+  return { ok: true, finalResponse: messages.join('\n'), sessionId: threadId, patches: [], usage: undefined, output: { codex: { threadId, turnId } } };
 }
 
 /** Bounded NDJSON transport. It owns one child, not a Run or a task queue. */
@@ -275,7 +385,7 @@ export async function startCodexTurn({ protocol, request, workspace, provider, s
   try {
     if (signal?.aborted) throw interrupted();
     const controlled = permissions ? { permissions, environments: [], dynamicTools: dynamicTools || [], approvalPolicy: 'never' } : { sandbox: 'read-only', approvalPolicy: 'untrusted' };
-    const started = await protocol.request('thread/start', { cwd: workspace, model: provider.model, modelProvider: provider.id, ...controlled, ephemeral: false });
+    const started = await protocol.request('thread/start', { cwd: workspace, model: provider.model, modelProvider: provider.id, ...controlled, ephemeral: false, historyMode: 'paginated' });
     threadId = started.thread?.id;
     if (typeof threadId !== 'string' || !threadId) throw error('CODEX_PROTOCOL_INVALID', 'Codex did not return a thread id.');
     await onSession({ threadId, turnId: null });
