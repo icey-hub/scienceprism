@@ -10,8 +10,9 @@ import { applyApprovalDecision } from '../researchWorkflow/stateMachine.js';
 import { applyPaperSelection } from '../researchWorkflow/paperSelection.js';
 import { appendAudit } from '../researchWorkflow/audit.js';
 import { inspectAutomationOwner } from './owner.js';
+import { validateDatasetScope } from './datasetAuthorization.js';
 
-export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'execution', 'patches'];
+export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'dataset', 'execution', 'patches'];
 const FILE = '.scienceprism/research-automation.json';
 const modes = ['inherit', 'auto', 'manual'];
 const invalid = message => { throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_POLICY', message); };
@@ -31,11 +32,11 @@ export function validateAutomationExecution(value) {
 }
 
 export function validateAutomationPolicy(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['enabled', 'overrides', 'agentMode'].includes(key))) invalid('策略包含未知字段。');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['enabled', 'overrides', 'agentMode', 'datasetScope'].includes(key))) invalid('策略包含未知字段。');
   if (typeof value.enabled !== 'boolean' || !['specialists', 'generalist'].includes(value.agentMode)) invalid('请提供自动研究开关和Agent模式。');
   if (!value.overrides || typeof value.overrides !== 'object' || Array.isArray(value.overrides)) invalid('环节策略必须为对象。');
   for (const [part, mode] of Object.entries(value.overrides)) if (!AUTOMATION_PARTS.includes(part) || !modes.includes(mode)) invalid('未知环节或确认模式。');
-  return { enabled: value.enabled, agentMode: value.agentMode, overrides: { ...value.overrides } };
+  return { enabled: value.enabled, agentMode: value.agentMode, overrides: { ...value.overrides }, ...(value.datasetScope !== undefined ? { datasetScope: validateDatasetScope(value.datasetScope) } : {}) };
 }
 
 export function allowsAutomatic(policy, part) {

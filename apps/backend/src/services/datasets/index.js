@@ -63,15 +63,17 @@ export function createDatasetService({ repository=createDatasetRepository(), dow
   }
   async function execute(projectId,job,entry) {
     try {
+      await entry.assertAuthorized?.();
       entry.controller.signal.throwIfAborted();
       await change(projectId,job,entry,{status:'running',ownerPid:process.pid,startedAt:job.startedAt||at(),error:null});
       const root=await repository.locations(projectId,{create:true});
       const partial=path.join(root.parts,`${job.id}.part`), config=job.configuration;
       if(config.source.kind!=='import'&&!job.verifiedContent) {
         const downloader=download||createDatasetDownloader({maxBytes:config.maxBytes});
-        const result=await downloader(config.source.url,{destination:partial,signal:entry.controller.signal,
+        const result=await downloader(config.source.url,{destination:partial,signal:entry.controller.signal,beforeRequest:entry.assertAuthorized,
           resume:{receivedBytes:job.receivedBytes,etag:job.etag,resolvedUrl:job.resolvedUrl},
           onProgress:async progress=>{
+            await entry.assertAuthorized?.();
             if(progress.receivedBytes>config.maxBytes||progress.totalBytes>config.maxBytes) fail('DATASET_TOO_LARGE','数据超出本任务授权的体积预算。',413);
             await change(projectId,job,entry,{receivedBytes:progress.receivedBytes,totalBytes:progress.totalBytes,etag:progress.etag,resolvedUrl:progress.resolvedUrl});
           }});
@@ -83,10 +85,10 @@ export function createDatasetService({ repository=createDatasetRepository(), dow
         const stat=await fs.lstat(partial);
         if(stat.size!==config.byteLength) fail('DATASET_IMPORT_INCOMPLETE','本地文件没有完整上传，请重新选择原文件导入。');
       }
-      entry.controller.signal.throwIfAborted(); entry.phase='committing';
+      await entry.assertAuthorized?.(); entry.controller.signal.throwIfAborted(); entry.phase='committing';
       await change(projectId,job,entry,{status:'committing'});
       const stored=await repository.store(projectId,partial,{filename:config.filename,name:config.name,source:config.source,
-        license:config.license,split:config.split,expectedSha256:config.expectedSha256||job.verifiedContent?.sha256},{owner:entry.owner});
+        license:config.license,split:config.split,expectedSha256:config.expectedSha256||job.verifiedContent?.sha256},{owner:entry.owner,beforePublish:entry.assertAuthorized});
       await change(projectId,job,entry,{status:'completed',datasetId:stored.dataset.id,duplicate:stored.duplicate,
         receivedBytes:stored.dataset.byteLength,totalBytes:stored.dataset.byteLength,finishedAt:at(),error:null});
       await fs.rm(partial,{force:true});
@@ -96,22 +98,24 @@ export function createDatasetService({ repository=createDatasetRepository(), dow
         :cause instanceof DatasetError?{code:cause.code,message:cause.message}:{code:'DATASET_ACQUISITION_FAILED',message:'数据获取失败；可继续原任务或导入原始文件。'};
       await change(projectId,job,entry,{status:cancelled?'cancelled':'failed',error,finishedAt:at()});
     } finally {
-      try { entry.owner.release({stopConfirmed:true}); } finally { active.delete(key(projectId,job.id)); }
+      try { entry.owner.release({stopConfirmed:true}); } finally { entry.removeAbort?.(); active.delete(key(projectId,job.id)); }
     }
   }
-  function launch(projectId,job,owner) {
-    const entry={owner,controller:new AbortController(),phase:'downloading',promise:null};
+  function launch(projectId,job,owner,{assertAuthorized,signal}={}) {
+    const checked=assertAuthorized?async request=>{try{return await assertAuthorized(request);}catch(error){if(error instanceof DatasetError)throw error;throw new DatasetError('DATASET_AUTHORIZATION_REVOKED','当前研究任务授权或输入已变化；请从原链路核对后继续。',403);}}:undefined;
+    const entry={owner,controller:new AbortController(),phase:'downloading',promise:null,assertAuthorized:checked};
+    if(signal){const abort=()=>entry.controller.abort(signal.reason);if(signal.aborted)abort();else{signal.addEventListener('abort',abort,{once:true});entry.removeAbort=()=>signal.removeEventListener('abort',abort);}}
     active.set(key(projectId,job.id),entry);failures.delete(key(projectId,job.id));
     entry.promise=execute(projectId,job,entry).catch(()=>{failures.set(key(projectId,job.id),{code:'DATASET_RECEIPT_SAVE_FAILED',message:'获取结果的持久回执未能保存，不能报告完成。'});});
     return entry;
   }
-  async function create(projectId,config,{refresh=false}={}) {
-    const id=`dataset-job-${randomUUID()}`,owner=await ownerFor(projectId,id);
+  async function create(projectId,config,{refresh=false,reuse=false}={}) {
+    const signature=sourceHash(config),stableId=[signature.slice(0,8),signature.slice(8,12),signature.slice(12,16),signature.slice(16,20),signature.slice(20,32)].join('-');
+    const id=`dataset-job-${reuse?stableId:randomUUID()}`,owner=await ownerFor(projectId,id);
     try {
       const result=await repository.update(projectId,async index=>{
-        const signature=sourceHash(config);
-        const previous=!refresh&&index.jobs.findLast(item=>item.configurationSha256===signature&&item.status==='completed');
-        if(previous){const {dataset}=await repository.content(projectId,previous.datasetId);return {job:previous,dataset,cached:true};}
+        const previous=!refresh&&index.jobs.findLast(item=>item.configurationSha256===signature&&(reuse||item.status==='completed'));
+        if(previous){if(sourceHash(previous.configuration)!==signature)fail('DATASET_CONFIGURATION_CHANGED','已有任务配置已变化。');if(previous.status==='completed'){const {dataset}=await repository.content(projectId,previous.datasetId);return {job:previous,dataset,cached:true};}return {job:previous,cached:false,reused:true};}
         if(index.jobs.length>=1000) fail('DATASET_JOB_LIMIT','数据任务记录已达到上限，请检查已有任务。');
         const job={id,projectId,configuration:config,configurationSha256:signature,status:'queued',ownerPid:process.pid,receivedBytes:0,totalBytes:null,
           datasetId:null,createdAt:at(),updatedAt:at(),startedAt:null,finishedAt:null,error:null};index.jobs.push(job);return {job,cached:false};
@@ -145,9 +149,25 @@ export function createDatasetService({ repository=createDatasetRepository(), dow
     async startDownload(projectId,input){const body=validated(downloadSchema,input),config={version:1,authority:'human',capability:'dataset.acquire',source:sourceFor(body.url),
       filename:body.filename,name:body.name||body.filename,license:{label:body.license||'未记录',verified:false},split:body.split,maxBytes:body.maxBytes,...(body.expectedSha256?{expectedSha256:body.expectedSha256}:{})};
       const result=await create(projectId,config,{refresh:body.refresh});if(result.cached)return result;launch(projectId,result.job,result.owner);return {job:hidden(result.job),cached:false};},
+    async acquireAuthorized(projectId,input,{authorization,assertAuthorized,signal,onPrepared}={}) {
+      if(typeof assertAuthorized!=='function'||typeof onPrepared!=='function'||authorization?.actor!=='system'||authorization.capability!=='dataset.acquire'||authorization.projectId!==projectId)fail('DATASET_AUTHORIZATION_REQUIRED','自动获取必须使用保存的研究任务授权。',403);
+      await assertAuthorized();signal?.throwIfAborted();
+      const body=validated(downloadSchema,input);
+      if(body.refresh)fail('DATASET_INVALID_INPUT','自动获取不能通过刷新创建重复任务。',400);
+      const config={version:1,authority:'system',capability:'dataset.acquire',source:sourceFor(body.url),filename:body.filename,name:body.name||body.filename,
+        license:{label:body.license||'未记录',verified:false},split:body.split,maxBytes:body.maxBytes,authorization:structuredClone(authorization),...(body.expectedSha256?{expectedSha256:body.expectedSha256}:{})};
+      const result=await create(projectId,config,{reuse:true});
+      if(result.cached){await onPrepared(hidden(result.job));return result;}
+      let launched=false;
+      try{await onPrepared(hidden(result.job));await assertAuthorized();signal?.throwIfAborted();const entry=launch(projectId,result.job,result.owner,{assertAuthorized,signal});launched=true;await entry.promise;
+        const job=await record(projectId,result.job.id);if(job.status!=='completed')fail(job.error?.code||'DATASET_ACQUISITION_FAILED',job.error?.message||'数据任务尚未完成。');
+        return {job:hidden(job),dataset:await this.get(projectId,job.datasetId),cached:false};
+      }finally{if(!launched)result.owner.release({stopConfirmed:true});}
+    },
     async getJob(projectId,id){const job=await record(projectId,id);const owner=!terminal(job)&&!active.has(key(projectId,id))?inspectAutomationOwner({projectRoot:(await repository.locations(projectId)).control}):null;return view(projectId,job,owner);},
     async resume(projectId,id,{expectedConfigurationVersion}={}) {
       const job=await record(projectId,id);
+      if(job.configuration.authority==='system')fail('DATASET_AUTOMATION_OWNED','请从研究链路继续自动数据任务，以便核对当前授权。');
       if(expectedConfigurationVersion!==job.configuration.version)fail('DATASET_CONFIGURATION_CONFLICT','获取配置版本已变化，请重新读取原任务。');
       if(job.status==='completed'){const {dataset}=await repository.content(projectId,job.datasetId);return {job:hidden(job),dataset,cached:true};}
       if(active.has(key(projectId,id)))fail('DATASET_ACTIVE','原任务仍在执行。');

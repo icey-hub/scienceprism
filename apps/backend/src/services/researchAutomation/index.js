@@ -74,6 +74,10 @@ async function ensureCoordinator(projectId, state) {
 
 export async function getAutomation(projectId) {
   let state = await readAutomation(projectId);
+  const finishing=workers.get(projectId);
+  if(finishing?.settled&&['completed','stopped','blocked','waiting_confirmation'].includes(state.session?.status)){
+    await finishing.settled; state=await readAutomation(projectId);
+  }
   // A worker can persist its terminal state and leave the map while this read
   // is awaiting I/O. Re-read before interpreting that old snapshot as restart.
   if (state.session && ['running', 'queued', 'stopping'].includes(state.session.status) && !workers.has(projectId)) state = await readAutomation(projectId);
@@ -291,6 +295,7 @@ export async function resumeAutomation(projectId, input = {}, runtime = {}) {
   try {
     const state = await readAutomation(projectId);
     if (!state.session || state.session.status === 'completed') throw new ResearchWorkflowError(409, 'AUTOMATION_NOT_RESUMABLE', '没有可继续的研究链路。');
+    if(!executionPlan&&input.expectedSessionId!==undefined&&input.expectedSessionId!==state.session.id)throw new ResearchWorkflowError(409,'AUTOMATION_SESSION_CHANGED','原研究会话已变化，请从当前链路继续。');
     const planUpdate = { executionPlan, expectedSessionId: input.expectedSessionId, expectedExecutionPlanVersion: input.expectedExecutionPlanVersion };
     applyAutomationExecutionPlan(state.session, planUpdate);
     control.id = state.session.id;

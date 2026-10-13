@@ -72,7 +72,7 @@ export function createDatasetRepository({ resolveProject = getProjectRoot } = {}
       fail('DATASET_STORAGE_INVALID', '数据索引不可读取，请保留原记录。', 500);
     }
   }
-  async function update(projectId, change, { owner } = {}) {
+  async function update(projectId, change, { owner, beforePublish } = {}) {
     return withHubLock(projectId, async () => {
       owner?.assertOwned();
       const root = await locations(projectId, { create: true });
@@ -84,13 +84,13 @@ export function createDatasetRepository({ resolveProject = getProjectRoot } = {}
         const encoded = JSON.stringify(index, null, 2) + '\n';
         if (Buffer.byteLength(encoded) > 4 * 1024 * 1024) fail('DATASET_STORAGE_LIMIT', '数据索引已达到体积上限，请检查已有任务。');
         await fsp.writeFile(temporary, encoded, { flag: 'wx', mode: 0o600 });
-        directory(root.control); owner?.assertOwned();
+        directory(root.control); owner?.assertOwned(); await beforePublish?.();
         await fsp.rename(temporary, root.index);
       } finally { await fsp.rm(temporary, { force: true }); }
       return structuredClone(result);
     });
   }
-  async function store(projectId, partial, metadata, { owner } = {}) {
+  async function store(projectId, partial, metadata, { owner, beforePublish } = {}) {
     const filename = datasetFilename(metadata.filename), root = await locations(projectId, { create: true });
     directory(root.parts); directory(root.blobs);
     if (path.dirname(partial) !== root.parts || !/^[a-z0-9-]+\.part$/.test(path.basename(partial))) fail('DATASET_UNSAFE_STORAGE', '数据提交只能读取本项目的暂存文件。');
@@ -105,6 +105,7 @@ export function createDatasetRepository({ resolveProject = getProjectRoot } = {}
       const existing = index.datasets.find(item => item.sha256 === recorded.sha256);
       if (index.datasets.length >= 2000 && !existing) fail('DATASET_STORAGE_LIMIT', '数据版本数量达到上限，请先检查已有记录。');
       const target = path.join(root.blobs, recorded.sha256);
+      await beforePublish?.();
       try { await fsp.copyFile(partial, target, fs.constants.COPYFILE_EXCL); await fsp.chmod(target, 0o400); }
       catch (error) { if (error.code !== 'EEXIST') throw error; }
       const persisted = await fileDigest(target);
@@ -114,7 +115,7 @@ export function createDatasetRepository({ resolveProject = getProjectRoot } = {}
         ...recorded, source: metadata.source, license: metadata.license || { label: '未记录', verified: false },
         split: metadata.split || 'unknown', preview, acquiredAt: new Date().toISOString(), readOnly: true };
       index.datasets.push(dataset); return { dataset, duplicate: false };
-    }, { owner });
+    }, { owner, beforePublish });
   }
   async function content(projectId, datasetId) {
     const dataset = (await read(projectId)).datasets.find(item => item.id === datasetId);

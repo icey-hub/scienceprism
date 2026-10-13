@@ -9,7 +9,8 @@ import { isPublicAddress, parseDownloadProxy } from '../paperAttachments/downloa
 
 export const MAX_DATASET_BYTES = 128 * 1024 * 1024;
 export const SUPPORTED_DATASET_HOSTS = Object.freeze(['raw.githubusercontent.com', 'archive.ics.uci.edu', 'zenodo.org', 'huggingface.co']);
-const HF_CDN_HOSTS = new Set(['cdn-lfs.hf.co', 'cdn-lfs-us-1.hf.co', 'cdn-lfs-eu-1.hf.co', 'cas-bridge.xethub.hf.co']);
+export const DATASET_HF_CDN_HOSTS = Object.freeze(['cdn-lfs.hf.co', 'cdn-lfs-us-1.hf.co', 'cdn-lfs-eu-1.hf.co', 'cas-bridge.xethub.hf.co']);
+const HF_CDN_HOSTS = new Set(DATASET_HF_CDN_HOSTS);
 export class DatasetError extends Error {
   constructor(code, message, statusCode = 400) { super(message); this.name = 'DatasetError'; this.code = code; this.statusCode = statusCode; }
 }
@@ -89,9 +90,9 @@ export function createDatasetDownloader({ lookupImpl = lookup, requestImpl = req
     || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 86400000) fail('DATASET_DOWNLOAD_CONFIGURATION', 'The dataset downloader configuration is invalid.', 503);
   let proxy;
   try { proxy = parseDownloadProxy(proxyUrl); } catch { fail('DATASET_PROXY_CONFIGURATION', 'The trusted dataset download proxy configuration is invalid.', 503); }
-  return async function downloadDataset(value, { destination, signal, onProgress = () => {}, resume } = {}) {
+  return async function downloadDataset(value, { destination, signal, onProgress = () => {}, beforeRequest = async () => {}, resume } = {}) {
     let url = parseDatasetUrl(value); const hfRedirect = url.hostname === 'huggingface.co';
-    if (typeof onProgress !== 'function' || resume !== undefined && (!resume || typeof resume !== 'object' || Array.isArray(resume)
+    if (typeof onProgress !== 'function' || typeof beforeRequest !== 'function' || resume !== undefined && (!resume || typeof resume !== 'object' || Array.isArray(resume)
       || Object.keys(resume).some(key => !['receivedBytes', 'etag', 'resolvedUrl'].includes(key)))) fail('DATASET_RESUME_INVALID', 'Download progress and partial metadata are invalid.');
     const timeout = AbortSignal.timeout(timeoutMs), requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     let fd;
@@ -113,6 +114,7 @@ export function createDatasetDownloader({ lookupImpl = lookup, requestImpl = req
         }
         const offset = resumable && url.toString() === resumeUrl ? existing : 0;
         const headers = offset ? { Range: `bytes=${offset}-`, 'If-Range': resume.etag } : {};
+        await beforeRequest({url:url.toString()}); requestSignal.throwIfAborted();
         const operation = Promise.resolve(requestImpl(url, selected, { signal: requestSignal, proxyUrl: proxy, headers })).then(response => {
           if (requestSignal.aborted) { response.destroy(); requestSignal.throwIfAborted(); } return response;
         });

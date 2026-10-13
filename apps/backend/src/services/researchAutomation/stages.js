@@ -9,6 +9,9 @@ import { automationRole } from './agents.js';
 import { createHash } from 'node:crypto';
 import { createHarnessRun, getHarnessRun, runHarnessRequest } from '../harnessRuntime/index.js';
 import { loadPaperSearches, searchProjectPapers } from '../paperSearch.js';
+import { datasetService } from '../datasets/index.js';
+import { acquireAutomationDataset } from './datasetAcquisition.js';
+import { allowsAutomatic } from './policy.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
@@ -19,12 +22,20 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
   const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
   const cachedResult = run => ({ ok: run.status === 'completed', reply: run.reply || '', patches: run.patches || [], runtime: run.adapter,
     runId: run.id, events: run.events || [], fallback: run.fallback, error: run.error });
+  const inputIdentity=request=>hash({task:request.task,role:request.role,input:request.input,context:request.context,prompt:request.prompt,skills:request.researchSkills});
   const runHarness = async request => {
     await beforeEffect();
-    const inputHash = hash({ task: request.task, role: request.role, input: request.input, context: request.context, prompt: request.prompt, skills: request.researchSkills, adapter: request.adapter });
-    const saved = calls.findLast(call => call.inputHash === inputHash);
+    // A completed result belongs to its task and material input, regardless of
+    // whether the caller explicitly named the same runtime or used its default.
+    const inputHash = inputIdentity(request);
+    let saved = calls.findLast(call => call.inputHash === inputHash),previous;
+    if(!saved){for(const candidate of calls.filter(call=>call.task===request.task).reverse()){
+      const stored=await getHarnessRun(projectId,candidate.runId);
+      if(inputIdentity(stored.request)===inputHash){saved=candidate;previous=stored;break;}
+    }}
     if (saved) {
-      const previous = await getHarnessRun(projectId, saved.runId);
+      previous ||= await getHarnessRun(projectId, saved.runId);
+      if(inputIdentity(previous.request)!==inputHash)throw new ResearchWorkflowError(409,'AUTOMATION_RUN_INPUT_CHANGED','已保存Run的实际任务输入发生变化。');
       if (previous.parentRunId !== session.coordinatorRunId || previous.request?.context?.automationHandoff?.sessionId !== session.id) throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_OWNER_CHANGED', '阶段Run不属于当前交接。');
       if (previous.cleanup?.modelSlotRetained || previous.error?.code === 'HARNESS_INTERRUPTED') throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '上次Run的进程或持久结果尚未对账，不能自动重跑。');
       if (previous.status === 'completed') return cachedResult(previous);
@@ -35,7 +46,7 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     }
     const prepared = await createHarnessRun(projectId, { ...request, parentRunId: session.coordinatorRunId, delegationTask: request.task,
       source: 'research-automation', requestId: `${session.id}:${stage}:${inputHash}` }, { automationSessionId: session.id });
-    calls.push({ runId: prepared.id, inputHash, task: request.task, attempt: session.attempt || 0 });
+    calls.push({ runId: prepared.id, inputHash, inputIdentityVersion:2, task: request.task, attempt: session.attempt || 0 });
     await saveStep({ calls, runIds: calls.map(call => call.runId) });
     await beforeEffect();
     return runHarnessRequest({ ...request, existingRunId: prepared.id, signal: runtime.signal }, { automationSessionId: session.id });
@@ -91,12 +102,35 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     const saved = stageData(workflow, stage);
     let plan = session.executionPlan || saved.executionPlan;
     let origin = session.executionPlan ? session.executionPlanOrigin || 'legacy' : 'stage';
+    let availableDatasets=[];
+    if(!plan&&policy.datasetScope){
+      const recorded=(await datasetService.list(projectId)).datasets.slice(-5);
+      availableDatasets=await Promise.all(recorded.map(dataset=>datasetService.get(projectId,dataset.id)));
+      const pending=(step.datasetAcquisitions||[]).filter(item=>item.status!=='completed');
+      if(pending.length){for(const item of pending)availableDatasets.push(await acquireAutomationDataset({projectId,session,stage,proposal:item.authorization.proposal,sourceRunId:item.authorization.sourceRunId,evidenceQuote:item.evidenceQuote,saveStep,beforeEffect,signal:runtime.signal}));}
+      else if(!availableDatasets.length){
+        if(!allowsAutomatic(policy,'dataset'))throw new ResearchWorkflowError(409,'AUTOMATION_CONFIRMATION_REQUIRED','数据获取环节等待授权。',{part:'dataset'});
+        const discovered=await run('dataset_discovery',{papers,availableFiles:files,allowedSources:policy.datasetScope.allowedHosts,
+          instructions:'Find public raw data links in the supplied papers, data availability statements, or existing project notes. Use evidenceQuote to retain the source statement. Missing private data, unavailable links or uncertain sources must be reported. Acquisition is performed by the application; do not claim success.'});
+        if(!discovered.output.candidates.length)throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_SOURCE_REQUIRED',`没有可取得的数据来源：${discovered.output.missing.join('；')||'请补充论文的数据声明或公开数据链接。'}`);
+        for(const candidate of discovered.output.candidates.slice(0,policy.datasetScope.maxDatasets)){
+          if(!papers.some(paper=>String(paper.id)===candidate.paperId))throw new ResearchWorkflowError(409,'AUTOMATION_UNKNOWN_PAPER','数据建议必须引用当前已选论文。');
+          const {evidenceQuote,...proposal}=candidate;
+          availableDatasets.push(await acquireAutomationDataset({projectId,session,stage,proposal,sourceRunId:discovered.runId,evidenceQuote,saveStep,beforeEffect,signal:runtime.signal}));
+        }
+      }
+    }
     if (!plan) {
-      const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files, instructions: 'Choose an existing code entrypoint and a real recorded dataset/version. If data or code is missing, return plan:null and list missing materials. Do not fabricate a runnable reproduction.' });
+      availableDatasets=[...new Map(availableDatasets.map(dataset=>[dataset.id,dataset])).values()];
+      const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files,
+        ...(availableDatasets.length?{availableDatasets:availableDatasets.map(dataset=>({id:dataset.id,sha256:dataset.sha256,byteLength:dataset.byteLength,source:dataset.source,split:dataset.split,preview:dataset.preview}))}:{}),
+        instructions: availableDatasets.length?'Choose an existing code entrypoint and an acquired dataset exact id and sha256. Acquired raw data is in private storage; it is not an accessible experiment file until the Runner prepares a verified copy. If executable code, accessible input or environment is missing, return plan:null and list missing materials. Acquisition is not reproduction. Do not fabricate a runnable reproduction.':'Choose an existing code entrypoint and a real recorded dataset/version. If data or code is missing, return plan:null and list missing materials. Do not fabricate a runnable reproduction.' });
       if (!result.output.plan || result.output.missing.length) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', `需要补充复现/实验材料：${result.output.missing.join('；') || '代码入口、数据及版本'}`);
       plan = result.output.plan;
+      if(availableDatasets.length&&!availableDatasets.some(dataset=>dataset.id===plan.dataset&&dataset.sha256===plan.datasetVersion))throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_VERSION_CHANGED','实验建议没有绑定已核对的数据版本。');
       origin = 'model';
     }
+    if(/^dataset-[a-f0-9]{64}$/.test(plan.dataset))throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_INPUT_REQUIRED','数据已取得，但尚未准备给受控实验的输入副本和环境；不能将下载完成当作复现完成。');
     if (!files.includes(plan.execution?.entrypoint) || !plan.dataset || !plan.datasetVersion) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', '项目内需要可运行的代码入口、真实数据和数据版本。');
     await runtime.automationBindExecutionPlan(plan, origin);
     // The Runner validates paths, resources and snapshots again before dispatch.

@@ -22,6 +22,7 @@ const SKILL_NAME_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export const RESEARCH_SKILL_STAGE_ALIASES = Object.freeze({
   paper_selection: 'selection',
+  dataset_discovery: 'replication',
   execution_proposal: 'experiment',
   search_strategy: 'search',
   reproduction_plan: 'replication',

@@ -160,6 +160,11 @@ const writingBriefSchema = z.object({
 }).strict();
 
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
+  dataset_discovery: z.object({stage:stage('dataset_discovery'),missing:z.array(nonEmpty).max(20),candidates:z.array(z.object({
+    paperId:nonEmpty,url:z.string().url().max(4096),filename:z.string().min(1).max(240),license:z.string().min(1).max(300).optional(),
+    split:z.enum(['train','validation','test','unknown']).optional(),expectedSha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    evidenceQuote:z.string().min(1).max(2000)
+  }).strict()).max(5)}).strict(),
   paper_selection: z.object({ stage: stage('paper_selection'), paperIds: z.array(nonEmpty).min(1).max(5), rationale: nonEmpty }).strict(),
   execution_proposal: z.object({
     stage: stage('execution_proposal'), missing: z.array(nonEmpty),
@@ -337,6 +342,9 @@ export function requiredResearchStageKeys(stageName) {
  * schema stay one edit apart.
  */
 const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
+  dataset_discovery: Object.freeze([
+    'Use paperId from input.papers. Cite a data availability statement or an exact source provided in input as evidenceQuote. Only return supported public file URLs; never invent a link, license, checksum, or successful download. Unknown or inaccessible sources belong in missing. This is a suggestion only; the application owns acquisition and permissions.'
+  ]),
   search_strategy: Object.freeze([
     'sources must contain ids from input.availableSources (registered Source Adapter ids such as "arxiv"), never venue names or descriptions.'
   ]),

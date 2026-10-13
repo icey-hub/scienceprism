@@ -156,10 +156,10 @@ function datasetTask(job) {
   return normalizeTask({id:`dataset-acquisition:${job.id}`,kind:'dataset-acquisition',title:`取得数据 · ${config.filename}`,
     status:job.status==='interrupted'?'paused':job.status==='committing'?'running':job.status,
     progress:job.status==='completed'?100:job.totalBytes?Math.min(99,Math.round(job.receivedBytes/job.totalBytes*100)):null,
-    error:job.error,retryable:['failed','cancelled','interrupted'].includes(job.status),
+    error:job.error,retryable:config.authority!=='system'&&['failed','cancelled','interrupted'].includes(job.status),
     log:[config.source.url||'本地导入',`${job.receivedBytes} bytes received`,...(job.interrupted?['原任务中断，可核对后继续。']:[])],
     metadata:{jobId:job.id,datasetId:job.datasetId,filename:config.filename,configurationVersion:config.version,configurationSha256:job.configurationSha256,
-      source:config.source,receivedBytes:job.receivedBytes,totalBytes:job.totalBytes},createdAt:job.createdAt,startedAt:job.startedAt,finishedAt:job.finishedAt,updatedAt:job.updatedAt});
+      source:config.source,receivedBytes:job.receivedBytes,totalBytes:job.totalBytes,authorization:config.authorization||null},createdAt:job.createdAt,startedAt:job.startedAt,finishedAt:job.finishedAt,updatedAt:job.updatedAt});
 }
 
 export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {

@@ -1,7 +1,7 @@
 import { request, getCollabToken } from './client';
 export interface DatasetSource { kind: string; url: string | null; revision: string | null }
 export interface DatasetVersion { id: string; filename: string; name: string; sha256: string; byteLength: number; source: DatasetSource; license: { label: string; verified: boolean }; split: string; acquiredAt: string; readOnly: true; preview: { format: string; columns: string[]; rows: string[][]; truncated: boolean; rowCount?: number; warning?: string } }
-export interface DatasetJob { id: string; status: string; receivedBytes: number; totalBytes: number | null; datasetId: string | null; error?: { code: string; message: string } | null; message?: string; configuration: { version: number; filename: string; source: DatasetSource; maxBytes: number }; configurationSha256: string }
+export interface DatasetJob { id: string; status: string; receivedBytes: number; totalBytes: number | null; datasetId: string | null; error?: { code: string; message: string } | null; message?: string; configuration: { authority?:'human'|'system';authorization?:{sessionId:string;parentRunId:string;sourceRunId:string;stage:string;policyVersion:number}; version: number; filename: string; source: DatasetSource; maxBytes: number }; configurationSha256: string }
 export interface DatasetState { datasets: DatasetVersion[]; jobs: DatasetJob[]; supportedHosts: string[]; maxBytes: number }
 export interface DatasetDownloadInput { url: string; filename: string; license?: string; split: string; maxBytes: number; expectedSha256?: string; refresh?: boolean }
 const base = (project: string) => `/api/projects/${encodeURIComponent(project)}/datasets`;
