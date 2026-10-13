@@ -290,6 +290,8 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
           emit({ type: 'runtime/fallback', data: { from: 'deepseek', to: 'legacy', error: runtimeError.message } });
           const rawFallback = await runWithTimeout(fallbackAdapter.run({
             request: { ...request, contextPack: run.contextPack },
+            readPolicy,
+            onDecision: event => persistEvents(projectId, runId, [summarizeEvent(event)]),
             projectRoot,
             workspace,
             dshHome,

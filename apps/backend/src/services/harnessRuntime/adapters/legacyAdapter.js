@@ -4,13 +4,16 @@ import { HarnessRuntimeError } from '../errors.js';
 export const legacyHarnessAdapter = Object.freeze({
   id: 'legacy',
   label: 'LangChain Agent Adapter',
-  async run({ request, capabilities, capabilityPolicy, limits, signal, emit }) {
+  async run({ request, capabilities, capabilityPolicy, limits, signal, emit, readPolicy, onDecision }) {
     if (signal?.aborted) throw signal.reason || new Error('Harness Run aborted.');
+    if (typeof readPolicy !== 'function' || typeof onDecision !== 'function') throw new HarnessRuntimeError(403, 'LEGACY_POLICY_UNAVAILABLE', 'Current Run policy and persisted tool decisions are required.');
     emit({ type: 'adapter/started', data: { adapter: 'legacy' } });
     const result = await runToolAgent({
       ...request,
       capabilities,
       capabilityPolicy,
+      readPolicy,
+      onDecision,
       // C-10: the Run's token budget has to reach this path too. It used to be
       // handed only to the DeepSeek SDK, so a legacy Run was effectively
       // unbounded on tokens.

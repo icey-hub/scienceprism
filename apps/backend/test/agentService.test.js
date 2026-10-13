@@ -41,6 +41,130 @@ const baseRequest = {
   }
 };
 
+function currentLegacyPolicy() {
+  const capabilities = { granted: ['project.read', 'patch.propose', 'research.search'], allowedPaths: [], networkAllowlist: ['export.arxiv.org'] };
+  const current = { projectId: 'test', runId: 'policy-run', role: 'project-agent', task: 'assistant', active: true, mode: 'auto', version: 'v1', capabilities: structuredClone(capabilities) };
+  const decisions = [];
+  return { current, decisions, request: { ...baseRequest, task: 'assistant', capabilityPolicy: capabilities,
+    readPolicy: async () => structuredClone(current), onDecision: async event => { decisions.push(event); } } };
+}
+
+test('Legacy current decisions precede real reads and proposals without changing the manuscript', async t => {
+  const { request, decisions } = currentLegacyPolicy();
+  const responses = [{ tool: 'read_file', args: { path: 'main.tex' } },
+    { tool: 'propose_patch', args: { path: 'main.tex', content: 'proposed text' } }, { content: 'Proposal ready.' }];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => providerResponse(JSON.parse(init.body), responses.shift()));
+  let reads = 0;
+  const result = await runToolAgent({ ...request, emit: event => {
+    if (event.type !== 'file/read') return;
+    reads++;
+    assert.equal(decisions.at(-1).decision, 'allow');
+    assert.equal(decisions.at(-1).actor, 'system');
+    assert.equal(decisions.at(-1).policyVersion, 'v1');
+    assert.equal(decisions.at(-1).runId, 'policy-run');
+  } });
+  assert.equal(reads, 2);
+  assert.equal(result.patches[0].content, 'proposed text');
+  assert.equal(new Set(decisions.filter(event => event.decision === 'allow').map(event => event.callId)).size, 2);
+  assert.equal(await fs.readFile(path.join(dataDir, 'test', 'main.tex'), 'utf8'), 'saved manuscript');
+});
+
+test('Legacy audit-time revocation and audit failures prevent tool dispatch and reading', async t => {
+  for (const auditFailure of [false, true]) {
+    const { current, request, decisions } = currentLegacyPolicy();
+    const events = [];
+    let providerCalls = 0;
+    const mock = t.mock.method(globalThis, 'fetch', async (_url, init) => {
+      providerCalls++;
+      return providerResponse(JSON.parse(init.body), { tool: 'read_file', args: { path: 'main.tex' } });
+    });
+    try {
+      await assert.rejects(runToolAgent({ ...request, emit: event => events.push(event), onDecision: async event => {
+        decisions.push(event);
+        if (auditFailure) throw new Error('disk unavailable');
+        if (event.decision === 'allow') { current.version = 'v2'; current.capabilities.granted = []; }
+      } }), reason => reason instanceof HarnessRuntimeError);
+      assert.equal(providerCalls, 1);
+      assert.equal(events.some(event => ['tool/start', 'file/read'].includes(event.type)), false);
+      assert.equal(decisions.at(-1).decision, 'deny');
+    } finally { mock.mock.restore(); }
+  }
+});
+
+test('Legacy rejects foreign schema fields before touching files', async t => {
+  const { request, decisions } = currentLegacyPolicy();
+  const events = [];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => providerResponse(JSON.parse(init.body), {
+    tool: 'read_file', args: { path: 'main.tex', projectId: 'foreign', role: 'admin' }
+  }));
+  await assert.rejects(runToolAgent({ ...request, emit: event => events.push(event) }), /schema|Unrecognized|invalid/i);
+  assert.deepEqual(decisions, []);
+  assert.equal(events.some(event => event.type === 'file/read'), false);
+});
+
+test('Legacy list output excludes sensitive stores and symlinks', async t => {
+  const root = path.join(dataDir, 'test', 'listing');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await fs.writeFile(path.join(root, '.env'), 'private');
+  await fs.writeFile(path.join(root, '.scienceprism', 'private.json'), '{}');
+  await fs.writeFile(path.join(root, 'paper.txt'), 'public');
+  await fs.symlink(path.join(dataDir, 'test', 'main.tex'), path.join(root, 'link.txt'));
+  const { request } = currentLegacyPolicy();
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    const body = JSON.parse(init.body); requests.push(body);
+    return providerResponse(body, requests.length === 1 ? { tool: 'list_files', args: { dir: 'listing' } } : { content: 'Listed.' });
+  });
+  await runToolAgent(request);
+  assert.deepEqual(JSON.parse(requests[1].messages.find(message => message.role === 'tool').content), { files: ['paper.txt'] });
+});
+
+test('Legacy cancels an asynchronously read proposal before it can be delivered', async t => {
+  const { current, request, decisions } = currentLegacyPolicy();
+  let reads = 0, providerCalls = 0;
+  const responses = [{ tool: 'read_file', args: { path: 'main.tex' } }, { tool: 'propose_patch', args: { path: 'main.tex', content: 'forbidden late proposal' } }];
+  t.mock.method(globalThis, 'fetch', async (_url, init) => { providerCalls++; return providerResponse(JSON.parse(init.body), responses.shift()); });
+  await assert.rejects(runToolAgent({ ...request, emit: event => {
+    if (event.type === 'file/read' && ++reads === 2) { current.active = false; current.version = 'stopped'; }
+  } }), reason => reason instanceof HarnessRuntimeError);
+  assert.equal(providerCalls, 2);
+  assert.equal(decisions.at(-1).decision, 'deny');
+  assert.equal(await fs.readFile(path.join(dataDir, 'test', 'main.tex'), 'utf8'), 'saved manuscript');
+});
+
+test('Legacy search rechecks policy after the source response and leaves history unchanged', async t => {
+  const { current, request, decisions } = currentLegacyPolicy();
+  const { loadPaperSearches } = await import('../src/services/paperSearch.js');
+  const before = (await loadPaperSearches('test')).sessions;
+  let sourceCalls = 0, modelCalls = 0;
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    if (String(url).startsWith('https://export.arxiv.org/')) {
+      sourceCalls++; current.version = 'revoked'; current.capabilities.networkAllowlist = [];
+      return new Response('<feed xmlns="http://www.w3.org/2005/Atom"></feed>');
+    }
+    modelCalls++;
+    return providerResponse(JSON.parse(init.body), { tool: 'arxiv_search', args: { query: 'retrieval' } });
+  });
+  await assert.rejects(runToolAgent(request), reason => reason instanceof HarnessRuntimeError);
+  assert.equal(sourceCalls, 1);
+  assert.equal(modelCalls, 1);
+  assert.deepEqual((await loadPaperSearches('test')).sessions, before);
+  assert.equal(decisions.at(-1).decision, 'deny');
+});
+
+test('arXiv metadata forwards the last request guard before the real transport', async t => {
+  let calls = 0, checked = false;
+  t.mock.method(globalThis, 'fetch', async () => { calls++; throw new Error('must not fetch'); });
+  await assert.rejects(fetchArxivEntry('2401.00001', { beforeRequest: ({ url }) => {
+    checked = true;
+    assert.equal(new URL(url).hostname, 'export.arxiv.org');
+    throw new HarnessRuntimeError(403, 'NETWORK_DENIED', 'revoked in queue');
+  } }), { code: 'NETWORK_DENIED' });
+  assert.equal(checked, true);
+  assert.equal(calls, 0);
+});
+
 function providerResponse(request, { content = '', tool, args = {} } = {}) {
   const usage = { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 };
   const message = { role: 'assistant', content, ...(tool ? { tool_calls: [
@@ -185,6 +309,11 @@ test('Harness persists Legacy Skill tool events without granting network authori
   assert.deepEqual(run.capabilities.granted, ['project.read']);
   assert.ok(run.events.some((event) => event.type === 'tool/start' && event.name === 'read_research_skill' && event.capability === 'project.read'));
   assert.ok(run.events.some((event) => event.type === 'tool/end'));
+  const allowed = run.events.find(event => event.type === 'tool/policy' && event.decision === 'allow');
+  assert.equal(allowed.actor, 'system');
+  assert.ok(allowed.policyVersion);
+  assert.equal(allowed.callId, run.events.find(event => event.type === 'tool/start').callId);
+  assert.ok(run.events.indexOf(allowed) < run.events.findIndex(event => event.type === 'tool/start'));
   assert.equal(run.tokenUsage.totalTokens, 50);
 });
 

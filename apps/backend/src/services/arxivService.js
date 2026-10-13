@@ -16,8 +16,8 @@ export function extractArxivId(input) {
   return id;
 }
 
-export async function fetchArxivEntry(arxivId, { signal } = {}) {
-  const entries = await queryArxiv({ id_list: arxivId }, { signal }).catch((error) => {
+export async function fetchArxivEntry(arxivId, { signal, beforeRequest } = {}) {
+  const entries = await queryArxiv({ id_list: arxivId }, { signal, beforeRequest }).catch((error) => {
     if (signal?.aborted) throw signal.reason;
     throw error;
   });
