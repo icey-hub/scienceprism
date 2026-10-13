@@ -11,14 +11,15 @@ import { applyPaperSelection } from '../researchWorkflow/paperSelection.js';
 import { appendAudit } from '../researchWorkflow/audit.js';
 import { inspectAutomationOwner } from './owner.js';
 import { validateDatasetScope } from './datasetAuthorization.js';
+import { validateEnvironmentScope } from './environmentAuthorization.js';
 
-export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'dataset', 'execution', 'patches'];
+export const AUTOMATION_PARTS = [...RESEARCH_WORKFLOW_STAGES.map(stage => stage.id), 'dataset', 'environment', 'execution', 'patches'];
 const FILE = '.scienceprism/research-automation.json';
 const modes = ['inherit', 'auto', 'manual'];
 const invalid = message => { throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_POLICY', message); };
 const executionPlanSchema = z.object({
   dataset: z.string().trim().min(1).max(500), datasetVersion: z.string().trim().min(1).max(500), protocol: z.string().trim().min(1).max(4000),
-  execution: z.object({ adapter: z.enum(['node','python']), entrypoint: z.string().min(1).max(500), args: z.array(z.string().max(2000)).max(30).default([]) }).strict(),
+  execution: z.object({ adapter: z.enum(['node','python']), entrypoint: z.string().min(1).max(500), args: z.array(z.string().max(2000)).max(30).default([]), environmentId:z.string().regex(/^environment-[a-f0-9-]{36}$/).optional() }).strict(),
   seed: z.union([z.string().max(100),z.number().int()]).default(0), successCriteria: z.array(z.string().max(2000)).min(1).max(30),
   artifacts: z.array(z.object({ path: z.string().min(1).max(500), kind: z.enum(['metric','output','chart','table','checkpoint','log']), name: z.string().max(200).optional() }).strict()).max(30).default([]),
   parameters: z.record(z.unknown()).optional(), codePaths: z.array(z.string().max(500)).max(100).optional(),
@@ -32,11 +33,11 @@ export function validateAutomationExecution(value) {
 }
 
 export function validateAutomationPolicy(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['enabled', 'overrides', 'agentMode', 'datasetScope'].includes(key))) invalid('策略包含未知字段。');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['enabled', 'overrides', 'agentMode', 'datasetScope', 'environmentScope'].includes(key))) invalid('策略包含未知字段。');
   if (typeof value.enabled !== 'boolean' || !['specialists', 'generalist'].includes(value.agentMode)) invalid('请提供自动研究开关和Agent模式。');
   if (!value.overrides || typeof value.overrides !== 'object' || Array.isArray(value.overrides)) invalid('环节策略必须为对象。');
   for (const [part, mode] of Object.entries(value.overrides)) if (!AUTOMATION_PARTS.includes(part) || !modes.includes(mode)) invalid('未知环节或确认模式。');
-  return { enabled: value.enabled, agentMode: value.agentMode, overrides: { ...value.overrides }, ...(value.datasetScope !== undefined ? { datasetScope: validateDatasetScope(value.datasetScope) } : {}) };
+  return { enabled: value.enabled, agentMode: value.agentMode, overrides: { ...value.overrides }, ...(value.datasetScope !== undefined ? { datasetScope: validateDatasetScope(value.datasetScope) } : {}), ...(value.environmentScope !== undefined ? { environmentScope: validateEnvironmentScope(value.environmentScope) } : {}) };
 }
 
 export function allowsAutomatic(policy, part) {

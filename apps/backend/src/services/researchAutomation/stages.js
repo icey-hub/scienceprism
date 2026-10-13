@@ -11,6 +11,8 @@ import { createHarnessRun, getHarnessRun, runHarnessRequest } from '../harnessRu
 import { loadPaperSearches, searchProjectPapers } from '../paperSearch.js';
 import { datasetService } from '../datasets/index.js';
 import { acquireAutomationDataset } from './datasetAcquisition.js';
+import { prepareAutomationEnvironment } from './environmentPreparation.js';
+import { environmentService } from '../experimentRunner/environments.js';
 import { allowsAutomatic } from './policy.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
@@ -97,12 +99,28 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     return update({ automaticSelectionProposal: result.output, task: createStageTask({ stage, harness: result, input: { candidates }, output: result.output }) });
   }
   if (stage === 'replication' || stage === 'experiment') {
-    const files = (await snapshotExperimentCode(await resolveProjectRoot(projectId))).files.map(file => file.path);
+    const snapshot = await snapshotExperimentCode(await resolveProjectRoot(projectId));
+    const files = snapshot.files.map(file => file.path);
     const papers = stageData(workflow, 'selection').selectedPapers || [];
     const saved = stageData(workflow, stage);
     let plan = session.executionPlan || saved.executionPlan;
     let origin = session.executionPlan ? session.executionPlanOrigin || 'legacy' : 'stage';
-    let availableDatasets=[];
+    let availableDatasets=[],availableEnvironments=[];
+    if(!plan&&(policy.environmentScope||step.environmentPreparations?.length)&&files.some(file=>/\.py$/i.test(file))){
+      const recorded=step.environmentPreparations||[];
+      if(recorded.length){for(const item of recorded){
+        availableEnvironments.push(item.status==='completed'?(await environmentService.verify(projectId,item.environmentId,item.sha256)).environment:
+          await prepareAutomationEnvironment({projectId,session,stage,proposal:item.authorization.proposal,sourceRunId:item.authorization.sourceRunId,reason:item.reason,saveStep,beforeEffect,signal:runtime.signal}));
+      }}else{
+        if(!allowsAutomatic(policy,'environment'))throw new ResearchWorkflowError(409,'AUTOMATION_CONFIRMATION_REQUIRED','环境准备环节等待授权。',{part:'environment'});
+        const result=await run('environment_proposal',{papers,savedPlan:saved,availableFiles:files,
+          availableWheels:snapshot.files.filter(file=>file.path.endsWith('.whl')&&file.sha256).map(file=>({path:file.path,sha256:file.sha256,bytes:file.bytes})),
+          scope:policy.environmentScope,instructions:'Inspect the existing Python entrypoint and dependency declarations using project reads. Propose only existing fixed wheel paths and their supplied SHA256 hashes. An empty packages list means a standard-library-only environment. If dependencies or executable code are missing, list missing materials. The application prepares and verifies the environment; do not claim installation or experiment success.'});
+        if(result.output.blockers.length)throw new ResearchWorkflowError(409,'AUTOMATION_ENVIRONMENT_MATERIALS_REQUIRED',`需要补充环境材料：${result.output.blockers.map(item=>item.detail).join('；')}`);
+        if(result.output.packages.some(wheel=>!snapshot.files.some(file=>file.path===wheel.path&&file.sha256===wheel.sha256)))throw new ResearchWorkflowError(409,'AUTOMATION_ENVIRONMENT_WHEEL_CHANGED','环境建议没有使用当前项目中已核对的依赖文件。');
+        availableEnvironments.push(await prepareAutomationEnvironment({projectId,session,stage,proposal:{packages:result.output.packages},sourceRunId:result.runId,reason:result.output.reason,deferred:result.output.deferred,saveStep,beforeEffect,signal:runtime.signal}));
+      }
+    }
     if(!plan&&policy.datasetScope){
       const recorded=(await datasetService.list(projectId)).datasets.slice(-5);
       availableDatasets=await Promise.all(recorded.map(dataset=>datasetService.get(projectId,dataset.id)));
@@ -124,9 +142,11 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
       availableDatasets=[...new Map(availableDatasets.map(dataset=>[dataset.id,dataset])).values()];
       const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files,
         ...(availableDatasets.length?{availableDatasets:availableDatasets.map(dataset=>({id:dataset.id,sha256:dataset.sha256,byteLength:dataset.byteLength,source:dataset.source,split:dataset.split,preview:dataset.preview}))}:{}),
+        ...(availableEnvironments.length?{availableEnvironments:availableEnvironments.map(environment=>({id:environment.id,sha256:environment.sha256,python:environment.python.version,packages:environment.packages})),environmentInstruction:'A Python plan must select one exact prepared environmentId. Existing private dataset copies and code still need Runner preparation; an environment alone is not reproduction.'}:{}),
         instructions: availableDatasets.length?'Choose an existing code entrypoint and an acquired dataset exact id and sha256. Acquired raw data is in private storage; it is not an accessible experiment file until the Runner prepares a verified copy. If executable code, accessible input or environment is missing, return plan:null and list missing materials. Acquisition is not reproduction. Do not fabricate a runnable reproduction.':'Choose an existing code entrypoint and a real recorded dataset/version. If data or code is missing, return plan:null and list missing materials. Do not fabricate a runnable reproduction.' });
       if (!result.output.plan || result.output.missing.length) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', `需要补充复现/实验材料：${result.output.missing.join('；') || '代码入口、数据及版本'}`);
       plan = result.output.plan;
+      if(availableEnvironments.length&&plan.execution.adapter==='python'&&!availableEnvironments.some(environment=>environment.id===plan.execution.environmentId))throw new ResearchWorkflowError(409,'AUTOMATION_ENVIRONMENT_BINDING_REQUIRED','Python计划需要选择已准备的固定环境版本。');
       if(availableDatasets.length&&!availableDatasets.some(dataset=>dataset.id===plan.dataset&&dataset.sha256===plan.datasetVersion))throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_VERSION_CHANGED','实验建议没有绑定已核对的数据版本。');
       origin = 'model';
     }

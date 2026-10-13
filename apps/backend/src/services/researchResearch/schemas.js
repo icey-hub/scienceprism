@@ -160,6 +160,10 @@ const writingBriefSchema = z.object({
 }).strict();
 
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
+  environment_proposal:z.object({stage:stage('environment_proposal'),
+    blockers:z.array(z.object({kind:z.enum(['entrypoint','dependency','runtime']),detail:nonEmpty}).strict()).max(20),
+    deferred:z.array(z.object({kind:z.enum(['dataset','paper','protocol','evidence']),detail:nonEmpty}).strict()).max(20),
+    reason:z.string().min(1).max(2000),packages:z.array(z.object({path:z.string().min(1).max(500),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict()).max(30)}).strict(),
   dataset_discovery: z.object({stage:stage('dataset_discovery'),missing:z.array(nonEmpty).max(20),candidates:z.array(z.object({
     paperId:nonEmpty,url:z.string().url().max(4096),filename:z.string().min(1).max(240),license:z.string().min(1).max(300).optional(),
     split:z.enum(['train','validation','test','unknown']).optional(),expectedSha256:z.string().regex(/^[a-f0-9]{64}$/).optional(),
@@ -342,6 +346,7 @@ export function requiredResearchStageKeys(stageName) {
  * schema stay one edit apart.
  */
 const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
+  environment_proposal:Object.freeze(['Propose only wheel paths and exact SHA256 values from input.availableWheels. packages=[] means standard library only, not permission to download or install arbitrary packages. blockers contains only actual absent Python entrypoint, dependency wheel or runtime requirements that prevent preparing this environment. A missing scientific dataset, paper, protocol or Evidence belongs in deferred and MUST NOT block preparation of otherwise valid Python code. deferred remains unverified for later reproduction/material checks. reason explains the fixed lock. The application owns preparation, authorization and verification; never claim that an environment or experiment ran successfully.']),
   dataset_discovery: Object.freeze([
     'Use paperId from input.papers. Cite a data availability statement or an exact source provided in input as evidenceQuote. Only return supported public file URLs; never invent a link, license, checksum, or successful download. Unknown or inaccessible sources belong in missing. This is a suggestion only; the application owns acquisition and permissions.'
   ]),

@@ -240,6 +240,9 @@ async function walk(projectId, control, runtime) {
     const retained = stopped && (await Promise.all(ids.map(id => getHarnessRun(projectId, id)))).some(run => run.cleanup?.modelSlotRetained);
     if (retained) error = new ResearchWorkflowError(409, 'HARNESS_STOP_UNCONFIRMED', '运行器尚未确认停止，已有Run与工作区保留，请核对中断记录。');
     const status = retained ? 'blocked' : stopped ? 'stopped' : error.code === 'AUTOMATION_CONFIRMATION_REQUIRED' ? 'waiting_confirmation' : 'blocked';
+    const current = await readAutomation(projectId);
+    const currentStep = current.session?.steps.find(step => step.stage === current.session.currentStage);
+    if (currentStep && currentStep.status !== 'completed') await changeStep(projectId, control.id, currentStep.stage, { status });
     await changeSession(projectId, control.id, { status, message: error.message, error: { code: error.code || 'AUTOMATION_FAILED', message: error.message, details: error.details } });
   } finally {
     try {

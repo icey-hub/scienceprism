@@ -71,10 +71,10 @@ export function createEnvironmentService({resolveProject=getProjectRoot,prepare=
       if(data.schemaVersion!==1||data.projectId!==projectId||!Array.isArray(data.jobs)||data.jobs.length>500||new Set(data.jobs.map(j=>j.id)).size!==data.jobs.length||data.jobs.some(j=>!identifier.test(j.id)||hash(JSON.stringify(j.configuration))!==j.configurationSha256))fail('ENVIRONMENT_STORAGE_INVALID','环境准备记录损坏。',500);return data;
     }catch(e){if(e.code==='ENOENT')return {schemaVersion:1,projectId,version:1,jobs:[]};throw e;}
   }
-  async function update(projectId,owner,callback) {
+  async function update(projectId,owner,callback,{beforePublish}={}) {
     return withHubLock(projectId,async()=>{owner?.assertOwned();const root=await locations(projectId,{create:true}),doc=await read(projectId),result=await callback(doc,root);
       owner?.assertOwned();doc.version++;const tmp=path.join(root.control,`.index-${randomUUID()}.tmp`);
-      try{const encoded=JSON.stringify(doc)+'\n';if(Buffer.byteLength(encoded)>4*1024*1024)fail('ENVIRONMENT_STORAGE_LIMIT','环境准备记录达到上限。');await fsp.writeFile(tmp,encoded,{flag:'wx',mode:0o600});directory(root.control);owner?.assertOwned();await fsp.rename(tmp,root.index);}finally{await fsp.rm(tmp,{force:true});}
+      try{const encoded=JSON.stringify(doc)+'\n';if(Buffer.byteLength(encoded)>4*1024*1024)fail('ENVIRONMENT_STORAGE_LIMIT','环境准备记录达到上限。');await fsp.writeFile(tmp,encoded,{flag:'wx',mode:0o600});directory(root.control);owner?.assertOwned();await beforePublish?.();await fsp.rename(tmp,root.index);}finally{await fsp.rm(tmp,{force:true});}
       return structuredClone(result);
     });
   }
@@ -100,16 +100,19 @@ export function createEnvironmentService({resolveProject=getProjectRoot,prepare=
       return {...job,status:owner?.sessionId===job.id&&!owner.released&&owner.present!==false?'preparing':'interrupted'};
     }return structuredClone(job);
   }
-  async function change(projectId,id,owner,patch) {return update(projectId,owner,doc=>{const job=doc.jobs.find(j=>j.id===id);if(!job)fail('ENVIRONMENT_NOT_FOUND','环境记录不存在。',404);Object.assign(job,patch,{updatedAt:at()});return job;});}
-  async function launch(projectId,job,owner) {
+  async function change(projectId,id,owner,patch,options) {return update(projectId,owner,doc=>{const job=doc.jobs.find(j=>j.id===id);if(!job)fail('ENVIRONMENT_NOT_FOUND','环境记录不存在。',404);Object.assign(job,patch,{updatedAt:at()});return job;},options);}
+  async function launch(projectId,job,owner,{assertAuthorized:taskGuard,signal}={}) {
+    if(job.configuration.authority==='system'&&typeof taskGuard!=='function')fail('ENVIRONMENT_AUTOMATION_OWNED','自动准备任务只能从原研究链路继续。');
     const entry={projectId,owner,controller:new AbortController(),process:null};active.set(job.id,entry);
+    const abort=()=>entry.controller.abort(signal.reason);signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
     entry.promise=(async()=>{
       try {
+        entry.controller.signal.throwIfAborted();await taskGuard?.();
         const root=await locations(projectId),jobRoot=path.join(root.control,job.id);directory(jobRoot,true);
         const dir=path.join(jobRoot,`attempt-${job.attempt+1}`);directory(dir,true);
         const wheelRoot=path.join(dir,'wheels');directory(wheelRoot,true);
         const environmentRoot=path.join(dir,'python');directory(environmentRoot,true);
-        const assertAuthorized=async()=>{entry.controller.signal.throwIfAborted();owner.assertOwned();await constraintsFor(projectId,job.configuration);const latest=await raw(projectId,job.id);if(latest.configurationSha256!==job.configurationSha256||latest.status!=='preparing')fail('ENVIRONMENT_CONFIG_CHANGED','环境准备配置或状态已改变。');};
+        const assertAuthorized=async()=>{entry.controller.signal.throwIfAborted();owner.assertOwned();await taskGuard?.();await constraintsFor(projectId,job.configuration);const latest=await raw(projectId,job.id);if(latest.configurationSha256!==job.configurationSha256||latest.status!=='preparing')fail('ENVIRONMENT_CONFIG_CHANGED','环境准备配置或状态已改变。');};
         await change(projectId,job.id,owner,{status:'preparing',attempt:job.attempt+1,startedAt:at(),error:null,process:{pid:null,stopConfirmed:true}});
         await assertAuthorized();let total=0;const wheels=[];
         for(const wheel of job.configuration.packages){let target;try{target=safeJoin(root.project,wheel.path);}catch{fail('ENVIRONMENT_PATH_DENIED','依赖文件不能通过符号链接访问。',403);}const canonical=await fsp.realpath(target);
@@ -127,9 +130,9 @@ export function createEnvironmentService({resolveProject=getProjectRoot,prepare=
         const interpreterRealPath=await fsp.realpath(path.join(environmentRoot,'bin','python'));
         const interpreterSha256=(await regular(interpreterRealPath)).sha256;
         const environment={id:job.id,...metadata,...content,interpreterRealPath,interpreterSha256,lockSha256:job.configurationSha256,resources:{timeoutMs:job.configuration.timeoutMs,maxOutputBytes:job.configuration.maxOutputBytes,maxDiskBytes:256*1024*1024,cpuMemoryLimitEnforced:false}};
-        await change(projectId,job.id,owner,{status:'ready',environment,relativeRoot:path.relative(root.control,environmentRoot),finishedAt:at(),logs:entry.logs||{stdout:'',stderr:''}});
+        await change(projectId,job.id,owner,{status:'ready',environment,relativeRoot:path.relative(root.control,environmentRoot),finishedAt:at(),logs:entry.logs||{stdout:'',stderr:''}},{beforePublish:assertAuthorized});
       }catch(e){await change(projectId,job.id,owner,{status:entry.controller.signal.aborted?'cancelled':'failed',error:{code:e.code||'ENVIRONMENT_PREPARATION_FAILED',message:e.message},logs:entry.logs||{stdout:'',stderr:''},finishedAt:at()});}
-      finally{if(!entry.process||entry.process.stopConfirmed){owner.release({stopConfirmed:true});active.delete(job.id);}}
+      finally{signal?.removeEventListener('abort',abort);if(!entry.process||entry.process.stopConfirmed){owner.release({stopConfirmed:true});active.delete(job.id);}}
     })();entry.promise.catch(()=>{});return view(projectId,await raw(projectId,job.id));
   }
   async function get(projectId,id){const job=await raw(projectId,id);const current=active.get(id);if(finished(job)&&current?.promise)await current.promise;return view(projectId,await raw(projectId,id));}
@@ -147,6 +150,41 @@ export function createEnvironmentService({resolveProject=getProjectRoot,prepare=
     async listJobs(projectId){return Promise.all((await read(projectId)).jobs.map(j=>view(projectId,j)));},
     async list(projectId){const doc=await read(projectId);return {jobs:await Promise.all(doc.jobs.map(j=>view(projectId,j))),capability:{local:await probe(),container:{available:false,reason:'尚未配置容器执行器'},remote:{available:false,reason:'尚未配置远程执行器'}}};},
     get, verify,
+    async prepareAuthorized(projectId,input,{authorization,assertAuthorized,signal,onPrepared,jobId}={}) {
+      if(authorization?.capability!=='environment.prepare'||authorization.actor!=='system'||authorization.projectId!==projectId||typeof assertAuthorized!=='function'||typeof onPrepared!=='function')fail('ENVIRONMENT_AUTHORIZATION_REQUIRED','自动准备环境需要原研究任务的固定授权。',403);
+      signal?.throwIfAborted();await assertAuthorized();
+      const validated=validateEnvironmentConfiguration(input);
+      if(hash(JSON.stringify({packages:validated.packages}))!==hash(JSON.stringify(authorization.proposal))||validated.timeoutMs!==authorization.scope?.maxPrepareMs||validated.maxOutputBytes!==authorization.scope?.maxOutputBytes)fail('ENVIRONMENT_AUTHORIZATION_CHANGED','准备输入与原授权不符。',403);
+      const configuration={version:1,...validated,authority:'system',authorization:structuredClone(authorization)},configurationSha256=hash(JSON.stringify(configuration));
+      await constraintsFor(projectId,configuration);const root=await locations(projectId,{create:true});
+      const sha=configurationSha256,id=`environment-${sha.slice(0,8)}-${sha.slice(8,12)}-4${sha.slice(13,16)}-8${sha.slice(17,20)}-${sha.slice(20,32)}`;
+      // A fixed human-prepared version can satisfy the lock without another
+      // installation. The research grant owns the selection, not its history.
+      const existingJobs=(await read(projectId)).jobs;
+      const bound=jobId?await raw(projectId,jobId):existingJobs.find(j=>j.id===id);
+      if(bound&&bound.configuration.authority!=='system'){
+        if(bound.status!=='ready'||JSON.stringify(bound.configuration.packages)!==JSON.stringify(validated.packages))fail('ENVIRONMENT_CONFIG_CHANGED','已绑定的原环境不再满足固定依赖配置。');
+        const checked=await verify(projectId,bound.id);await onPrepared(structuredClone(bound));await assertAuthorized();return {job:{...bound,cached:true},environment:checked.environment};
+      }
+      if(bound&&bound.id!==id)fail('ENVIRONMENT_CONFIG_CHANGED','已绑定的环境任务不属于这个授权。');
+      for(const candidate of !bound?existingJobs.filter(j=>j.status==='ready'&&j.configuration.authority!=='system'&&JSON.stringify(j.configuration.packages)===JSON.stringify(validated.packages)):[]){
+        const checked=await verify(projectId,candidate.id);
+        const configured=process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
+        if(configured&&await fsp.realpath(configured)===checked.environment.interpreterRealPath){await onPrepared(structuredClone(candidate));await assertAuthorized();return {job:{...candidate,cached:true},environment:checked.environment};}
+      }
+      for(const previous of (await read(projectId)).jobs)if(!finished(previous)||previous.process?.stopConfirmed===false)assertStopped(previous);
+      const owner=claimAutomationOwner({projectRoot:root.control,sessionId:id});let launched=false;
+      try {
+        let job=(await read(projectId)).jobs.find(j=>j.id===id);
+        if(job&&job.configurationSha256!==configurationSha256)fail('ENVIRONMENT_CONFIG_CHANGED','原环境任务配置发生变化。');
+        if(!job){job={id,projectId,status:'queued',configuration,configurationSha256,attempt:0,createdAt:at(),updatedAt:at()};await update(projectId,owner,doc=>{if(doc.jobs.length>=500)fail('ENVIRONMENT_STORAGE_LIMIT','环境任务达到上限。');doc.jobs.push(job);return job;},{beforePublish:assertAuthorized});}
+        await onPrepared(structuredClone(job));signal?.throwIfAborted();await assertAuthorized();
+        if(job.status==='ready'){const checked=await verify(projectId,id);await assertAuthorized();return {job:{...job,cached:true},environment:checked.environment};}
+        assertStopped(job);launched=true;await launch(projectId,job,owner,{assertAuthorized,signal});await active.get(id)?.promise;
+        const completed=await get(projectId,id);if(completed.status!=='ready')fail(completed.error?.code||'ENVIRONMENT_PREPARATION_FAILED',completed.error?.message||'环境准备未完成。');
+        await assertAuthorized();return {job:completed,environment:(await verify(projectId,id)).environment};
+      }finally{if(!launched)owner.release({stopConfirmed:true});}
+    },
     async create(projectId,input={}){const configuration={version:1,...validateEnvironmentConfiguration(input)};await constraintsFor(projectId,configuration);
       const configurationSha256=hash(JSON.stringify(configuration)),root=await locations(projectId,{create:true});
       for(const previous of (await read(projectId)).jobs)if(!finished(previous)||previous.process?.stopConfirmed===false)assertStopped(previous);
@@ -155,7 +193,7 @@ export function createEnvironmentService({resolveProject=getProjectRoot,prepare=
         const job={id,projectId,status:'queued',configuration,configurationSha256,attempt:0,createdAt:at(),updatedAt:at()};await update(projectId,owner,doc=>{if(doc.jobs.length>=500)fail('ENVIRONMENT_STORAGE_LIMIT','环境任务达到上限。');doc.jobs.push(job);return job;});return await launch(projectId,job,owner);
       }catch(e){if(!active.has(id))owner.release({stopConfirmed:true});throw e;}
     },
-    async retry(projectId,id){const job=await get(projectId,id);if(!['failed','cancelled','interrupted'].includes(job.status))fail('ENVIRONMENT_NOT_RETRYABLE','只能继续失败、取消或中断的环境准备。');
+    async retry(projectId,id){const job=await get(projectId,id);if(job.configuration.authority==='system')fail('ENVIRONMENT_AUTOMATION_OWNED','自动环境任务需要从原研究链路继续。');if(!['failed','cancelled','interrupted'].includes(job.status))fail('ENVIRONMENT_NOT_RETRYABLE','只能继续失败、取消或中断的环境准备。');
       assertStopped(job);
       await constraintsFor(projectId,job.configuration);const root=await locations(projectId),owner=claimAutomationOwner({projectRoot:root.control,sessionId:id});try{return await launch(projectId,job,owner);}catch(e){if(!active.has(id))owner.release({stopConfirmed:true});throw e;}
     },

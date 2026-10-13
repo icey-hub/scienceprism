@@ -165,9 +165,9 @@ function datasetTask(job) {
 function environmentTask(job) {
   return normalizeTask({id:`environment-preparation:${job.id}`,kind:'environment-preparation',title:'准备 Python 实验环境',
     status:job.status==='ready'?'completed':job.status==='preparing'?'running':job.status==='interrupted'?'paused':job.status,
-    progress:job.status==='ready'?100:null,error:job.error,retryable:['failed','cancelled','interrupted'].includes(job.status),
+    progress:job.status==='ready'?100:null,error:job.error,retryable:job.configuration.authority!=='system'&&['failed','cancelled','interrupted'].includes(job.status),
     log:[job.environment?`Python ${job.environment.python.version}`:'准备固定版本的 Python 环境',job.logs?.stderr||job.logs?.stdout||''],
-    metadata:{jobId:job.id,configurationSha256:job.configurationSha256,environment:job.environment||null},
+    metadata:{jobId:job.id,configurationSha256:job.configurationSha256,environment:job.environment||null,authorization:job.configuration.authorization||null},
     createdAt:job.createdAt,updatedAt:job.updatedAt,startedAt:job.startedAt,finishedAt:job.finishedAt});
 }
 

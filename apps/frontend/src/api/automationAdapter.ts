@@ -2,11 +2,14 @@ import type { LLMConfig, HarnessRun } from './client';
 type AutomationModel = Omit<LLMConfig,'apiKey'> & {apiKey?: string};
 export type ConfirmationMode = 'inherit' | 'auto' | 'manual';
 export interface DatasetScope {allowedHosts:string[];maxBytes:number;maxDatasets:number;}
-export interface AutomationPolicy { enabled: boolean; agentMode: 'specialists' | 'generalist'; overrides: Record<string, ConfirmationMode>; datasetScope?:DatasetScope|null; }
-export interface AutomationExecutionPlan { dataset: string; datasetVersion: string; execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[] }; [key: string]: unknown; }
+export interface EnvironmentScope {allowedPaths:string[];maxPackages:number;maxPrepareMs:number;maxOutputBytes:number;maxEnvironments:number;}
+export interface AutomationPolicy { enabled: boolean; agentMode: 'specialists' | 'generalist'; overrides: Record<string, ConfirmationMode>; datasetScope?:DatasetScope|null; environmentScope?:EnvironmentScope|null; }
+export interface AutomationExecutionPlan { dataset: string; datasetVersion: string; execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?:string }; [key: string]: unknown; }
 export interface AutomationStep { stage: string; status: string; runIds: string[]; experimentRunId?: string; result?: { status: string; metrics: {name: string; value: number}[] };
   executionPlanBinding?: { version: number; sha256: string };
   datasetAcquisitions?: {jobId:string|null;datasetId:string|null;status:string;sha256?:string;authorization:{policyVersion:number;sourceRunId:string;proposal:{filename:string;url:string}}}[];
+  calls?: {runId:string;task:string}[];
+  environmentPreparations?: {jobId:string|null;status:string;environmentId:string|null;sha256?:string}[];
   handoff?: { parentRunId: string; workflowVersion: number; role: string; inputArtifacts: {stage: string; dataSha256: string; producerRunIds: string[]; searchSessionIds: string[]; experimentRunId: string | null}[] }; }
 export interface AutomationState {
   version: number; policy: AutomationPolicy; agents: {stage: string; id: string; label: string; purpose: string}[];

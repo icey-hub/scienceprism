@@ -53,7 +53,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
   }, [task?.status, load]);
   const action = async (work: () => Promise<unknown>) => { setBusy(true); setError(''); try { await work(); await load(); } catch (error) { setError(String(error)); } finally { setBusy(false); } };
   const stageHref = task?.stage ? `/editor/${encodeURIComponent(projectId)}/research/${task.stage === 'ideation' ? 'innovation' : task.stage}` : null;
-  const dataAuthorization=task?.kind==='dataset-acquisition'&&task.metadata?.authorization&&typeof task.metadata.authorization==='object'?task.metadata.authorization as Record<string,unknown>:null;
+  const dataAuthorization=task&&['dataset-acquisition','environment-preparation'].includes(task.kind)&&task.metadata?.authorization&&typeof task.metadata.authorization==='object'?task.metadata.authorization as Record<string,unknown>:null;
   return <ProjectWorkspaceFrame projectId={projectId} projectName={projectName} active="activity" title="任务详情">
     <Link className="hub-text-link" to={`/project/${encodeURIComponent(projectId)}/tasks`}>← 全部任务</Link>
     {error && <ErrorState message={error} onRetry={() => void load().catch(error => setError(String(error)))} />}
@@ -64,7 +64,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
         {task.kind === 'dataset-acquisition' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/lab/data`}>查看数据版本</Link>}
         {task.kind === 'environment-preparation' && <Link className="hub-small-button" to={`/editor/${encodeURIComponent(projectId)}/research/experiment`}>查看实验环境</Link>}
         {typeof dataAuthorization?.parentRunId==='string'&&<Link className="hub-small-button is-quiet" to={taskHref(projectId,`harness:${dataAuthorization.parentRunId}`)}>研究父任务</Link>}
-        {typeof dataAuthorization?.sourceRunId==='string'&&<Link className="hub-small-button is-quiet" to={taskHref(projectId,`harness:${dataAuthorization.sourceRunId}`)}>数据来源 Agent</Link>}
+        {typeof dataAuthorization?.sourceRunId==='string'&&<Link className="hub-small-button is-quiet" to={taskHref(projectId,`harness:${dataAuthorization.sourceRunId}`)}>{task.kind === 'environment-preparation' ? '环境来源 Agent' : '数据来源 Agent'}</Link>}
         {task.kind === 'paper-download' && typeof task.metadata?.paperId === 'string' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/papers/${encodeURIComponent(task.metadata.paperId)}/read`}>打开 PDF 阅读</Link>}
         {stageHref && <Link className="hub-small-button is-quiet" to={stageHref}>打开相关工作</Link>}
         {run && !run.archived && !['codex-worker','research-coordinator','research-stage'].includes(run.kind || '') ? <>
