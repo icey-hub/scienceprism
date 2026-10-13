@@ -461,6 +461,8 @@ export interface HarnessRun {
   delegationDepth?: number;
   role?: string | null;
   attempt?: number;
+  retainedWorkspace?: { format: string; attempt: number };
+  recovery?: { format: string; status: string; workspaceAttempt: number; children: { runId: string; task: string; reply: string; threadId: string; turnId: string }[] };
   replayOf?: string | null;
   adapterHistory?: { adapter: string; error?: string; at?: string }[];
   archived?: boolean;
@@ -522,6 +524,12 @@ export function resumeHarnessRun(projectId: string, runId: string) {
   return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/resume`, {
     method: 'POST',
     body: JSON.stringify({})
+  });
+}
+
+export function recoverHarnessRun(projectId: string, runId: string) {
+  return request<{ ok: boolean; run: HarnessRun }>(`/api/projects/${projectId}/harness-runs/${encodeURIComponent(runId)}/recover`, {
+    method: 'POST', body: JSON.stringify({})
   });
 }
 

@@ -13,6 +13,7 @@ import { createCodexDelegation, usageTotal } from './codexDelegation.js';
 import { createCodexWorker, CODEX_WORKER_TOOLS } from './adapters/codexWorker.js';
 import { CODEX_PROTOCOL_VERSION } from './adapters/codexAdapter.js';
 import { createRetainedWorkspace } from './retainedWorkspace.js';
+import { loadRetainedRecoveryInputs } from './runRecovery.js';
 import { getEnv } from '../../config/constants.js';
 import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../llmService.js';
 
@@ -107,7 +108,10 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
     let excludedSkillPaths = [];
     let skillProjection;
     let delegation;
-    let parentReportedTokens = 0;
+    const continuing = run.recovery?.status === 'ready';
+    const previousParentTokens = continuing ? Math.max(usageTotal(sumEventUsage(run.events)),
+      Number(run.tokenUsage?.parentTotalTokens ?? Math.max(0, usageTotal(run.tokenUsage) - usageTotal(run.workerTokenUsage)))) : 0;
+    let parentReportedTokens = previousParentTokens;
     let eventWrite = Promise.resolve();
     const emit = (event) => {
       const summary = summarizeEvent(event);
@@ -138,19 +142,29 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
     try {
       if (run.adapter === 'deepseek') {
         assertDshMcpPolicy(request);
+        const resolvedModel = resolveLLMConfig(request.llmConfig).model;
+        if (run.model !== resolvedModel) {
+          await updateRun(projectId, runId, current => { current.model = resolvedModel; return current; });
+        }
         const unenforceable = run.capabilities.granted.filter((capability) => ['research.search', 'experiment.execute'].includes(capability));
         if (unenforceable.length) {
           throw new HarnessRuntimeError(403, 'CAPABILITY_POLICY_UNENFORCEABLE', 'The verified DSH profile does not yet expose controlled research search or experiment tools.', { capabilities: unenforceable });
         }
         // Only the SDK executes in a workspace. Legacy reads the project through
         // guarded tools; Fake needs no files. Copying for them was unused work.
-        retained = await createRetainedWorkspace({ projectRoot, runId, attempt: run.attempt,
+        retained = await createRetainedWorkspace({ projectRoot, runId, attempt: continuing ? run.recovery.workspaceAttempt : run.attempt, recover: continuing,
           expectedVersions: { runtime: 'scienceprism-harness-retention-v1', codex: CODEX_PROTOCOL_VERSION,
             toolsHash: createHash('sha256').update(JSON.stringify(CODEX_WORKER_TOOLS)).digest('hex') } });
         runRoot = retained.root;
         workspace = retained.workspace;
         dshHome = retained.dshHome;
-        await updateRun(projectId, runId, current => { current.retainedWorkspace = { format: 'scienceprism-harness-retention-v1', attempt: run.attempt }; return current; });
+        await retained.update({ status: 'running', stopConfirmed: false, runtimeProcess: { pid: null, stopConfirmed: true } });
+        await updateRun(projectId, runId, current => { current.retainedWorkspace = { format: 'scienceprism-harness-retention-v1', attempt: continuing ? run.recovery.workspaceAttempt : run.attempt }; return current; });
+        if (continuing) {
+          const inputs = await loadRetainedRecoveryInputs({ retained, run, projectRoot, capabilities: (await readPolicy()).capabilities });
+          workspaceSnapshot = inputs.snapshot;
+          skillProjection = inputs.skillProjection;
+        } else {
         if (run.capabilities.granted.includes('project.read')) await copyWorkspace(projectRoot, workspace, run.capabilities);
         else await fs.mkdir(workspace, { recursive: true });
         workspaceSnapshot = await snapshotWorkspace(workspace, run.capabilities);
@@ -163,17 +177,20 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         }
         skillProjection = await projectSelectedSkillDocuments({ projectId, projectRoot, workspaceRoot: workspace,
           enabledSkillNames: request.researchSkills || [], capabilityPolicy: run.capabilities, signal: control.controller.signal });
+        }
         excludedSkillPaths = skillProjection.excludedPaths;
-        await retained.update({ status: 'running', skills: skillProjection.documents.map(document => ({ path: document.projectionPath, sha256: document.sha256, bytes: document.bytes })),
+        await retained.update(continuing ? { status: 'running' } : { status: 'running',
+          skills: skillProjection.documents.map(document => ({ path: document.projectionPath, sha256: document.sha256, bytes: document.bytes })),
           baseFiles: [...workspaceSnapshot].map(([file, text]) => ({ path: file, sha256: text === null ? null : createHash('sha256').update(text).digest('hex'), bytes: text === null ? 0 : Buffer.byteLength(text) })) });
         await updateRun(projectId, runId, current => {
           current.skillVersions = { format: skillProjection.format, documents: skillProjection.documents, totalBytes: skillProjection.totalBytes, scriptsIncluded: false };
           return current;
         });
-        if (getEnv('CODEX_EXECUTABLE') && run.capabilities.granted.includes('patch.propose')) {
+        if ((getEnv('CODEX_EXECUTABLE') || continuing && run.recovery.children.length > 0) && run.capabilities.granted.includes('patch.propose')) {
           const provider = resolveLLMConfig(request.llmConfig);
           delegation = createCodexDelegation({ parent: { ...run, skillVersions: { format: skillProjection.format, documents: skillProjection.documents } },
             workspace, runtimeHome: runRoot, skillProjection,
+            recoveredChildren: continuing ? run.recovery.children : [],
             provider: { baseUrl: normalizeBaseURL(normalizeChatEndpoint(provider.endpoint)), model: provider.model, apiKey: provider.apiKey },
             worker: codexWorker(), readPolicy, getRun: id => getRun(projectId, id), updateRun: (id, updater) => updateRun(projectId, id, updater),
             runChild, signal: control.controller.signal, emit, flushEvents: () => eventWrite,
@@ -183,14 +200,18 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             } });
         }
       }
+      const remainingTokens = run.limits.maxTokens - previousParentTokens - (delegation?.usage.totalTokens || 0);
+      if (remainingTokens <= 0) throw new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED', 'No model budget remains after recovered results.');
       const task = adapter.run({
         request: { ...request, contextPack: run.contextPack },
         projectRoot,
         workspace,
         dshHome,
         skillProjection,
+        continuation: continuing ? { format: run.recovery.format, children: run.recovery.children, proposals: run.patches.map(patch => ({ path: patch.path, baseVersion: patch.baseVersion })) } : undefined,
         readPolicy,
         onDecision: event => persistEvents(projectId, runId, [summarizeEvent(event)]),
+        onProcess: process => retained?.update({ runtimeProcess: process }),
         delegateCodex: delegation ? async (input, options) => {
           try { return await delegation.run(input, options); }
           catch (error) {
@@ -205,14 +226,14 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         capabilities: run.capabilities.granted,
         capabilityPolicy: run.capabilities,
         // Every adapter receives the Run's limits, not only the DeepSeek SDK.
-        limits: run.limits,
+        limits: { ...run.limits, maxTokens: remainingTokens },
         signal: control.controller.signal,
         emit
       });
       const rawResult = await runWithTimeout(task, run.limits.timeoutMs, control.controller, stopTimeoutMs);
       control.controller.signal.throwIfAborted();
       if (delegation?.preserveWorkspace) throw new HarnessRuntimeError(503, 'HARNESS_STOP_UNCONFIRMED', 'A delegated process has not confirmed stopping.');
-      if (delegation && usageTotal(rawResult?.usage || rawResult?.tokenUsage) + delegation.usage.totalTokens > run.limits.maxTokens) {
+      if (delegation && previousParentTokens + usageTotal(rawResult?.usage || rawResult?.tokenUsage) + delegation.usage.totalTokens > run.limits.maxTokens) {
         throw new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED', 'The combined parent and worker token budget was exhausted.');
       }
       const result = await finalizeAssistantReply(projectId, request, rawResult);
@@ -234,9 +255,12 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         current.patches = patches;
         current.humanDecision = patches.length ? { status: 'pending' } : { status: 'none' };
         current.output = result?.output;
-        const parentUsage = result?.usage || result?.tokenUsage || sumEventUsage(current.events) || null;
-        current.tokenUsage = delegation ? { ...parentUsage, totalTokens: usageTotal(parentUsage) + delegation.usage.totalTokens,
-          parentTotalTokens: usageTotal(parentUsage), workerTotalTokens: delegation.usage.totalTokens } : parentUsage;
+        const parentUsage = result?.usage || result?.tokenUsage;
+        const parentTokens = parentUsage ? previousParentTokens + usageTotal(parentUsage) : usageTotal(sumEventUsage(current.events));
+        current.tokenUsage = delegation ? { ...parentUsage,
+          totalTokens: parentTokens + delegation.usage.totalTokens, parentTotalTokens: parentTokens, workerTotalTokens: delegation.usage.totalTokens }
+          : parentUsage || sumEventUsage(current.events) || null;
+        if (continuing) current.recovery = { ...current.recovery, status: 'continued' };
         current.adapterResult = { ok: result?.ok !== false, fallback: current.fallback || false };
         return current;
       });

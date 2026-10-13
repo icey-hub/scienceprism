@@ -366,7 +366,8 @@ test('pausing during Legacy fallback preserves a resumable Run', async (t) => {
     const resumed = await resumeHarnessRun('test', run.id, { wait: true, request: { fakeResponse: 'resumed fallback' } });
     assert.equal(resumed.status, 'completed');
     assert.equal(resumed.reply, 'resumed fallback');
-    assert.equal(resumed.attempt, 2);
+    assert.equal(resumed.attempt, 1, 'An explicit continuation keeps the captured workspace attempt rather than retrying the original task.');
+    assert.equal(resumed.recovery.status, 'continued');
   } finally {
     releaseUnwind();
     registerHarnessAdapter(deepseekHarnessAdapter);

@@ -5,6 +5,7 @@ export {
   listHarnessRuns,
   pauseHarnessRun,
   replayHarnessRun,
+  recoverHarnessRun,
   resumeHarnessRun,
   startHarnessRun
 } from './client';

@@ -86,11 +86,20 @@ boundary and keeps conflicting worker results for reconciliation.
 
 The retained Run has one process owner. A live or unconfirmed earlier process
 blocks recovery, and a checkpoint failure cannot mask an unconfirmed stop.
-An internal result reader can inspect the exact completed Codex turn without
-resuming a thread or starting a model task. This is retention and readback
-infrastructure: automatic DSH continuation and a public restart-recovery command
-are not yet available. Retained files are not deleted automatically; operators
-must account for their disk usage.
+`POST /api/projects/:id/harness-runs/:runId/recover` reconciles stopped work without
+starting a model task. Missing completed results are read from the exact saved
+Codex turn. Completed handoffs are verified as a before/after chain; a later
+verified child edit does not cause an earlier proposal to execute again. Unknown
+prepared operations, broken chains, changed original files or changed policy
+remain conflicts. The parent stays paused with its recovered proposal.
+
+`resume` reconciles retained work first if necessary, then starts an explicit DSH
+continuation session using the fixed Skill view and saved child results. It
+keeps the original workspace attempt and accounts for previously reported
+parent/worker usage. An identical completed worker task returns its saved result
+without spawning another worker. It does not revive an interrupted Codex turn or
+automatically retry ambiguous operations. Retained files are not deleted
+automatically; operators must account for their disk usage.
 
 ## Context Pack
 

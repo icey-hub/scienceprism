@@ -19,14 +19,15 @@ async function fixture(t, perform) {
   let policy = { projectId: 'p', runId: 'parent', role: parent.role, task: parent.task, version: 'v1', active: true, mode: 'auto', capabilities: parent.capabilities };
   let calls = 0;
   const events = [];
-  const delegate = createCodexDelegation({ parent, workspace, runtimeHome: root, skillProjection: { documents: [] }, provider: { model: 'test', apiKey: 'not-persisted' },
+  const config = { parent, workspace, runtimeHome: root, skillProjection: { documents: [] }, provider: { model: 'test', apiKey: 'not-persisted' },
     readPolicy: async () => structuredClone(policy), getRun: async id => structuredClone(rows.get(id)),
     updateRun: async (id, fn) => { const next = fn(structuredClone(rows.get(id))); rows.set(id, next); return next; },
     signal: controller.signal, emit: event => events.push(event),
     runChild: async (child, childController, execute) => { rows.set(child.id, child); return execute(); },
     worker: { run: async args => { calls++; await args.onSession({ threadId: 'thread', turnId: null }); await args.onSession({ threadId: 'thread', turnId: 'turn' });
-      return perform ? perform(args, { rows, revoke: () => { policy = { ...policy, version: 'v2', capabilities: { ...policy.capabilities, granted: ['project.read'] } }; } }) : propose(args); } } });
-  return { root, workspace, rows, controller, delegate, events, calls: () => calls };
+      return perform ? perform(args, { rows, revoke: () => { policy = { ...policy, version: 'v2', capabilities: { ...policy.capabilities, granted: ['project.read'] } }; } }) : propose(args); } } };
+  const delegate = createCodexDelegation(config);
+  return { root, workspace, rows, controller, delegate, config, events, calls: () => calls };
 }
 async function propose(args) {
   const broker = await createDshFileBroker(args);
@@ -115,4 +116,20 @@ test('a completed worker result and immutable baseline survive a parent handoff 
   assert.equal(await fs.readFile(path.join(f.root, child.recovery.root, 'baseline', 'main.tex'), 'utf8'), 'original');
   assert.equal(await fs.readFile(path.join(f.root, child.recovery.root, 'workspace', 'main.tex'), 'utf8'), 'proposed');
   assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'parent changed');
+});
+
+test('an explicit continuation reuses an already handed-off task without resetting its budget or launching another worker', async t => {
+  const f = await fixture(t);
+  const first = await f.delegate.run({ task: 'change main.tex' }, { callId: 'original' });
+  await f.delegate.close();
+  const recovered = createCodexDelegation({ ...f.config, recoveredChildren: [{ runId: first.runId, task: 'change main.tex', reply: first.reply, usage: first.usage }] });
+  t.after(() => recovered.close());
+  const resumed = await recovered.run({ task: 'change main.tex', maxTokens: 128 }, { callId: 'new-session-call' });
+  assert.equal(resumed.recovered, true); assert.equal(resumed.childRunId, first.runId);
+  assert.equal(f.calls(), 1); assert.equal(f.rows.size, 2);
+  assert.deepEqual(recovered.usage, { totalTokens: 42 });
+  assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'proposed');
+  f.rows.get(first.runId).recovery.phase = 'handoff-failed';
+  await assert.rejects(recovered.run({ task: 'change main.tex' }, { callId: 'tampered-result' }), { code: 'CODEX_RECOVERY_RESULT_CONFLICT' });
+  assert.equal(f.calls(), 1);
 });

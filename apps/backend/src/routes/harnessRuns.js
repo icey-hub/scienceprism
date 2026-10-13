@@ -7,6 +7,7 @@ import {
   listHarnessRuns,
   pauseHarnessRun,
   replayHarnessRun,
+  recoverHarnessRun,
   resumeHarnessRun,
   startHarnessRun
 } from '../services/harnessRuntime/index.js';
@@ -64,6 +65,7 @@ export function registerHarnessRunRoutes(fastify) {
 
   fastify.post(`${BASE_PATH}/:runId/start`, route((req) => startHarnessRun(req.params.id, req.params.runId, { wait: false, request: bodyOf(req) })));
   fastify.post(`${BASE_PATH}/:runId/resume`, route((req) => resumeHarnessRun(req.params.id, req.params.runId, { wait: false, request: bodyOf(req) })));
+  fastify.post(`${BASE_PATH}/:runId/recover`, route((req) => recoverHarnessRun(req.params.id, req.params.runId, { request: bodyOf(req) })));
   fastify.post(`${BASE_PATH}/:runId/pause`, route((req) => pauseHarnessRun(req.params.id, req.params.runId)));
   fastify.post(`${BASE_PATH}/:runId/cancel`, route((req) => cancelHarnessRun(req.params.id, req.params.runId)));
   fastify.post(`${BASE_PATH}/:runId/replay`, route((req) => {

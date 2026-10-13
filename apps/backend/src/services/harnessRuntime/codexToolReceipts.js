@@ -125,11 +125,12 @@ export async function createCodexToolReceipts({ directory, workspace, binding: i
     if (signal?.aborted) fail('CANCELLED', 'The controlled tool call was cancelled.');
     let policy;
     try { policy = await readPolicy(); } catch { fail('POLICY_DENIED', 'The current Run policy could not be verified.', 403); }
-    const skill = call.tool === 'project_read_file' && skillDocuments.has(call.arguments.path);
+    const skill = call?.tool === 'project_read_file' && skillDocuments.has(call.arguments.path);
     if (policy?.active !== true || policy.mode !== 'auto' || policy.projectId !== binding.projectId || policy.runId !== binding.workerRunId
       || policy.role !== binding.role || policy.task !== binding.task || policy.version !== binding.policyVersion
       || !['granted', 'allowedPaths', 'networkAllowlist'].every(key => Array.isArray(policy.capabilities?.[key]) && policy.capabilities[key].every(value => typeof value === 'string'))
-      || !policy.capabilities.granted.includes(DSH_FILE_TOOLS[call.tool]) || !skill && !isPathAllowed(call.arguments.path, policy.capabilities)) fail('POLICY_DENIED', 'The current Run does not authorize this receipt or tool.', 403);
+      || !policy.capabilities.granted.includes(call ? DSH_FILE_TOOLS[call.tool] : 'project.read')
+      || call && !skill && !isPathAllowed(call.arguments.path, policy.capabilities)) fail('POLICY_DENIED', 'The current Run does not authorize this receipt or tool.', 403);
     if (signal?.aborted) fail('CANCELLED', 'The controlled tool call was cancelled.');
   }
 
@@ -184,6 +185,39 @@ export async function createCodexToolReceipts({ directory, workspace, binding: i
   }
 
   return Object.freeze({
+    // Metadata is not proof of the current file. The retained owner may use it
+    // to verify a complete before/after chain and then check its actual endpoint.
+    // This path cannot execute or replay any operation.
+    readCompletedMetadata({ signal } = {}) {
+      return withHubLock(file, async () => {
+        await authorize(null, signal);
+        const state = load();
+        for (const receipt of state.receipts) {
+          if (receipt.status !== 'completed') fail('AMBIGUOUS', 'The earlier tool outcome is unknown; reconcile it without redispatch.');
+          await authorize({ tool: receipt.tool, arguments: { path: receipt.path } }, signal);
+        }
+        await authorize(null, signal);
+        return structuredClone(state.receipts);
+      });
+    },
+    assertSettled({ signal } = {}) {
+      return withHubLock(file, async () => {
+        await authorize(null, signal);
+        const state = load();
+        const latest = new Map();
+        for (const receipt of state.receipts) {
+          if (receipt.status !== 'completed') fail('AMBIGUOUS', 'The earlier tool outcome is unknown; reconcile it without redispatch.');
+          await authorize({ tool: receipt.tool, arguments: { path: receipt.path } }, signal);
+          latest.set(receipt.path, receipt);
+        }
+        // Earlier reads may predate a later proposal. Verify the last committed
+        // file evidence for each path, rather than replaying any historical call.
+        for (const receipt of latest.values()) evidence(receipt, receipt.result.kind === 'read'
+          ? { fromLine: receipt.result.fromLine, toLine: receipt.result.toLine } : {});
+        await authorize(null, signal);
+        return { receiptCount: state.receipts.length, paths: [...latest.keys()] };
+      });
+    },
     execute(input, { executeTool, signal } = {}) {
       let described;
       try { described = description(input); if (typeof executeTool !== 'function') fail('INPUT_INVALID', 'The existing controlled broker is required.'); }

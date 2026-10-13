@@ -202,3 +202,13 @@ test('unknown process visibility and valid-but-external checkpoint changes fail 
   await fsp.writeFile(checkpoint, JSON.stringify(state));
   await assert.rejects(reopened.read, code('STATE_CONFLICT'));
 });
+
+test('a living parent runtime blocks release and cannot be replaced by empty stopping evidence', async t => {
+  const f = await fixture(t); const handle = await f.create();
+  await handle.update({ runtimeProcess: { pid: process.pid, stopConfirmed: false } });
+  await assert.rejects(handle.release({ status: 'failed', stopConfirmed: true }), code('CHILD_ACTIVE'));
+  await assert.rejects(handle.update({ runtimeProcess: { pid: null, stopConfirmed: true } }), code('CHILD_CONFLICT'));
+  await assert.rejects(handle.update({ runtimeProcess: { pid: process.pid, stopConfirmed: true } }), code('CHILD_ACTIVE'));
+  await handle.release({ status: 'ambiguous', stopConfirmed: false });
+  await assert.rejects(f.create({ recover: true }), code('OWNER_ACTIVE'));
+});

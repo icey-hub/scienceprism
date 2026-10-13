@@ -23,6 +23,9 @@ import { getRole, resolveRoleCapabilities } from '../agentRoles/index.js';
 import { applyPatchTransaction, selectPatchPaths } from './patchApplication.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
 import { readFileState, sameVersion } from './fileVersions.js';
+import { createRunRecovery } from './runRecovery.js';
+import { createCodexWorker } from './adapters/codexWorker.js';
+import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../llmService.js';
 
 const MAX_RECENT_RUNS = 100;
 
@@ -177,7 +180,7 @@ function assertRunnableStatus(run) {
   if (!['created', 'paused', 'failed'].includes(run.status)) {
     throw new HarnessRuntimeError(409, 'HARNESS_RUN_NOT_RUNNABLE', `Harness Run is ${run.status} and cannot be started.`);
   }
-  if (run.status !== 'created' && run.attempt > run.limits.retryLimit) {
+  if (run.status !== 'created' && run.recovery?.status !== 'ready' && run.attempt > run.limits.retryLimit) {
     throw new HarnessRuntimeError(409, 'HARNESS_RETRY_LIMIT', 'Harness Run retry limit has been exhausted.', { retryLimit: run.limits.retryLimit });
   }
 }
@@ -379,7 +382,11 @@ export async function listHarnessRuns(projectId, { status, stage, parentRunId, s
 }
 
 export async function startHarnessRun(projectId, runId, { wait = false, request = {} } = {}) {
+  if (activeRuns.get(runId)?.recovering) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run is reconciling retained results.');
   const run = await getHarnessRun(projectId, runId);
+  if (run.adapter === 'deepseek' && run.retainedWorkspace && run.recovery?.status !== 'ready' && ['paused','failed','cancelled'].includes(run.status)) {
+    throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_REQUIRED', 'Reconcile retained results before continuing this Run, or explicitly create a new replay.');
+  }
   const { document } = await getRunDocument(projectId);
   if (document.runs.some(item => item.cleanup?.modelSlotRetained) ||
       [...activeRuns.values()].some(entry => entry.projectId === projectId && entry.control.stopUnconfirmed)) {
@@ -421,7 +428,7 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
     started = await updateRun(projectId, runId, (current) => {
       assertRunnableStatus(current);
       current.status = 'running';
-      current.attempt += 1;
+      if (current.recovery?.status !== 'ready') current.attempt += 1;
       current.startedAt = current.startedAt || now();
       current.updatedAt = now();
       current.error = null;
@@ -455,7 +462,33 @@ export async function pauseHarnessRun(projectId, runId) {
 }
 
 export async function resumeHarnessRun(projectId, runId, options = {}) {
+  const run = await getHarnessRun(projectId, runId);
+  if (run.adapter === 'deepseek' && run.kind !== 'codex-worker' && run.retainedWorkspace && run.recovery?.status !== 'ready') {
+    await recoverHarnessRun(projectId, runId, options);
+  }
   return startHarnessRun(projectId, runId, options);
+}
+
+export async function recoverHarnessRun(projectId, runId, { request = {} } = {}) {
+  if (activeRuns.has(runId)) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run still has an active execution or recovery.');
+  const controller = new AbortController();
+  const control = { controller, cancelRequested: false, stopUnconfirmed: false };
+  const entry = { projectId, controller, control, recovering: true, occupiesModelSlot: false, promise: null };
+  activeRuns.set(runId, entry);
+  const recover = createRunRecovery({ getRun: getHarnessRun, updateRun, readProjectConstraints,
+    worker: createCodexWorker({ executable: getEnv('CODEX_EXECUTABLE') }) });
+  entry.promise = (async () => {
+    try { const config = resolveLLMConfig(request.llmConfig); return await recover(projectId, runId, { signal: controller.signal,
+      provider: { baseUrl: normalizeBaseURL(normalizeChatEndpoint(config.endpoint)), model: config.model, apiKey: config.apiKey } }); }
+    catch (error) {
+      if (['CODEX_STOP_FAILED', 'DSH_STOP_FAILED', 'HARNESS_STOP_UNCONFIRMED'].includes(error.code)) {
+        control.stopUnconfirmed = true;
+        await updateRun(projectId, runId, run => { run.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: true, modelSlotRetained: true }; return run; });
+      }
+      throw error;
+    } finally { if (!control.stopUnconfirmed) activeRuns.delete(runId); }
+  })();
+  return entry.promise;
 }
 
 export async function cancelHarnessRun(projectId, runId) {

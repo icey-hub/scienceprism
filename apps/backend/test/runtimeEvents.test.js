@@ -80,7 +80,7 @@ test('DeepSeek adapter passes SDK notifications through the actual runtime witho
   import {createDshToolFixture} from ${JSON.stringify(new URL('./helpers/dshToolFixture.js', import.meta.url).href)};
   import {apply} from ${JSON.stringify(new URL('../src/services/harnessRuntime/dshPolicyPlugin.js', import.meta.url).href)};
   export class DeepSeekHarness {
-    constructor(options) { this.options = options; this.ctx = createDshToolFixture(); }
+    constructor(options) { this.options = options; this.ctx = createDshToolFixture(); this.client={start(){},child:{pid:2147480000}}; }
     async start() {
       const patch = JSON.parse(await readFile(this.options.patches[0], 'utf8'));
       await apply(this.ctx, patch.at(-1).insert.at(-1).config);

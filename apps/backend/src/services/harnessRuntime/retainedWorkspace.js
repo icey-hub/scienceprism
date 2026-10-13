@@ -20,13 +20,14 @@ const checkpointObject = z.object({ schemaVersion: z.literal(1), identityHash: h
   revision: z.number().int().nonnegative(), status, stopConfirmed: z.boolean(),
   versions: versions.nullable(), skills: z.array(z.object({ path: relative, sha256: hash, bytes: z.number().int().nonnegative().max(MAX_BYTES) }).strict()).max(128),
   baseFiles: z.array(z.object({ path: relative, sha256: hash.nullable(), bytes: z.number().int().nonnegative().max(MAX_BYTES) }).strict()).max(4096),
-  children: z.array(child).max(16), createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).strict();
+  children: z.array(child).max(16), runtimeProcess: z.object({ pid: z.number().int().positive().nullable(), stopConfirmed: z.boolean() }).strict().optional(),
+  createdAt: z.string().datetime(), updatedAt: z.string().datetime() }).strict();
 const checkpointSchema = checkpointObject.refine(value => ['skills', 'baseFiles'].every(key => new Set(value[key].map(entry => entry.path)).size === value[key].length)
     && new Set(value.children.map(entry => entry.runId)).size === value.children.length
     && new Set(value.children.map(entry => entry.workerRoot)).size === value.children.length
     && value.children.every(entry => entry.parentRunId === value.runId && entry.parentAttempt === value.attempt));
 const ownerSchema = z.object({ schemaVersion: z.literal(1), identityHash: hash, token: z.string().uuid(), pid: z.number().int().positive(), released: z.boolean() }).strict();
-const updateSchema = checkpointObject.pick({ status: true, stopConfirmed: true, versions: true, skills: true, baseFiles: true, children: true }).partial();
+const updateSchema = checkpointObject.pick({ status: true, stopConfirmed: true, versions: true, skills: true, baseFiles: true, children: true, runtimeProcess: true }).partial();
 const parse = (schema, value, code = 'INPUT_INVALID') => {
   const parsed = schema.safeParse(value);
   if (!parsed.success) fail(code, 'The retained workspace metadata is invalid.');
@@ -94,7 +95,8 @@ function dead(pid) {
   try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
 }
 function childrenStopped(state) {
-  return state.children.every(entry => entry.pid === null
+  const process = state.runtimeProcess;
+  return (!process || (process.pid === null ? process.stopConfirmed : dead(process.pid))) && state.children.every(entry => entry.pid === null
     ? entry.stopConfirmed && !['preparing', 'running'].includes(entry.status)
     : dead(entry.pid));
 }
@@ -189,6 +191,11 @@ export async function createRetainedWorkspace({ projectRoot, runId, attempt, rec
           fail('CHILD_CONFLICT', 'Child process evidence cannot be removed or replaced while active.');
         }
       }
+      if (previous.runtimeProcess?.pid !== null && previous.runtimeProcess?.pid !== undefined
+        && next.runtimeProcess?.pid !== previous.runtimeProcess.pid && !dead(previous.runtimeProcess.pid)) {
+        fail('CHILD_CONFLICT', 'Runtime process evidence cannot be replaced while active.');
+      }
+      if (next.runtimeProcess?.stopConfirmed && next.runtimeProcess.pid !== null && !dead(next.runtimeProcess.pid)) fail('CHILD_ACTIVE', 'Runtime stopping has not been confirmed by the OS.');
       for (const entry of next.children) {
         if (entry.workerRoot === 'workspace' || entry.workerRoot.startsWith('workspace/') || entry.workerRoot === 'dsh-home' || entry.workerRoot.startsWith('dsh-home/')) fail('STORAGE_INVALID', 'Worker controls must stay outside the model workspace and credential home.');
         workerDirectory(root, entry.workerRoot);

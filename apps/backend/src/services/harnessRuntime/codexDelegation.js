@@ -16,11 +16,11 @@ export const usageTotal = usage => Number(usage?.totalTokens ?? usage?.total_tok
 // An internal tool callback, not another scheduler or public runtime selector.
 // The parent's model slot remains held while DSH awaits this worker.
 export function createCodexDelegation({ parent, workspace, runtimeHome, skillProjection, provider, worker,
-  readPolicy, getRun, updateRun, runChild, signal, emit, flushEvents = async () => {}, onChildCheckpoint = async () => {} }) {
+  readPolicy, getRun, updateRun, runChild, signal, emit, flushEvents = async () => {}, onChildCheckpoint = async () => {}, recoveredChildren = [] }) {
   const deadline = Date.now() + parent.limits.timeoutMs;
   const calls = new Map();
   let pending = Promise.resolve();
-  let childTokens = 0;
+  let childTokens = recoveredChildren.reduce((total, child) => total + usageTotal(child.usage), 0);
   let closed = false;
   let preserveWorkspace = false;
   const persist = (id, event) => updateRun(id, run => { appendRuntimeEvents(run, [summarizeEvent(event)]); return run; });
@@ -38,6 +38,15 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
     const policy = await readPolicy();
     if (!policy.active || current.attempt !== parent.attempt || !policy.capabilities.granted.includes('patch.propose')) {
       throw fail('DELEGATION_CAPABILITY_DENIED', 'This parent no longer permits a coding worker.');
+    }
+    const recovered = recoveredChildren.find(child => child.task.trim() === input.task.trim());
+    if (recovered) {
+      const stored = await getRun(recovered.runId);
+      if (stored.parentRunId !== parent.id || stored.parentAttempt !== parent.attempt || stored.status !== 'completed'
+        || stored.recovery?.phase !== 'handed-off' || stored.workerResult?.ok !== true) throw fail('CODEX_RECOVERY_RESULT_CONFLICT', 'The recovered child result no longer matches its completed handoff.');
+      return { runId: stored.id, childRunId: stored.id, status: 'completed', recovered: true,
+        reply: recovered.reply, output: stored.output, usage: recovered.usage,
+        proposals: (stored.patches || []).map(patch => ({ path: patch.path, baseVersion: patch.baseVersion })) };
     }
     const remaining = parent.limits.maxTokens - usageTotal(sumEventUsage(current.events)) - childTokens;
     const limits = { maxTokens: Math.min(remaining, input.maxTokens ?? remaining, 100000),
@@ -78,7 +87,8 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
         await copyWorkspace(childWorkspace, path.join(root, 'baseline'), child.capabilities);
         const snapshot = await snapshotWorkspace(childWorkspace, child.capabilities);
         await fs.mkdir(path.join(root, 'controls'), { mode: 0o700 });
-        await checkpoint({ format: 'scienceprism-codex-delegation-v1', root: path.relative(runtimeHome, root), phase: 'prepared', workerCompleted: false });
+        await checkpoint({ format: 'scienceprism-codex-delegation-v1', root: path.relative(runtimeHome, root), phase: 'prepared', workerCompleted: false,
+          baseFiles: [...snapshot].map(([file, text]) => ({ path: file, sha256: text === null ? null : createHash('sha256').update(text).digest('hex'), bytes: text === null ? 0 : Buffer.byteLength(text) })) });
         const publishChild = async storage => onChildCheckpoint({ runId: child.id, parentRunId: parent.id, parentAttempt: parent.attempt,
           workerRoot: path.relative(runtimeHome, root), pid: storage?.pid ?? null, threadId: storage?.threadId ?? null,
           turnId: storage?.turnId ?? null, status: storage?.stopConfirmed ? storage.terminalStatus || 'failed' : storage?.phase === 'stop-unconfirmed' ? 'ambiguous' : storage?.phase === 'running' ? 'running' : 'preparing', stopConfirmed: storage?.stopConfirmed === true });

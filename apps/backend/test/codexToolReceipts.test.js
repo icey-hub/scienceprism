@@ -77,6 +77,26 @@ test('side effect followed by a lost result remains ambiguous and is never reexe
   await assert.rejects((await f.create()).execute(patch(), { executeTool: f.executeTool }), { code: 'CODEX_RECEIPT_AMBIGUOUS' });
   assert.equal(f.count(), 1);
   assert.ok(!JSON.stringify(disk).includes('private details'));
+  await assert.rejects(receipts.assertSettled(), { code: 'CODEX_RECEIPT_AMBIGUOUS' });
+  await assert.rejects(receipts.readCompletedMetadata(), { code: 'CODEX_RECEIPT_AMBIGUOUS' });
+  assert.equal(f.count(), 1);
+});
+
+test('recovery verifies the latest settled file evidence without replaying earlier reads', async t => {
+  const f = await fixture(t); const receipts = await f.create();
+  await receipts.execute(read(), { executeTool: f.executeTool });
+  await receipts.execute(patch(), { executeTool: f.executeTool });
+  assert.deepEqual(await (await f.create()).assertSettled(), { receiptCount: 2, paths: ['main.tex'] });
+  assert.equal(f.count(), 2);
+  f.setPolicy({ active: false });
+  await assert.rejects(receipts.assertSettled(), { code: 'CODEX_RECEIPT_POLICY_DENIED' });
+  f.setPolicy({ active: true });
+  await fs.writeFile(path.join(f.workspace, 'main.tex'), 'changed after completion');
+  await assert.rejects(receipts.assertSettled(), { code: 'CODEX_RECEIPT_RESULT_UNAVAILABLE' });
+  const metadata = await receipts.readCompletedMetadata();
+  assert.equal(metadata[1].beforeSha256, sha('old')); assert.equal(metadata[1].afterSha256, sha('new'));
+  assert.equal(metadata[1].status, 'completed'); assert.equal(JSON.stringify(metadata).includes('"content":'), false);
+  assert.equal(f.count(), 2);
 });
 
 test('revocation, policy changes, inactive ownership and cancellation deny replays without modifying receipts', async t => {

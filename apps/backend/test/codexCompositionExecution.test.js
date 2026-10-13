@@ -15,6 +15,7 @@ process.env.SCIENCEPRISM_DATA_DIR = dataRoot;
 process.env.SCIENCEPRISM_CODEX_EXECUTABLE = '/fixture/not-executed-codex';
 const { createRunExecutor } = await import('../src/services/harnessRuntime/execution.js');
 const { createDshFileBroker } = await import('../src/services/harnessRuntime/dshFileBroker.js');
+const { createRunRecovery } = await import('../src/services/harnessRuntime/runRecovery.js');
 after(async () => {
   await fs.rm(dataRoot, { recursive: true, force: true });
   if (oldData === undefined) delete process.env.SCIENCEPRISM_DATA_DIR; else process.env.SCIENCEPRISM_DATA_DIR = oldData;
@@ -127,6 +128,25 @@ test('parent final usage plus its completed worker cannot mark an over-budget DS
   assert.equal(result.reply, undefined);
   assert.deepEqual(result.patches, []);
   assert.equal(await fs.readFile(path.join(f.root, 'main.tex'), 'utf8'), 'private manuscript must stay in its project');
+});
+
+test('continuation preserves previously saved final usage when the adapter did not stream usage events', async () => {
+  let calls = 0;
+  const f = await fixture('saved-parent-budget', ['project.read', 'patch.propose'], async args => {
+    calls++;
+    if (calls === 2) assert.equal(args.limits.maxTokens, 10, 'The prior 990 tokens must stay charged.');
+    return { ok: true, finalResponse: 'Finished.', usage: { totalTokens: calls === 1 ? 990 : 1 } };
+  });
+  const first = await f.run(); assert.equal(first.status, 'completed'); assert.equal(first.tokenUsage.totalTokens, 990);
+  f.rows.get(first.id).status = 'failed';
+  const recover = createRunRecovery({ getRun: async (_project, id) => structuredClone(f.rows.get(id)),
+    updateRun: async (_project, id, update) => { const row = await update(structuredClone(f.rows.get(id))); f.rows.set(id, row); return structuredClone(row); },
+    readProjectConstraints: async () => ({ capabilities: ['project.read', 'patch.propose'] }), resolveProjectRoot: async () => f.root, worker: {} });
+  await recover(first.projectId, first.id);
+  f.rows.get(first.id).status = 'running'; f.control.controller = new AbortController();
+  const continued = await f.run();
+  assert.equal(continued.status, 'completed'); assert.equal(continued.attempt, 1);
+  assert.equal(continued.tokenUsage.parentTotalTokens, 991); assert.equal(continued.tokenUsage.totalTokens, 991);
 });
 
 test('parent usage notifications stop the combined Run as soon as the worker-inclusive budget is exceeded', async () => {

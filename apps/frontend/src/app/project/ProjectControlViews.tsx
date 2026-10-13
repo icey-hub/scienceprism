@@ -5,6 +5,7 @@ import {
   listHarnessRuns,
   pauseHarnessRun,
   replayHarnessRun,
+  recoverHarnessRun,
   resumeHarnessRun,
   startHarnessRun,
   type HarnessRun
@@ -123,13 +124,14 @@ export function HarnessConsole({ projectId }: { projectId: string }) {
     return () => window.clearInterval(timer);
   }, [load, runs]);
 
-  const runAction = async (run: HarnessRun, name: 'start' | 'pause' | 'resume' | 'cancel' | 'replay' | 'accept' | 'reject') => {
+  const runAction = async (run: HarnessRun, name: 'start' | 'pause' | 'resume' | 'recover' | 'cancel' | 'replay' | 'accept' | 'reject') => {
     setAction({ id: run.id, action: name });
     setError('');
     try {
       if (name === 'start') await startHarnessRun(projectId, run.id);
       if (name === 'pause') await pauseHarnessRun(projectId, run.id);
       if (name === 'resume') await resumeHarnessRun(projectId, run.id);
+      if (name === 'recover') await recoverHarnessRun(projectId, run.id);
       if (name === 'cancel') await cancelHarnessRun(projectId, run.id);
       if (name === 'replay') await replayHarnessRun(projectId, run.id);
       if (name === 'accept' || name === 'reject') await decideHarnessRun(projectId, run.id, name);
@@ -150,7 +152,7 @@ export function HarnessConsole({ projectId }: { projectId: string }) {
     <div className="harness-run-list">{runs.map((run) => {
       const busy = action?.id === run.id;
       const expanded = selectedId === run.id;
-      const canStart = ['created', 'failed'].includes(run.status);
+      const canStart = run.kind !== 'codex-worker' && ['created', 'failed'].includes(run.status) && (!run.retainedWorkspace || run.recovery?.status === 'ready');
       return <article className="harness-run-row" key={run.id}>
         <button className="harness-run-summary" type="button" onClick={() => setSelectedId(expanded ? null : run.id)} aria-expanded={expanded}>
           <span className={`hub-status-dot ${run.status}`} /><span className="harness-run-copy"><strong>{runLabel(run)}</strong><small>{run.adapter} · {run.model || '未指定模型'} · 更新于 {formatTime(run.updatedAt)}</small></span><DecisionStatus status={run.status} /><span className="harness-chevron" aria-hidden="true">{expanded ? '⌃' : '⌄'}</span>
@@ -163,9 +165,10 @@ export function HarnessConsole({ projectId }: { projectId: string }) {
           {run.patches?.length ? <div className="patch-summary">待确认 Patch：{run.patches.length} 个文件 <a href={`/editor/${projectId}?right=diff`}>打开编辑器 Diff</a></div> : null}
           {run.events?.length ? <details className="run-events"><summary>事件日志（{run.events.length}）</summary><pre>{run.events.slice(-20).map((event) => `[${event.at || ''}] ${event.type || 'event'} ${event.name || event.capability || ''} ${event.text || ''}`).join('\n')}</pre></details> : null}
           <div className="harness-run-actions"><Link className="hub-small-button is-quiet" to={taskHref(projectId, `harness:${run.id}`)}>查看会话与完整保留事件</Link>
+            {run.kind !== 'codex-worker' && run.retainedWorkspace && ['paused','failed','cancelled'].includes(run.status) && <button className="hub-small-button" disabled={Boolean(action)} onClick={() => void runAction(run, 'recover')} type="button">{busy && action?.action === 'recover' ? '正在对账…' : '恢复已有结果'}</button>}
             {canStart && <button className="hub-small-button" disabled={Boolean(action)} onClick={() => void runAction(run, 'start')} type="button">{busy && action?.action === 'start' ? '启动中…' : '启动'}</button>}
             {run.status === 'running' && <><button className="hub-small-button is-quiet" disabled={Boolean(action)} onClick={() => void runAction(run, 'pause')} type="button">暂停</button><button className="hub-small-button is-danger" disabled={Boolean(action)} onClick={() => void runAction(run, 'cancel')} type="button">取消</button></>}
-            {run.status === 'paused' && <button className="hub-small-button" disabled={Boolean(action)} onClick={() => void runAction(run, 'resume')} type="button">恢复</button>}
+            {run.kind !== 'codex-worker' && run.status === 'paused' && (!run.retainedWorkspace || run.recovery?.status === 'ready') && <button className="hub-small-button" disabled={Boolean(action)} onClick={() => void runAction(run, 'resume')} type="button">{run.recovery?.status === 'ready' ? '继续剩余工作' : '恢复'}</button>}
             {['completed', 'failed', 'cancelled'].includes(run.status) && (
               <>
                 <button className="hub-small-button is-quiet" disabled={Boolean(action)} onClick={() => void runAction(run, 'replay')} type="button">重放</button>

@@ -55,7 +55,8 @@ async function readTextFile(root, relativePath) {
   const absolute = safeJoin(root, relativePath);
   const stat = await fs.stat(absolute);
   if (!stat.isFile() || stat.size > MAX_PATCH_FILE_BYTES) return null;
-  return fs.readFile(absolute, 'utf8');
+  const content = await fs.readFile(absolute);
+  return content.includes(0) ? null : content.toString('utf8');
 }
 
 export async function snapshotWorkspace(workspace, policy) {
