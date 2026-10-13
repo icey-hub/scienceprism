@@ -1,9 +1,29 @@
 # Selected-text translation API
 
 The PDF reader uses the project's translation service. Its currently runnable
-sources are `bing-web` and `google-web`, both without a user API key. Their
-availability and throttling depend on the upstream service. Azure Translator and
-Google Cloud Translation are not enabled by this implementation.
+default sources are `bing-web` and `google-web`, both without a user API key.
+Their availability and throttling depend on the upstream service. Optional
+`azure-api` and `google-cloud` use their official HTTPS APIs and require explicit
+server configuration and enablement. They share the same project settings,
+request identity, character accounting and cache. There is no automatic fallback.
+
+## Official service configuration
+
+Set `SCIENCEPRISM_TRANSLATION_AZURE_ENABLED=true` and
+`SCIENCEPRISM_TRANSLATION_AZURE_KEY` to enable Azure Translator. Set
+`SCIENCEPRISM_TRANSLATION_AZURE_REGION` for a regional or multi-service resource.
+Google Cloud uses `SCIENCEPRISM_TRANSLATION_GOOGLE_ENABLED=true` and
+`SCIENCEPRISM_TRANSLATION_GOOGLE_KEY`. Supplying a key alone does not enable a
+source. Keys stay on the backend and never appear in provider status or saved
+project settings. Arbitrary endpoints, redirects and implicit retries are rejected.
+
+The reader shows disabled/unconfigured official sources separately from the
+last observed request health. Configuration does not prove API availability.
+Official free allowances depend on the account and plan; billing may need to be
+enabled, and the application cannot query or guarantee the vendor's balance.
+Use the [Azure setup guide](https://learn.microsoft.com/azure/ai-services/translator/translator-how-to-signup)
+or [Google Cloud setup guide](https://cloud.google.com/translate/docs/setup).
+No glossary or model explanation is sent by these translation providers.
 
 ## Project settings
 
@@ -59,7 +79,7 @@ reservations remain and another request may consume additional characters.
 
 `GET /api/projects/:id/translation/usage` reports estimated Unicode character
 counts, including whitespace, in an explicit UTC monthly period. The optional
-project limit is shared across both sources. It is this application's limit,
+project limit is shared across all sources. It is this application's limit,
 not a provider's billing balance or a guarantee of free official API usage.
 
 Network requests reserve characters before dispatch. Successful requests consume

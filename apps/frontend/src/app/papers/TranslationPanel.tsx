@@ -48,6 +48,11 @@ export function TranslationPanel({ projectId, paperId, selection, onLocate, onSa
     <label className="reader-provider">译文语言<select value={settings?.targetLanguage || ''} disabled={locked} onChange={event => void requests.save({ targetLanguage: event.target.value })}>{provider ? provider.targetLanguages.map(language => <option key={language} value={language}>{languageNames[language] || language}</option>) : <option value="">等待读取语言</option>}</select></label>
     <label className="reader-auto"><input type="checkbox" checked={settings?.automatic || false} disabled={locked} onChange={event => void requests.save({ automatic: event.target.checked })} />划选后自动翻译</label>
     <p className="reader-muted">网页来源可能限流，可主动切换。来源与阅读设置随项目保存。</p>
+    {config && <details className="reader-translation-settings"><summary>官方服务与免费额度</summary>
+      <p className="reader-muted">官方 API 需要服务端配置并明确启用。免费额度由账户和套餐决定；本应用的字符上限不等于供应商余额，不会自动转用官方或收费来源。</p>
+      {config.providers.filter(item => item.mode !== 'web-free').map(item => <p className="reader-source-status" key={item.id}>{item.label} · {item.configured ? '已配置，按所选账户计费' : item.configuration?.status === 'disabled' ? '未启用' : '未配置'}<span>{healthNames[item.health.status] || item.health.status}</span></p>)}
+      <a href="https://learn.microsoft.com/azure/ai-services/translator/translator-how-to-signup" target="_blank" rel="noreferrer">微软服务配置</a>{' · '}<a href="https://cloud.google.com/translate/docs/setup" target="_blank" rel="noreferrer">Google Cloud 服务配置</a>
+    </details>}
     {config && <details className="reader-translation-settings"><summary>用量与缓存</summary>
       <dl className="reader-translation-usage"><div><dt>本月已用</dt><dd>{config.usage.usedCharacters.toLocaleString()} 字符</dd></div><div><dt>发送预留</dt><dd>{config.usage.reservedCharacters.toLocaleString()} 字符</dd></div><div><dt>剩余额度</dt><dd>{config.usage.remainingCharacters === null ? '未设置上限' : `${config.usage.remainingCharacters.toLocaleString()} 字符`}</dd></div></dl>
       <p className="reader-muted">{config.usage.period}（UTC）· 应用估算，供应商账单另计。{config.usage.uncertainCharacters > 0 && `其中 ${config.usage.uncertainCharacters.toLocaleString()} 字符的结果不确定，仍保留额度。`}</p>

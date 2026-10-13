@@ -4,12 +4,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getProjectRoot } from '../projectService.js';
 import { withHubLock } from '../projectHub/repository.js';
-import { PROVIDERS, TranslationError } from './providers.js';
+import { TranslationError } from './providers.js';
+import { ALL_TRANSLATION_PROVIDERS as PROVIDERS } from './officialProviders.js';
 
 const OWNER = randomUUID();
 const fail = (code, message, status = 400) => { throw new TranslationError(`TRANSLATION_${code}`, message, status); };
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,160}$/);
-const providerId = z.enum(['bing-web', 'google-web']);
+const providerId = z.enum(['bing-web', 'google-web', 'azure-api', 'google-cloud']);
 const cacheSchema = z.object({ enabled: z.boolean(), ttlMs: z.number().int().min(1000).max(86_400_000), maxEntries: z.number().int().min(1).max(2000) }).strict();
 const settingsSchema = z.object({ defaultProviderId: providerId, targetLanguage: z.string(), automatic: z.boolean(), cache: cacheSchema,
   monthlyCharacterLimit: z.number().int().min(0).max(1_000_000_000).nullable() }).strict().refine(value => PROVIDERS.find(p => p.id === value.defaultProviderId).targetLanguages.includes(value.targetLanguage));

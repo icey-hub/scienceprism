@@ -31,6 +31,38 @@ const build = (options = {}) => {
   return service;
 };
 
+test('official sources stay disabled without server configuration and reject before reserving character usage', async () => {
+  let calls = 0;
+  const service = build({ fetchImpl: async () => { calls++; throw new Error('must not send'); } });
+  const listed = await service.listProviders('project-a');
+  assert.equal(listed.providers.length, 4);
+  for (const providerId of ['azure-api', 'google-cloud']) {
+    const provider = listed.providers.find(item => item.id === providerId);
+    assert.equal(provider.configured, false); assert.equal(provider.health.status, 'unknown');
+    await assert.rejects(service.translate('project-a', { ...request, providerId, operationId: providerId }), { code: 'TRANSLATION_NOT_CONFIGURED' });
+    await assert.rejects(service.updateSettings('project-a', { expectedRevision: listed.revision, patch: { defaultProviderId: providerId } }), { code: 'TRANSLATION_NOT_CONFIGURED' });
+  }
+  assert.equal(calls, 0);
+  const usage = (await service.getUsage('project-a')).usage;
+  assert.equal(usage.usedCharacters, 0); assert.equal(usage.reservedCharacters, 0);
+});
+
+test('enabled official translation shares persisted settings, idempotency and application quota without a fallback', async () => {
+  const calls = [];
+  const service = build({ officialConfiguration: { 'google-cloud': { enabled: true, apiKey: 'fixture-private-official-key' } },
+    fetchImpl: async (url, options) => { calls.push(url); assert.equal(options.headers['X-Goog-Api-Key'], 'fixture-private-official-key'); return Response.json({ data: { translations: [{ translatedText: '证据' }] } }); } });
+  const listed = await service.listProviders('project-a');
+  assert.equal(listed.providers.find(item => item.id === 'google-cloud').configured, true);
+  assert.equal(JSON.stringify(listed).includes('fixture-private-official-key'), false);
+  await service.updateSettings('project-a', { expectedRevision: listed.revision, patch: { defaultProviderId: 'google-cloud', monthlyCharacterLimit: 8 } });
+  const input = { ...request, text: 'Evidence', operationId: 'official-stable' };
+  const first = await service.translate('project-a', input);
+  assert.equal(first.providerId, 'google-cloud'); assert.equal(first.translatedText, '证据');
+  assert.equal((await service.translate('project-a', input)).replayed, true); assert.equal(calls.length, 1);
+  await assert.rejects(service.translate('project-a', { ...input, text: 'Other', operationId: 'over-limit' }), { code: 'TRANSLATION_QUOTA_EXHAUSTED' });
+  assert.equal(calls.length, 1); assert.equal((await service.getUsage('project-a')).usage.usedCharacters, 8);
+});
+
 test('Bing translates selected text with a temporary session and exposes no session credentials', async () => {
   const calls = [];
   const service = build({ fetchImpl: async (url, options) => {

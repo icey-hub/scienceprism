@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { getProjectRoot } from '../projectService.js';
-import { createWebTranslationProviders, PROVIDERS, TranslationError } from './providers.js';
+import { createWebTranslationProviders, TranslationError } from './providers.js';
+import { ALL_TRANSLATION_PROVIDERS as PROVIDERS, createOfficialTranslationProviders, describeOfficialTranslationConfiguration } from './officialProviders.js';
 import { createTranslationState, describeTranslationOperation } from './state.js';
+import { getEnv } from '../../config/constants.js';
 
 export { TranslationError } from './providers.js';
 
@@ -15,7 +17,7 @@ function normalizeRequest(body, settings = { defaultProviderId: 'bing-web', targ
   if (Object.keys(body).some(key => !['providerId', 'text', 'sourceLanguage', 'targetLanguage', 'selectionId', 'source', 'operationId'].includes(key))) throw new TranslationError('TRANSLATION_INVALID_INPUT', 'Unknown translation request fields.', 400);
   const providerId = body.providerId ?? settings.defaultProviderId;
   const provider = PROVIDERS.find(entry => entry.id === providerId);
-  if (!provider) throw new TranslationError('TRANSLATION_PROVIDER_UNAVAILABLE', 'Choose an available free translation provider. Credentialed Azure and Google Cloud APIs are not integrated yet.', 400);
+  if (!provider) throw new TranslationError('TRANSLATION_PROVIDER_UNAVAILABLE', 'Choose an available translation provider.', 400);
   if (typeof body.text !== 'string' || !body.text.trim() || !body.text.isWellFormed() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(body.text)) throw new TranslationError('TRANSLATION_INVALID_INPUT', 'Select valid text to translate.', 400);
   if (Array.from(body.text).length > provider.maxCharacters) throw new TranslationError('TRANSLATION_TEXT_TOO_LONG', `Select at most ${provider.maxCharacters} characters for this provider.`, 400);
   const sourceLanguage = body.sourceLanguage ?? 'auto';
@@ -39,8 +41,9 @@ function normalizeRequest(body, settings = { defaultProviderId: 'bing-web', targ
  * intervalMs?: number, cacheTtlMs?: number, maxCacheEntries?: number,
  * resolveProject?: (id: string) => Promise<unknown>}} options
  */
-export function createTranslationService({ fetchImpl, now = Date.now, timeoutMs = 15000, intervalMs = 600, cacheTtlMs = 86_400_000, maxCacheEntries = 2000, resolveProject = getProjectRoot, stateStore = createTranslationState({ resolveProject, now }) } = {}) {
-  const providers = createWebTranslationProviders({ fetchImpl, now });
+export function createTranslationService({ fetchImpl, now = Date.now, timeoutMs = 15000, intervalMs = 600, cacheTtlMs = 86_400_000, maxCacheEntries = 2000, resolveProject = getProjectRoot, stateStore = createTranslationState({ resolveProject, now }), officialConfiguration = {} } = {}) {
+  const providers = { ...createWebTranslationProviders({ fetchImpl, now }), ...createOfficialTranslationProviders({ fetchImpl, now, configuration: officialConfiguration }) };
+  const officialStatus = describeOfficialTranslationConfiguration(officialConfiguration);
   const cache = new Map();
   const state = new Map(PROVIDERS.map(provider => [provider.id, { active: false, nextAllowedAt: 0, cooldownUntil: 0, health: { status: 'unknown', checkedAt: null, errorCode: null } }]));
   const cacheLimit = Math.max(1, Math.min(2000, Math.trunc(maxCacheEntries) || 200));
@@ -65,6 +68,8 @@ export function createTranslationService({ fetchImpl, now = Date.now, timeoutMs 
     async getSettings(projectId) { return stateStore.read(projectId); },
     async getUsage(projectId) { return { usage: (await stateStore.read(projectId)).usage }; },
     async updateSettings(projectId, body) {
+      const selected = body?.patch?.defaultProviderId;
+      if (officialStatus[selected] && !officialStatus[selected].configured) throw new TranslationError('TRANSLATION_NOT_CONFIGURED', 'This official API must be explicitly enabled and configured on the server before selecting it.', 409);
       const result = await stateStore.updateSettings(projectId, body);
       invalidateCache(projectId);
       return result;
@@ -75,8 +80,9 @@ export function createTranslationService({ fetchImpl, now = Date.now, timeoutMs 
       const preferences = await stateStore.read(projectId);
       return { defaultProviderId: preferences.settings.defaultProviderId, settings: preferences.settings, revision: preferences.revision, usage: preferences.usage, providers: PROVIDERS.map(provider => {
         const current = state.get(provider.id);
-        return { ...provider, sourceLanguages: [...provider.sourceLanguages], targetLanguages: [...provider.targetLanguages], configured: true,
-          configuration: { status: 'configured', enabled: true }, capabilities: { translation: true, explanation: false, nativeGlossary: false },
+        return { ...provider, sourceLanguages: [...provider.sourceLanguages], targetLanguages: [...provider.targetLanguages],
+          ...(officialStatus[provider.id] || { configured: true, configuration: { status: 'configured', enabled: true } }),
+          capabilities: { translation: true, explanation: false, nativeGlossary: false },
           health: { ...current.health, retryAfter: current.cooldownUntil > now() ? Math.ceil((current.cooldownUntil - now()) / 1000) : null } };
       }) };
     },
@@ -85,6 +91,7 @@ export function createTranslationService({ fetchImpl, now = Date.now, timeoutMs 
       const { request, provider } = normalizeRequest(body, preferences.settings);
       await ensureProject(projectId);
       if (signal?.aborted) throw new TranslationError('TRANSLATION_CANCELLED', 'Translation cancelled.', 499);
+      if (officialStatus[provider.id] && !officialStatus[provider.id].configured) throw new TranslationError('TRANSLATION_NOT_CONFIGURED', 'This official translation API is not enabled or configured. Choose another source.', 409);
       const descriptor = describeTranslationOperation(request);
       const operationKey = JSON.stringify([projectId, request.operationId]);
       for (const [id, entry] of operations) if (entry.settled && entry.expiresAt <= now()) operations.delete(id);
@@ -183,4 +190,7 @@ export function createTranslationService({ fetchImpl, now = Date.now, timeoutMs 
   };
 }
 
-export const translationService = createTranslationService();
+export const translationService = createTranslationService({ officialConfiguration: {
+  'azure-api': { enabled: getEnv('TRANSLATION_AZURE_ENABLED') === 'true', ...(getEnv('TRANSLATION_AZURE_KEY') ? { apiKey: getEnv('TRANSLATION_AZURE_KEY') } : {}), ...(getEnv('TRANSLATION_AZURE_REGION') ? { region: getEnv('TRANSLATION_AZURE_REGION') } : {}) },
+  'google-cloud': { enabled: getEnv('TRANSLATION_GOOGLE_ENABLED') === 'true', ...(getEnv('TRANSLATION_GOOGLE_KEY') ? { apiKey: getEnv('TRANSLATION_GOOGLE_KEY') } : {}) }
+} });
