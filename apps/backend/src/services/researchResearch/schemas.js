@@ -170,7 +170,7 @@ export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
     stage: stage('execution_proposal'), missing: z.array(nonEmpty),
     plan: z.object({
       dataset: nonEmpty, datasetVersion: nonEmpty, protocol: nonEmpty,
-      execution: z.object({ adapter: z.enum(['node', 'python']), entrypoint: nonEmpty, args: z.array(z.string()).max(30) }).strict(),
+      execution: z.object({ adapter: z.enum(['node', 'python']), entrypoint: nonEmpty, args: z.array(z.string()).max(30), environmentId: z.string().regex(/^environment-[a-f0-9-]{36}$/).optional() }).strict(),
       seed: z.number().int(), successCriteria: z.array(nonEmpty).min(1),
       artifacts: z.array(z.object({ path: nonEmpty, kind: z.enum(['metric', 'output', 'chart', 'table']) }).strict()).max(20)
     }).strict().nullable()

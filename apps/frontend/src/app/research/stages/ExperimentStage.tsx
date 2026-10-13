@@ -1,7 +1,9 @@
 import type { ExperimentPlan } from '../researchStages';
 import type { ExperimentRun } from '../../../api/client';
+import { PythonEnvironmentPanel } from './PythonEnvironmentPanel';
 
 export interface ExperimentStageProps {
+  projectId?: string;
   value: ExperimentPlan;
   busy?: boolean;
   onChange: (next: ExperimentPlan) => void;
@@ -15,11 +17,12 @@ export interface ExperimentStageProps {
   onOpenDatasetAudit?: () => void;
 }
 
-export function ExperimentStage({ value, busy = false, onChange, onSavePlan, onSubmitForRun, run, onCreateRun, onApproveRun, onStartRun, onCancelRun, onOpenDatasetAudit }: ExperimentStageProps) {
+export function ExperimentStage({ projectId, value, busy = false, onChange, onSavePlan, onSubmitForRun, run, onCreateRun, onApproveRun, onStartRun, onCancelRun, onOpenDatasetAudit }: ExperimentStageProps) {
   const execution = value.execution || { adapter: 'node' as const, entrypoint: '', args: [] };
   const metrics = run?.metrics?.length ? run.metrics : value.metrics;
   return (
     <div className="research-page-stack">
+      {projectId && execution.adapter === 'python' && <PythonEnvironmentPanel key={projectId} projectId={projectId} value={execution.environmentId} disabled={busy} onChange={environmentId => onChange({ ...value, execution: { ...execution, environmentId: environmentId || undefined } })} />}
       <section className="research-panel">
         <div className="research-panel-heading">
           <div>
@@ -29,7 +32,7 @@ export function ExperimentStage({ value, busy = false, onChange, onSavePlan, onS
           <span className="research-status-note">{value.status || '待规划'}</span>
         </div>
         <div className="research-form-grid">
-          <label className="research-field"><span>运行适配器</span><select value={execution.adapter} onChange={(event) => onChange({ ...value, execution: { ...execution, adapter: event.target.value as 'node' | 'python' } })}><option value="node">Node.js</option><option value="python">Python（需配置受信任虚拟环境）</option></select></label>
+          <label className="research-field"><span>运行适配器</span><select value={execution.adapter} onChange={(event) => onChange({ ...value, execution: { ...execution, adapter: event.target.value as 'node' | 'python', environmentId: event.target.value === 'python' ? execution.environmentId : undefined } })}><option value="node">Node.js</option><option value="python">Python</option></select></label>
           <label className="research-field"><span>数据集</span><input value={value.dataset} placeholder="数据集名称或受控路径" onChange={(event) => onChange({ ...value, dataset: event.target.value })} /></label>
           <label className="research-field"><span>数据版本</span><input value={value.datasetVersion} placeholder="版本、提交号或快照日期" onChange={(event) => onChange({ ...value, datasetVersion: event.target.value })} /></label>
           <label className="research-field"><span>关联方法 ID</span><input value={value.methodId || ''} placeholder="已批准的方法标识" onChange={(event) => onChange({ ...value, methodId: event.target.value })} /></label>
@@ -46,7 +49,7 @@ export function ExperimentStage({ value, busy = false, onChange, onSavePlan, onS
           <label className="research-field research-field-wide"><span>运行快照文件（每行一个）</span><textarea value={(value.codePaths || []).join('\n')} rows={3} placeholder={'experiments/run.py\ndatasets/input.json.gz'} onChange={(event) => onChange({ ...value, codePaths: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean) })} /></label>
         </div>
         <div className="research-panel-footer">
-          <p>只执行项目内的 Node 或 Python 入口文件；Python 需要服务器配置解释器并启用 macOS 沙箱。shell 命令只作为计划备注保存。</p>
+          <p>执行项目内的入口文件，并记录代码、数据和环境版本。Python 可使用上方准备的环境。</p>
           <div className="research-inline-actions">
             {onOpenDatasetAudit && <button className="research-button research-button-quiet" disabled={busy} onClick={onOpenDatasetAudit} type="button">检查数据集</button>}
             <button className="research-button research-button-quiet" disabled={busy} onClick={onSavePlan} type="button">保存计划</button>
@@ -57,7 +60,7 @@ export function ExperimentStage({ value, busy = false, onChange, onSavePlan, onS
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">RUN MANIFEST</span><h3>受控运行</h3></div><span className="research-status-note">{run?.status || '尚未创建'}</span></div>
         {!run ? <div className="research-empty-inline">保存并确认实验计划后，可以创建一次待审批的受控运行。</div> : <>
-          <dl className="research-run-summary"><div><dt>代码版本</dt><dd>{run.manifest?.code?.version || '未记录'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>种子</dt><dd>{run.manifest?.seed || '未设置'}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控测试适配器'}</dd></div><div><dt>关联方法</dt><dd>{run.manifest?.researchPlan?.plan?.methodId || '未记录'}</dd></div><div><dt>计划重复 / 预算</dt><dd>{run.manifest?.researchPlan?.plan?.repetitions || 1} 次 · {run.manifest?.researchPlan?.plan?.budget || '未记录'}</dd></div></dl>
+          <dl className="research-run-summary"><div><dt>代码版本</dt><dd>{run.manifest?.code?.version || '未记录'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>Python 环境</dt><dd>{run.manifest?.environment?.python ? `${run.manifest.environment.python.version} · ${run.manifest.environment.preparation?.sha256.slice(0, 12) || '未绑定版本'}` : '未记录'}</dd></div><div><dt>种子</dt><dd>{run.manifest?.seed || '未设置'}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控测试适配器'}</dd></div><div><dt>关联方法</dt><dd>{run.manifest?.researchPlan?.plan?.methodId || '未记录'}</dd></div><div><dt>计划重复 / 预算</dt><dd>{run.manifest?.researchPlan?.plan?.repetitions || 1} 次 · {run.manifest?.researchPlan?.plan?.budget || '未记录'}</dd></div></dl>
           {run.error?.message && <div className="research-callout research-callout-warning"><strong>运行失败</strong><p>{run.error.message}</p></div>}
           <div className="research-inline-actions">
             {run.status === 'awaiting_approval' && onApproveRun && <button className="research-button research-button-primary" disabled={busy} onClick={onApproveRun} type="button">批准运行</button>}

@@ -11,6 +11,7 @@ import { getResearchWorkflow } from '../researchWorkflow/index.js';
 import { withWorkflowLock } from '../researchWorkflow/repository.js';
 import { artifactDirectory, clone, readExperimentRuns, resolveExperimentProjectRoot, withExperimentRunLock, writeExperimentRuns } from './repository.js';
 import { experimentAdapters } from './adapters.js';
+import { environmentService } from './environments.js';
 import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary, experimentManifestHash } from './manifest.js';
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
@@ -517,13 +518,15 @@ async function executeRun(projectId, runId, control) {
         if (latest.manifest.replication) assertReplicationPreparationUnchangedFromWorkflow(projectId, workflow, latest.manifest.replication);
       }
       await control.beforeLaunch?.();
+      if (run.manifest.command.environmentId) await environmentService.verify(projectId, run.manifest.command.environmentId, run.manifest.environment.preparation?.sha256);
       control.controller.signal.throwIfAborted();
     };
     const onProcess = async state => {
       control.process = state;
       await updateRun(projectId, runId, current => { current.execution = { ...current.execution, process: state }; return current; });
     };
-    const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal, beforeLaunch, onProcess });
+    const pythonEnvironment = run.manifest.command.environmentId ? await environmentService.verify(projectId, run.manifest.command.environmentId, run.manifest.environment.preparation?.sha256) : undefined;
+    const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal, beforeLaunch, onProcess, pythonEnvironment });
     const timer = setTimeout(() => {
       control.timedOut = true;
       control.controller.abort(new Error('Experiment Run timed out.'));

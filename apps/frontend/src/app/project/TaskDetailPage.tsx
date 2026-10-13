@@ -62,6 +62,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
       <div className="hub-page-heading task-detail-heading"><div><h2>{run?.kind === 'research-coordinator' ? '研究链路协调任务' : task.title}</h2><p><code>{task.id}</code> · {task.kind}</p></div><DecisionStatus status={task.status} /></div>
       <div className="task-detail-actions">
         {task.kind === 'dataset-acquisition' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/lab/data`}>查看数据版本</Link>}
+        {task.kind === 'environment-preparation' && <Link className="hub-small-button" to={`/editor/${encodeURIComponent(projectId)}/research/experiment`}>查看实验环境</Link>}
         {typeof dataAuthorization?.parentRunId==='string'&&<Link className="hub-small-button is-quiet" to={taskHref(projectId,`harness:${dataAuthorization.parentRunId}`)}>研究父任务</Link>}
         {typeof dataAuthorization?.sourceRunId==='string'&&<Link className="hub-small-button is-quiet" to={taskHref(projectId,`harness:${dataAuthorization.sourceRunId}`)}>数据来源 Agent</Link>}
         {task.kind === 'paper-download' && typeof task.metadata?.paperId === 'string' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/papers/${encodeURIComponent(task.metadata.paperId)}/read`}>打开 PDF 阅读</Link>}

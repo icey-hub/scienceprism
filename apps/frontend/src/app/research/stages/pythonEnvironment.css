@@ -1,0 +1,13 @@
+.python-environment-panel .research-callout { margin-bottom: 12px; }
+.python-environment-actions { gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.python-environment-jobs { display: grid; gap: 12px; margin-top: 16px; }
+.python-environment-job { min-width: 0; border-top: 1px solid var(--research-border); padding-top: 12px; }
+.python-environment-job-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.python-environment-job-heading > div { min-width: 0; }
+.python-environment-job-heading strong { font-size: 13px; color: var(--research-text); }
+.python-environment-job-heading small { display: block; margin-top: 4px; font-size: 11px; color: var(--research-muted); overflow-wrap: anywhere; }
+.python-environment-job-heading .research-inline-actions { gap: 8px; flex-wrap: wrap; }
+.python-environment-error { color: var(--research-danger); font-size: 12px; overflow-wrap: anywhere; }
+.python-environment-logs { margin-top: 12px; font-size: 12px; }
+.python-environment-logs summary { cursor: pointer; color: var(--research-muted); }
+.python-environment-logs pre { max-height: 240px; overflow: auto; padding: 12px; background: var(--research-surface); border: 1px solid var(--research-border); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { ExperimentRunnerError } from './errors.js';
+import { environmentService } from './environments.js';
 
 export const RUNNER_VERSION = '1';
 export const EXPERIMENT_ADAPTERS = Object.freeze(['node', 'python', 'fake']);
@@ -33,7 +34,9 @@ function normalizeExecution(value) {
   const entrypoint = normalizeRelativePath(value.entrypoint, 'execution.entrypoint');
   if (adapter === 'node' && !/\.(?:c|m)?js$/i.test(entrypoint)) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENTRYPOINT', 'The Node Adapter requires a .js, .mjs, or .cjs entrypoint.');
   if (adapter === 'python' && !/\.py$/i.test(entrypoint)) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENTRYPOINT', 'The Python Adapter requires a .py entrypoint.');
-  return { adapter, entrypoint, args };
+  const environmentId = value.environmentId;
+  if (environmentId !== undefined && (adapter !== 'python' || typeof environmentId !== 'string' || !/^environment-[a-f0-9-]{36}$/.test(environmentId))) throw new ExperimentRunnerError(400, 'INVALID_EXECUTION_ENVIRONMENT', 'A Python execution environment must reference a prepared project environment.');
+  return { adapter, entrypoint, args, ...(environmentId ? { environmentId } : {}) };
 }
 
 function normalizeArtifacts(value) {
@@ -142,6 +145,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
   if (!datasetId || !datasetVersion || !protocol) throw new ExperimentRunnerError(400, 'INVALID_MANIFEST', 'Experiment Run requires dataset, dataset version, and protocol.');
   const execution = normalizeExecution(source.execution || source.commandSpec);
   if (!execution) throw new ExperimentRunnerError(400, 'EXECUTION_SPEC_REQUIRED', 'A structured execution spec is required. A free-form command is only a plan note and cannot be executed.');
+  const preparedEnvironment = execution.environmentId ? (await environmentService.verify(projectId, execution.environmentId)).environment : null;
   if (execution.adapter === 'fake' && process.env.NODE_ENV !== 'test' && process.env.SCIENCEPRISM_ALLOW_EXPERIMENT_FAKE !== 'true') {
     throw new ExperimentRunnerError(403, 'FAKE_ADAPTER_DISABLED', 'The Fake Experiment Runner Adapter is only available in tests.');
   }
@@ -174,9 +178,10 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
       arch: process.arch,
       runner: `scienceprism-experiment-runner/${RUNNER_VERSION}`,
       packageLockSha256: await fileHashIfPresent(projectRoot, 'package-lock.json'),
+      ...(preparedEnvironment ? { preparation: { id: preparedEnvironment.id, sha256: preparedEnvironment.sha256, lockSha256: preparedEnvironment.lockSha256 }, python: preparedEnvironment.python, packages: preparedEnvironment.packages, hardware: preparedEnvironment.hardware, isolation: preparedEnvironment.isolation } : {}),
       ...(replicationContext ? { recorded: text(replicationContext.plan.environment) } : {})
     },
-    command: { adapter: execution.adapter, ...(execution.entrypoint ? { entrypoint: execution.entrypoint } : {}), args: execution.args },
+    command: { adapter: execution.adapter, ...(execution.entrypoint ? { entrypoint: execution.entrypoint } : {}), args: execution.args, ...(execution.environmentId ? { environmentId: execution.environmentId } : {}) },
     commandNote: text(source.command),
     permissions: {
       plan: 'recorded',

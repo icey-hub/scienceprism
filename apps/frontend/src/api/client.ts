@@ -745,7 +745,7 @@ export interface ProjectTask {
 }
 
 export interface ReplicationRunPlan {
-  execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
+  execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string };
   parameters?: Record<string, unknown>;
   seed?: string;
   resources?: { timeoutMs?: number; maxOutputBytes?: number; maxArtifactBytes?: number };
@@ -783,7 +783,7 @@ export interface ExperimentRun {
   manifest?: {
     code?: { version?: string; snapshotHash?: string };
     dataset?: { id?: string; version?: string };
-    environment?: { node?: string; platform?: string; arch?: string; runner?: string; recorded?: string };
+    environment?: { node?: string; platform?: string; arch?: string; runner?: string; recorded?: string; preparation?: {id: string; sha256: string; lockSha256: string}; python?: {version: string; implementation: string} };
     command?: { adapter?: string; entrypoint?: string; args?: string[] };
     parameters?: Record<string, unknown>;
     seed?: string | null;

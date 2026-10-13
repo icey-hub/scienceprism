@@ -254,7 +254,8 @@ export async function runNodeExperiment(manifest, options = {}) {
 }
 
 export async function runPythonExperiment(manifest, options = {}) {
-  const configured = process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
+  if (manifest.command.environmentId && (!options.pythonEnvironment || options.pythonEnvironment.environment?.id !== manifest.command.environmentId || options.pythonEnvironment.environment?.sha256 !== manifest.environment?.preparation?.sha256)) throw new ExperimentRunnerError(409, 'ENVIRONMENT_NOT_READY', 'The prepared environment must be verified by the application before execution.');
+  const configured = options.pythonEnvironment?.interpreter || process.env.SCIENCEPRISM_EXPERIMENT_PYTHON;
   if (!configured || !path.isAbsolute(configured)) {
     throw new ExperimentRunnerError(503, 'PYTHON_RUNTIME_UNAVAILABLE', 'Set SCIENCEPRISM_EXPERIMENT_PYTHON to an absolute path to a trusted Python virtual environment interpreter.');
   }

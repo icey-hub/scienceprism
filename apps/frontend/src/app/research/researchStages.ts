@@ -121,7 +121,7 @@ export interface ReplicationPlan {
   expectedMetrics?: string;
   gaps?: string;
   note: string;
-  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
+  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string };
   parameters?: Record<string, unknown>;
   seed?: string;
   resources?: { timeoutMs?: number };
@@ -169,7 +169,7 @@ export interface ExperimentPlan {
   budget?: string;
   expectedFailures?: string[];
   command?: string;
-  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[] };
+  execution?: { adapter: 'node' | 'python'; entrypoint: string; args: string[]; environmentId?: string };
   parameters?: Record<string, unknown>;
   seed?: string;
   successCriteria?: string[];
