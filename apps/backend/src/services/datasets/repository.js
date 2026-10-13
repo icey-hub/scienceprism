@@ -25,10 +25,13 @@ function directory(target, create = false) {
   const stat = fs.lstatSync(target);
   if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(target) !== target || process.getuid && stat.uid !== process.getuid()) fail('DATASET_UNSAFE_STORAGE', '数据存储目录不安全。');
 }
-async function regularFile(target, maxBytes, operation) {
+async function regularFile(target, maxBytes, operation, detachedRetries = 0) {
   const handle = await fsp.open(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
+    // Atomic index replacement can unlink an already-open reader. Reopen the
+    // current index; immutable blobs still require exactly one link.
+    if (stat.nlink === 0 && detachedRetries > 0) return regularFile(target, maxBytes, operation, detachedRetries - 1);
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > maxBytes || process.getuid && stat.uid !== process.getuid()) fail('DATASET_UNSAFE_STORAGE', '数据文件必须为独立、有界的普通文件。');
     return await operation(handle, stat);
   } finally { await handle.close(); }
@@ -65,7 +68,7 @@ export function createDatasetRepository({ resolveProject = getProjectRoot } = {}
           || index.datasets.some(item => !hash(item.sha256) || item.id !== `dataset-${item.sha256}` || !Number.isSafeInteger(item.byteLength) || item.byteLength < 1 || item.byteLength > MAX_DATASET_BYTES)
           || new Set(index.datasets.map(item => item.id)).size !== index.datasets.length || new Set(index.jobs.map(item => item.id)).size !== index.jobs.length) fail('DATASET_STORAGE_INVALID', '数据版本索引损坏，请保留原记录。', 500);
         return index;
-      });
+      }, 3);
     } catch (error) {
       if (error.code === 'ENOENT') return { schemaVersion: 1, projectId, version: 1, datasets: [], jobs: [] };
       if (error instanceof DatasetError) throw error;
