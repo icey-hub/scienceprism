@@ -54,6 +54,8 @@ export function summarizeEvent(event = {}) {
     ...(type === 'research/search' ? { searchSessionId: String(data.searchSessionId || '').slice(0,100),
       searchQuery: typeof (data.criteria?.query ?? data.searchQuery) === 'string' ? (data.criteria?.query ?? data.searchQuery).slice(0,1000) : undefined,
       searchStatus: ['completed', 'partial', 'failed'].includes(data.status ?? data.searchStatus) ? (data.status ?? data.searchStatus) : undefined } : {}),
+    ...(type === 'research/experiment' ? { experimentRunId: String(data.experimentRunId || '').slice(0,200),
+      experimentStatus: ['completed', 'failed', 'cancelled'].includes(data.status ?? data.experimentStatus) ? (data.status ?? data.experimentStatus) : undefined } : {}),
     sourceSequence: Number.isSafeInteger(source.seq) ? source.seq : undefined,
     at: time || new Date().toISOString(), truncated: state.truncated
   };

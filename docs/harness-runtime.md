@@ -48,11 +48,13 @@ application command and its saved human/automatic policy, so the grantable vocab
 Runtime can enforce.
 
 The verified DSH profile exposes bounded project reads, text proposals, Codex
-delegation and paper search. Its search broker uses the shared paper-search
+delegation, paper search and fixed approved experiment execution. Its search broker uses the shared paper-search
 history and source adapters, with current role/capability/network checks before
 each request and persistence. Search results retain partial failures and imported
-ranking provenance; they are not automatically confirmed evidence. Experiment
-execution remains rejected until its domain broker is available.
+ranking provenance; they are not automatically confirmed evidence. The experiment
+broker uses the existing ExperimentRunner with an exact saved manifest, existing
+approval, current file scope, parent cancellation and durable process stopping
+proof. Arbitrary commands, model-supplied approvals and unbound MCP remain denied.
 
 ## HTTP Interface
 

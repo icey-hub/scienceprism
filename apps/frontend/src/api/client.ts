@@ -415,6 +415,7 @@ export interface RuntimeEvent {
   arguments?: string; output?: string; error?: string; outcome?: string; truncated?: boolean;
   path?: string; version?: FileVersion; usage?: Record<string, number>;
   searchSessionId?: string; searchQuery?: string; searchStatus?: 'completed' | 'partial' | 'failed';
+  experimentRunId?: string; experimentStatus?: 'completed' | 'failed' | 'cancelled';
 }
 export interface ToolCatalogue {
   tools:{id:string;name:string;source:string;capability:string|null;calls:number;success:number;error:number;incomplete:number;cancelled:number;unknown:number;serverId?:string;enabled?:boolean;bound?:boolean;dshRestricted?:boolean;recent:{runId:string;callId:string;outcome:string;at:string|null}[]}[];
@@ -771,9 +772,11 @@ export interface ReplicationProvenance {
 export interface ExperimentRun {
   id: string;
   projectId: string;
+  executionBinding?: { parentRunId: string; policyVersion: string; manifestSha256: string };
   planId?: string | null;
   status: 'awaiting_approval' | 'approved' | 'running' | 'completed' | 'failed' | 'cancelled' | 'rejected' | string;
   phase?: string;
+  attempt?: number;
   // Older persisted Runs may omit manifest sections or result arrays. Consumers
   // must keep those records readable and show an explicit "not recorded" value.
   manifest?: {
@@ -795,7 +798,8 @@ export interface ExperimentRun {
     };
   };
   approval?: { decision: string; actor: string; note?: string; at: string } | null;
-  execution?: { startedAt?: string; finishedAt?: string; exitCode?: number | null; signal?: string | null; error?: { code?: string; message?: string } | null } | null;
+  execution?: { startedAt?: string; finishedAt?: string; exitCode?: number | null; signal?: string | null; isolation?: string | null;
+    process?: { pid: number | null; stopConfirmed: boolean }; error?: { code?: string; message?: string } | null } | null;
   logs?: { stdout?: string; stderr?: string };
   metrics?: { name: string; value?: unknown; unit?: string | null; uncertainty?: unknown }[];
   artifacts?: { id: string; name: string; kind: string; path: string; sha256: string; bytes: number }[];

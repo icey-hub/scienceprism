@@ -55,9 +55,9 @@ test('a role may only narrow the capability vocabulary, never extend it', () => 
     assert.ok(!role.allowedCapabilities.includes('experiment.execute'), `${id} must not hold experiment.execute`);
   }
 
-  // Only the gated plot role may execute anything.
+  // Only the gated plot role and fixed-plan operator may execute anything.
   const executors = AGENT_ROLES.filter((role) => role.allowedCapabilities.includes('experiment.execute')).map((role) => role.id);
-  assert.deepEqual(executors, ['plot-code-generator']);
+  assert.deepEqual(executors, ['plot-code-generator', 'experiment-operator']);
 });
 
 test('every role entrypoint really exists and exports the named symbol', async () => {

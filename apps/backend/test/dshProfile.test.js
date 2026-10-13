@@ -17,8 +17,9 @@ async function fixture(t, options = {}) {
   await fs.mkdir(workspace); await fs.writeFile(path.join(workspace, 'main.tex'), 'old');
   let policy = { projectId: 'project', runId: 'run', version: 'v1', role: 'writer', task: 'draft', active: true, mode: 'auto', capabilities: { granted: ['project.read', 'patch.propose'], allowedPaths: ['main.tex'], networkAllowlist: [] } };
   if (options.research) { policy.capabilities.granted.push('research.search'); policy.capabilities.networkAllowlist.push('export.arxiv.org'); }
+  if (options.experiment) policy.capabilities.granted.push('experiment.execute');
   const decisions = []; const ctx = createDshToolFixture();
-  const profile = await createDshProfile({ workspace, dshHome, provider: options.provider, readPolicy: async () => policy, onDecision: async event => { decisions.push(event); await options.audit?.(event); }, signal: options.signal, delegateCodex: options.delegateCodex, searchPapers: options.searchPapers });
+  const profile = await createDshProfile({ workspace, dshHome, provider: options.provider, readPolicy: async () => policy, onDecision: async event => { decisions.push(event); await options.audit?.(event); }, signal: options.signal, delegateCodex: options.delegateCodex, searchPapers: options.searchPapers, experimentOptions: options.experimentOptions });
   t.after(async () => { await ctx.dispose(); await profile.close(); });
   const patch = JSON.parse(await fs.readFile(profile.patchPath, 'utf8'));
   const plugin = patch.at(-1).insert.at(-1);
@@ -115,6 +116,28 @@ test('DSH raw registration exposes standard object JSON Schemas, not the defineT
     visit(schema);
   }
   assert.deepEqual(DSH_TOOL_DEFINITIONS.find(tool => tool.name === 'project_propose_patch').parameters.required, ['path', 'content', 'expectedSha256']);
+});
+
+test('actual plugin dispatches a fixed experiment through the private bridge only once', async t => {
+  const manifest = { id: 'experiment-run-fixture', projectId: 'project', code: { files: [{ path: 'main.tex' }] }, command: { entrypoint: 'main.tex' } };
+  const expectedManifestSha256 = createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
+  let saved = { id: manifest.id, projectId: 'project', manifest, status: 'approved', approval: { decision: 'approve', actor: 'human' } };
+  let starts = 0;
+  const f = await fixture(t, { experiment: true, experimentOptions: {
+    getRun: async () => saved,
+    start: async (_projectId, _runId, options) => {
+      starts++; saved = { ...saved, status: 'running', executionBinding: options.executionBinding };
+      await options.beforeLaunch();
+      saved = { ...saved, status: 'completed', execution: { exitCode: 0, process: { pid: null, stopConfirmed: true }, isolation: 'controlled-fixture' } };
+      return saved;
+    }
+  } });
+  await f.boot();
+  const result = await f.execute('research_run_experiment', { runId: manifest.id, expectedManifestSha256 }, 'experiment-call');
+  assert.equal(result.isError, false, JSON.stringify(result)); assert.equal(result.value.experimentRunId, manifest.id);
+  assert.equal((await f.execute('research_run_experiment', { runId: manifest.id, expectedManifestSha256 }, 'experiment-call')).value.status, 'completed');
+  assert.equal(starts, 1); assert.equal(result.value.evidenceConfirmed, false);
+  assert.equal((await f.execute('bash', { command: 'unapproved command' })).isError, true);
 });
 
 test('DSH compatible provider pins endpoint/model without secret files and must register before readiness', async t => {

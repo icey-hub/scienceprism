@@ -41,7 +41,7 @@ executable, DSH can still read and propose changes through its project tools.
 ## Execution and review
 
 The product tools are `project_read_file`, `project_propose_patch`,
-`research_delegate_codex`, and `research_search_papers`. A coding child inherits its parent task's current role,
+`research_delegate_codex`, `research_search_papers`, and `research_run_experiment`. A coding child inherits its parent task's current role,
 allowed paths, selected Skill versions, cancellation and remaining budget. The
 model cannot supply a new provider, working directory, role, command or permission.
 Each actual read and proposal rechecks current policy. Child proposals merge into
@@ -56,8 +56,8 @@ Codex turn is not restarted automatically. See the recovery interface below.
 
 The current worker supports text reads and coding proposals. Native shell, test
 commands, experiment execution, arbitrary MCP tools, browser access and plugin
-scripts are not exposed. Experiment execution through this profile still fails
-explicitly until its domain broker is integrated.
+scripts are not exposed to the worker. The parent can execute an existing,
+approved Experiment Run through its fixed-plan domain tool below.
 
 `research_search_papers` calls the same search command as the paper search page.
 It accepts `query`, fixed `sources` (`arxiv`/`openalex`), `pageSize`, `offset`,
@@ -74,6 +74,24 @@ execution details link to the same paper search session with its original filter
 This does not collect papers, download attachments or confirm scientific evidence.
 Identical call IDs share one execution within the live profile; persistent
 cross-session research-step reuse is a separate coordinator concern.
+
+`research_run_experiment` accepts only `runId` and `expectedManifestSha256`
+(available in the saved run's `manifestSummary`). It uses the existing isolated
+ExperimentRunner; the model cannot provide commands, paths, create/approve plans
+or automatically retry failed work. `experiment-operator` permits this tool when
+the parent and project explicitly grant `experiment.execute`. Existing human or
+automatic-policy approval still applies. Automatic approval updates the manifest
+hash; reload the saved manifest after authorization.
+
+The experiment is bound to its parent, policy and exact manifest under the runner
+lock. Current policy and file scope are checked before the actual process launch.
+Only permitted original files enter the private working copy. Parent cancellation
+waits for process exit and archival. Actual PID and stopping confirmation remain
+in the experiment ledger; a restarted server refuses execution/retry when the
+previous process is live or its stopping status is uncertain. A completed result
+can be read again by the same parent without another process launch. Native shell
+and arbitrary MCP remain disabled. Task execution links to actual logs, metrics,
+artifacts and pending evidence; exit code zero does not confirm a scientific claim.
 
 ## Skills and budgets
 

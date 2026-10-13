@@ -32,6 +32,11 @@ export const DSH_TOOL_DEFINITIONS = [
         unknown: { type: 'string', enum: ['include', 'exclude', 'only'] }
       } }
     }
+  } },
+  { name: 'research_run_experiment', description: 'Execute one already approved, saved Experiment Run with its exact manifest hash. Uses the isolated project runner; returns actual process exit, metrics, artifacts and unverified evidence. Cannot create or approve a plan, modify a command, choose paths or retry a failed experiment.', capability: 'experiment.execute', parameters: {
+    type: 'object', additionalProperties: false, required: ['runId', 'expectedManifestSha256'], properties: {
+      runId: { type: 'string', minLength: 1, maxLength: 200 }, expectedManifestSha256: { type: 'string', pattern: '^[a-f0-9]{64}$' }
+    }
   } }
 ];
 

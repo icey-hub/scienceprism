@@ -134,6 +134,7 @@ export function capabilityForToolName(name) {
   if (!tool) return null;
   if (tool === 'project_read_file') return 'project.read';
   if (tool === 'research_delegate_codex') return 'patch.propose';
+  if (tool === 'research_run_experiment') return 'experiment.execute';
   if (/^(?:write|edit|delete|move|rename)_?file$/.test(tool) || tool.includes('filesystem_write')) return 'patch.propose';
   if (tool.includes('shell') || tool.includes('bash') || tool.includes('terminal') || tool.includes('execute_command')) return 'experiment.execute';
   if (tool === 'read_file' || tool === 'list_files' || tool === 'read_research_skill' || tool === 'get_compile_log' || tool.includes('filesystem_read')) return 'project.read';

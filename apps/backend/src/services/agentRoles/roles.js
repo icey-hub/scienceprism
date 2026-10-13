@@ -142,6 +142,15 @@ export const AGENT_ROLES = Object.freeze([
     ]
   },
   {
+    id: 'experiment-operator',
+    purpose: 'Execute an already approved, fixed experiment through the isolated product runner.',
+    stageScope: ['replication', 'experiment'], authority: 'execute',
+    allowedCapabilities: ['project.read', 'experiment.execute'], allowedSkills: [], outputContract: 'json:experiment-run-summary',
+    handoff: 'Return actual execution and pending evidence to the coordinator for interpretation.',
+    forbiddenActions: ['approving plans', 'changing execution commands', 'running arbitrary shell', 'marking evidence verified', 'writing original project files'],
+    entrypoints: [{ module: 'services/harnessRuntime/dshExperimentBroker.js', symbol: 'createDshExperimentBroker' }]
+  },
+  {
     id: 'experiment-interpreter',
     purpose: 'Interpret a completed Experiment Run against its own Artifacts.',
     stageScope: ['experiment'],

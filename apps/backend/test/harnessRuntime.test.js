@@ -125,7 +125,7 @@ test('a capability requested outside Project Constraints is recorded as a failed
   assert.deepEqual(run.capabilities.granted, ['project.read']);
 });
 
-test('DeepSeek runs fail closed when granted capabilities cannot be enforced before tool use', async () => {
+test('DeepSeek runs reject unbound MCP execution before tools despite an experiment grant', async () => {
   const projectId = 'harness-deepseek-unenforceable';
   const root = await createProject(projectId);
   await mkdir(path.join(root, '.scienceprism'), { recursive: true });
@@ -135,6 +135,7 @@ test('DeepSeek runs fail closed when granted capabilities cannot be enforced bef
   }));
   const run = await createHarnessRun(projectId, {
     adapter: 'deepseek',
+    mcpToolIds: ['unbound-experiment-tool'],
     capabilities: ['project.read', 'experiment.execute'],
     fallback: false
   });
@@ -142,7 +143,7 @@ test('DeepSeek runs fail closed when granted capabilities cannot be enforced bef
   const result = await startHarnessRun(projectId, run.id, { wait: true });
 
   assert.equal(result.status, 'failed');
-  assert.equal(result.error.code, 'CAPABILITY_POLICY_UNENFORCEABLE');
+  assert.equal(result.error.code, 'MCP_DSH_RESTRICTED');
   assert.deepEqual(result.capabilities.granted, ['project.read', 'experiment.execute']);
 });
 
