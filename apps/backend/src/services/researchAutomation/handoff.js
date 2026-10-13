@@ -9,7 +9,7 @@ const identity = value => typeof value === 'string' && value.length > 0 && value
   && value.isWellFormed() && !/[\x00-\x1f\x7f]/.test(value);
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
   && [Object.prototype, null].includes(Object.getPrototypeOf(value));
-function sourceHash(data) {
+export function sourceHash(data) {
   const active = new Set(); let nodes = 0;
   const stable = (value, depth = 0) => {
     if (++nodes > 100000 || depth > 64) throw fail('AUTOMATION_HANDOFF_INPUT_INVALID', 'The source stage data exceeds its JSON structural limit.');

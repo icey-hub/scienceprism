@@ -2,11 +2,14 @@ import type { LLMConfig, HarnessRun } from './client';
 type AutomationModel = Omit<LLMConfig,'apiKey'> & {apiKey?: string};
 export type ConfirmationMode = 'inherit' | 'auto' | 'manual';
 export interface AutomationPolicy { enabled: boolean; agentMode: 'specialists' | 'generalist'; overrides: Record<string, ConfirmationMode>; }
+export interface AutomationExecutionPlan { dataset: string; datasetVersion: string; execution: { adapter: 'node' | 'python'; entrypoint: string; args: string[] }; [key: string]: unknown; }
 export interface AutomationStep { stage: string; status: string; runIds: string[]; experimentRunId?: string; result?: { status: string; metrics: {name: string; value: number}[] };
+  executionPlanBinding?: { version: number; sha256: string };
   handoff?: { parentRunId: string; workflowVersion: number; role: string; inputArtifacts: {stage: string; dataSha256: string; producerRunIds: string[]; searchSessionIds: string[]; experimentRunId: string | null}[] }; }
 export interface AutomationState {
   version: number; policy: AutomationPolicy; agents: {stage: string; id: string; label: string; purpose: string}[];
-  session: null | { id: string; coordinatorRunId?: string; ownerPid?: number; status: string; currentStage?: string; targetStage: string; message?: string; steps: AutomationStep[]; error?: {code: string; details?: {part?: string}} };
+  session: null | { id: string; coordinatorRunId?: string; ownerPid?: number; status: string; currentStage?: string; targetStage: string; message?: string; steps: AutomationStep[]; error?: {code: string; details?: {part?: string}};
+    executionPlan?: AutomationExecutionPlan | null; executionPlanVersion?: number; executionPlanSha256?: string | null; executionPlanLocked?: boolean };
 }
 async function request<T>(projectId: string, suffix = '', method = 'GET', body?: object): Promise<T> {
   const token = sessionStorage.getItem('scienceprism-collab-token') || sessionStorage.getItem('openprism-collab-token');

@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { readAutomation, mutateAutomation, allowsAutomatic, automaticWorkflowDecision, requireAutomatic, AUTOMATION_PARTS, validateAutomationExecution } from './policy.js';
 import { RESEARCH_SPECIALISTS, automationRole } from './agents.js';
-import { buildAutomationHandoff, assertAutomationHandoff } from './handoff.js';
+import { buildAutomationHandoff, assertAutomationHandoff, sourceHash } from './handoff.js';
 import { claimAutomationOwner, inspectAutomationOwner } from './owner.js';
 import { prepareAutomationStage } from './stages.js';
+import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked } from './executionPlan.js';
 import { getResearchWorkflow } from '../researchWorkflow/queries.js';
 import { initializeResearchWorkflow, updateResearchWorkflow, mutateWorkflow } from '../researchWorkflow/commands.js';
 import { getStageReadiness, RESEARCH_WORKFLOW_STAGES } from '../researchWorkflow/stageContracts.js';
 import { stageData } from '../researchWorkflow/application.js';
 import { createExperimentRun, automaticallyApproveExperiment, startExperimentRun, getExperimentRun, cancelExperimentRun, experimentRunSummary } from '../experimentRunner/index.js';
+import { readReplicationContextFromWorkflow, readExperimentContextFromWorkflow } from '../experimentRunner/replicationContext.js';
 import { getEvidenceLedger } from '../evidenceLedger/index.js';
 import { getHarnessRun, decideHarnessRun, applyHarnessRunPatches, createAutomationCoordinator, recordAutomationCoordinator, listHarnessRuns, recoverHarnessRun } from '../harnessRuntime/index.js';
 import { appendAudit } from '../researchWorkflow/audit.js';
@@ -75,6 +77,10 @@ export async function getAutomation(projectId) {
   // A worker can persist its terminal state and leave the map while this read
   // is awaiting I/O. Re-read before interpreting that old snapshot as restart.
   if (state.session && ['running', 'queued', 'stopping'].includes(state.session.status) && !workers.has(projectId)) state = await readAutomation(projectId);
+  if (state.session) {
+    state.session = initializeAutomationExecutionPlan(state.session);
+    state.session.executionPlanLocked = isAutomationExecutionPlanLocked(state.session);
+  }
   const owner = inspectAutomationOwner({ projectRoot: await resolveProjectRoot(projectId) });
   if (owner && !owner.released && owner.present !== false && owner.sessionId === state.session?.id && !workers.has(projectId)) {
     return { ...state, session: { ...state.session, message: '该链路仍由另一执行进程持有，请在原进程查看或停止。' }, parts: AUTOMATION_PARTS, agents: RESEARCH_SPECIALISTS };
@@ -118,6 +124,15 @@ async function handoffCheckpoint(projectId, control, stage, handoff, savedWorkfl
     role: step?.status === 'completed' ? handoff.role : automationRole(stage, state.policy.agentMode) });
 }
 
+async function bindStageExecutionPlan(projectId, control, stage, plan, origin) {
+  await checkpoint(projectId, control);
+  return mutateAutomation(projectId, state => {
+    control.owner.assertOwned();
+    if (control.stop || state.session?.id !== control.id || state.session.stopRequested || state.session.status !== 'running') throw new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止计划消费。');
+    state.session = bindAutomationExecutionPlan(state.session, stage, plan, { origin });
+  });
+}
+
 async function executeStep(projectId, control, stage) {
   let { state, workflow } = await checkpoint(projectId, control);
   let step = state.session.steps.find(step => step.stage === stage);
@@ -127,7 +142,21 @@ async function executeStep(projectId, control, stage) {
     return;
   }
   if (!step.experimentRunId) {
-    const saved = stageData(workflow, stage), plan = saved.executionPlan || saved;
+    const saved = stageData(workflow, stage);
+    const context = (stage === 'replication' ? readReplicationContextFromWorkflow : readExperimentContextFromWorkflow)(projectId, workflow, { expectedVersion: workflow.version });
+    const plan = stage === 'replication' ? saved.executionPlan || saved : context.plan;
+    const actual = validateAutomationExecution({ ...Object.fromEntries(['dataset', 'datasetVersion', 'protocol', 'execution', 'seed', 'successCriteria', 'artifacts', 'parameters', 'codePaths', 'resources'].filter(key => plan[key] !== undefined).map(key => [key, plan[key]])),
+      ...(stage === 'replication' ? { dataset: context.plan.dataset, datasetVersion: context.plan.datasetVersion } : {}) });
+    const materials = validateAutomationExecution(state.session.executionPlan || saved.task?.input?.plan || saved.executionPlan || actual);
+    for (const evidence of [saved.task?.input?.plan, saved.executionPlan].filter(Boolean)) {
+      if (sourceHash(validateAutomationExecution(evidence)) !== sourceHash(materials)) throw new ResearchWorkflowError(409, 'AUTOMATION_EXECUTION_PLAN_CHANGED', '阶段准备使用的实验材料与当前链路计划不同，请保留原任务。');
+    }
+    // The experiment planner supplies its own saved success criteria; the
+    // execution fields, data and resources still belong to the bound input.
+    const expected = { ...materials, seed: String(materials.seed), ...(stage === 'experiment' && saved.task?.output?.successCriteria ? { successCriteria: saved.task.output.successCriteria } : {}) };
+    if (sourceHash({ ...actual, seed: String(actual.seed) }) !== sourceHash(expected)) throw new ResearchWorkflowError(409, 'AUTOMATION_EXECUTION_PLAN_CHANGED', '实际执行材料已偏离绑定的计划版本。');
+    if (stage === 'replication' && saved.task?.output && (context.plan.note !== saved.task.output.objective || context.plan.expectedMetrics !== saved.task.output.expectedOutputs?.join('\n'))) throw new ResearchWorkflowError(409, 'AUTOMATION_EXECUTION_PLAN_CHANGED', '复现协议或预期输出已偏离已记录的模型计划。');
+    await bindStageExecutionPlan(projectId, control, stage, materials, state.session.executionPlanOrigin || 'stage');
     const run = await createExperimentRun(projectId, { sourceStage: stage, expectedVersion: workflow.version,
       ...(stage === 'replication' ? { plan: { execution: plan.execution, parameters: plan.parameters, seed: plan.seed, resources: plan.resources, artifacts: plan.artifacts } } : {}) }, { actor: 'system' });
     await changeStep(projectId, control.id, stage, { experimentRunId: run.id, status: 'awaiting_execution' });
@@ -178,7 +207,8 @@ async function walk(projectId, control, runtime) {
           state = await changeStep(projectId, control.id, stage, { handoff, status: 'preparing', startedAt: step.startedAt || now() });
           control.preparationPolicyVersion = state.version;
           workflow = await prepareAutomationStage(projectId, workflow, state.session, state.policy,
-            { ...runtime, signal: control.controller.signal, automationCheckpoint: savedWorkflow => handoffCheckpoint(projectId, control, stage, handoff, savedWorkflow) },
+            { ...runtime, signal: control.controller.signal, automationCheckpoint: savedWorkflow => handoffCheckpoint(projectId, control, stage, handoff, savedWorkflow),
+              automationBindExecutionPlan: (plan, origin) => bindStageExecutionPlan(projectId, control, stage, plan, origin) },
             change => changeStep(projectId, control.id, stage, change));
           await changeStep(projectId, control.id, stage, { prepared: true, status: 'awaiting_confirmation' });
         }
@@ -233,9 +263,10 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     if (workflow.currentStage === 'direction' && input.question) workflow = await updateResearchWorkflow(projectId, { actor: 'human', stageId: 'direction', expectedVersion: workflow.version, data: { researchQuestion: String(input.question).slice(0, 4000).trim() } });
     const state = await mutateAutomation(projectId, state => {
       if (state.session && !['completed', 'stopped'].includes(state.session.status)) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_EXISTS', '请继续或停止已有链路，避免重复执行。');
-      state.session = { id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true,
+      state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true,
         executionPlan, ownerPid: control.owner.pid, createdAt: now(), updatedAt: now(), stopRequested: false,
-        steps: stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1).map(stage => ({ stage, status: 'pending', runIds: [] })) };
+        ...(executionPlan ? { executionPlanOrigin: 'human' } : {}),
+        steps: stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1).map(stage => ({ stage, status: 'pending', runIds: [] })) });
     });
     const prepared = await ensureCoordinator(projectId, state);
     queue = queue.catch(() => {}).then(() => walk(projectId, control, runtime));
@@ -260,11 +291,16 @@ export async function resumeAutomation(projectId, input = {}, runtime = {}) {
   try {
     const state = await readAutomation(projectId);
     if (!state.session || state.session.status === 'completed') throw new ResearchWorkflowError(409, 'AUTOMATION_NOT_RESUMABLE', '没有可继续的研究链路。');
+    const planUpdate = { executionPlan, expectedSessionId: input.expectedSessionId, expectedExecutionPlanVersion: input.expectedExecutionPlanVersion };
+    applyAutomationExecutionPlan(state.session, planUpdate);
     control.id = state.session.id;
     control.owner = await claimOwner(projectId, control.id);
-    const updated = await changeSession(projectId, control.id, { status: 'queued', stopRequested: false, message: '', error: null, attempt: (state.session.attempt || 0) + 1,
-      ownerPid: control.owner.pid, ...(executionPlan ? {executionPlan} : {}),
-      steps: state.session.steps });
+    const updated = await mutateAutomation(projectId, current => {
+      if (current.session?.id !== control.id) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_CHANGED', '研究会话已变化。');
+      current.session = applyAutomationExecutionPlan(current.session, planUpdate);
+      Object.assign(current.session, { status: 'queued', stopRequested: false, message: '', error: null, attempt: (current.session.attempt || 0) + 1, ownerPid: control.owner.pid, updatedAt: now() });
+    });
+    control.queued = true;
     const prepared = await ensureCoordinator(projectId, updated);
     if (input.recoverExisting) await recoverStages(projectId, control, runtime);
     queue = queue.catch(() => {}).then(() => walk(projectId, control, runtime));
@@ -272,7 +308,7 @@ export async function resumeAutomation(projectId, input = {}, runtime = {}) {
     return prepared;
   } catch (error) {
     try {
-      if (control.owner && control.id) await changeSession(projectId, control.id, { status: 'blocked', message: error.message, error: { code: error.code || 'AUTOMATION_RECOVERY_FAILED', message: error.message } });
+      if (control.queued) await changeSession(projectId, control.id, { status: 'blocked', message: error.message, error: { code: error.code || 'AUTOMATION_RECOVERY_FAILED', message: error.message } });
       await releaseOwner(projectId, control);
     } finally { workers.delete(projectId); }
     throw error;

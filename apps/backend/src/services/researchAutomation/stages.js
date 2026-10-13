@@ -90,12 +90,15 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     const papers = stageData(workflow, 'selection').selectedPapers || [];
     const saved = stageData(workflow, stage);
     let plan = session.executionPlan || saved.executionPlan;
+    let origin = session.executionPlan ? session.executionPlanOrigin || 'legacy' : 'stage';
     if (!plan) {
       const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files, instructions: 'Choose an existing code entrypoint and a real recorded dataset/version. If data or code is missing, return plan:null and list missing materials. Do not fabricate a runnable reproduction.' });
       if (!result.output.plan || result.output.missing.length) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', `需要补充复现/实验材料：${result.output.missing.join('；') || '代码入口、数据及版本'}`);
       plan = result.output.plan;
+      origin = 'model';
     }
     if (!files.includes(plan.execution?.entrypoint) || !plan.dataset || !plan.datasetVersion) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', '项目内需要可运行的代码入口、真实数据和数据版本。');
+    await runtime.automationBindExecutionPlan(plan, origin);
     // The Runner validates paths, resources and snapshots again before dispatch.
     if (stage === 'replication') {
       const result = await run('reproduction_plan', { papers, paperId: papers[0]?.id, executionPlan: plan });

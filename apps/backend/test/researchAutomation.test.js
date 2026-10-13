@@ -25,6 +25,12 @@ registerResearchSourceAdapter({ id: 'arxiv', label: 'Controlled source', async s
   sourceCalls++; if (sourceWait) await sourceWait;
   return [{ id: 'p1', title: 'Controlled paper', abstract: 'Testing actual pipeline plumbing.', authors: ['Fixture Author'], year: 2025, url: 'https://arxiv.org/abs/2601.00001', venue: 'Test Conference', publicationType: 'conference', peerReviewed: true, source: 'arxiv' }];
 } });
+// Invalid strategy output falls back to all registered sources. Keep that
+// failure path deterministic instead of contacting the real OpenAlex service.
+registerResearchSourceAdapter({ id: 'openalex', label: 'Controlled unavailable source', async search({ beforeRequest }) {
+  await beforeRequest?.({ source: 'openalex', url: 'https://api.openalex.org/works' });
+  throw Object.assign(new Error('Controlled OpenAlex fixture unavailable.'), { code: 'SOURCE_UNAVAILABLE', retryable: false });
+} });
 
 test('a stale running snapshot cannot relabel a durably completed research chain as interrupted', async t => {
   await project('terminal-query');
