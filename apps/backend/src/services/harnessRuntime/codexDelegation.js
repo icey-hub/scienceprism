@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { HarnessRuntimeError, asRuntimeError } from './errors.js';
 import { collectPatches, copyWorkspace, snapshotWorkspace } from './workspace.js';
 import { createDshFileBroker } from './dshFileBroker.js';
+import { createCodexToolReceipts } from './codexToolReceipts.js';
 import { appendRuntimeEvents, summarizeEvent, sumEventUsage } from './runtimeEvents.js';
 import { safeJoin } from '../../utils/pathUtils.js';
 
@@ -15,7 +16,7 @@ export const usageTotal = usage => Number(usage?.totalTokens ?? usage?.total_tok
 // An internal tool callback, not another scheduler or public runtime selector.
 // The parent's model slot remains held while DSH awaits this worker.
 export function createCodexDelegation({ parent, workspace, runtimeHome, skillProjection, provider, worker,
-  readPolicy, getRun, updateRun, runChild, signal, emit, flushEvents = async () => {} }) {
+  readPolicy, getRun, updateRun, runChild, signal, emit, flushEvents = async () => {}, onChildCheckpoint = async () => {} }) {
   const deadline = Date.now() + parent.limits.timeoutMs;
   const calls = new Map();
   let pending = Promise.resolve();
@@ -59,6 +60,9 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
       let result;
       let usage;
       const mergedPaths = [];
+      const checkpoint = async patch => {
+        await updateRun(child.id, stored => { stored.recovery = { ...stored.recovery, ...patch }; return stored; });
+      };
       const readChildPolicy = async () => {
         const latest = await readPolicy();
         const stored = await getRun(child.id);
@@ -71,7 +75,14 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
         root = await fs.mkdtemp(path.join(runtimeHome, 'delegated-'));
         const childWorkspace = path.join(root, 'workspace');
         await copyWorkspace(workspace, childWorkspace, child.capabilities);
+        await copyWorkspace(childWorkspace, path.join(root, 'baseline'), child.capabilities);
         const snapshot = await snapshotWorkspace(childWorkspace, child.capabilities);
+        await fs.mkdir(path.join(root, 'controls'), { mode: 0o700 });
+        await checkpoint({ format: 'scienceprism-codex-delegation-v1', root: path.relative(runtimeHome, root), phase: 'prepared', workerCompleted: false });
+        const publishChild = async storage => onChildCheckpoint({ runId: child.id, parentRunId: parent.id, parentAttempt: parent.attempt,
+          workerRoot: path.relative(runtimeHome, root), pid: storage?.pid ?? null, threadId: storage?.threadId ?? null,
+          turnId: storage?.turnId ?? null, status: storage?.stopConfirmed ? storage.terminalStatus || 'failed' : storage?.phase === 'stop-unconfirmed' ? 'ambiguous' : storage?.phase === 'running' ? 'running' : 'preparing', stopConfirmed: storage?.stopConfirmed === true });
+        await publishChild();
         // Copy the already fixed parent Skill view, never re-resolve latest installs.
         for (const document of skillProjection?.documents || []) {
           const relative = document.projectionPath;
@@ -87,25 +98,42 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
         }
         emit({ type: 'runtime/delegation', data: { childRunId: child.id, parentRunId: parent.id, phase: 'started', runtime: 'codex' } });
         result = await worker.run({ provider, task: input.task, workspace: childWorkspace, runtimeHome: path.join(root, 'controls'),
+          parentRunId: parent.id,
           skillProjection, readPolicy: readChildPolicy, onDecision: event => persist(child.id, event), signal: combined,
           timeoutMs: limits.timeoutMs, maxTokens: limits.maxTokens, emit: childEmit,
-          onSession: identity => updateRun(child.id, stored => { stored.sessionId = identity.threadId; stored.output = { codex: identity }; return stored; }) });
+          onSession: identity => updateRun(child.id, stored => { stored.sessionId = identity.threadId; stored.output = { codex: identity }; return stored; }),
+          onStorage: async storage => {
+            await updateRun(child.id, stored => { stored.workerStorage = storage; return stored; });
+            await publishChild(storage);
+          },
+          onResult: value => updateRun(child.id, stored => { stored.workerResult = value; stored.recovery.phase = 'worker-completed'; stored.recovery.workerCompleted = true; return stored; }) });
         usage = result.usage;
         await eventWrite;
         combined.throwIfAborted();
         if (result.ok === false) throw fail('CODEX_WORKER_FAILED', 'The coding worker did not complete.');
         if (usageTotal(usage) > limits.maxTokens) throw fail('HARNESS_BUDGET_EXHAUSTED', 'The coding worker exhausted the remaining token budget.');
+        // Preserve the completed result before parent merging, including test or
+        // embedded worker implementations which return without onResult.
+        await updateRun(child.id, stored => { stored.workerResult = result; stored.recovery.phase = 'handoff'; stored.recovery.workerCompleted = true; return stored; });
         const patches = await collectPatches(snapshot, childWorkspace, child.capabilities);
         merger = await createDshFileBroker({ workspace, readPolicy, onDecision: event => persist(parent.id, event), signal: combined });
+        const identity = (await getRun(child.id)).output?.codex;
+        const handoffReceipts = await createCodexToolReceipts({ directory: path.join(root, 'handoff-receipts'), workspace, readPolicy,
+          binding: { projectId: parent.projectId, parentRunId: parent.id, workerRunId: parent.id, threadId: identity?.threadId, turnId: identity?.turnId,
+            workerVersion: 'scienceprism-codex-handoff-v1', toolSchemaHash: createHash('sha256').update('project_propose_patch-v1').digest('hex'),
+            policyVersion: policy.version, role: parent.role, task: parent.task } });
         for (const patch of patches) {
           if (patch.deleted) throw fail('CODEX_PATCH_UNSUPPORTED', 'This worker cannot delete project files.');
-          await merger.execute({ tool: 'project_propose_patch', callId: `${child.id}:${patch.path}`.slice(0,200),
-            arguments: { path: patch.path, content: patch.content, expectedSha256: patch.baseVersion.sha256 } });
+          await handoffReceipts.execute({ threadId: identity.threadId, turnId: identity.turnId, tool: 'project_propose_patch',
+            callId: `handoff:${child.id}:${createHash('sha256').update(patch.path).digest('hex')}`,
+            arguments: { path: patch.path, content: patch.content, expectedSha256: patch.baseVersion.sha256 } },
+          { signal: combined, executeTool: value => merger.execute({ tool: value.tool, callId: value.callId, arguments: value.arguments }) });
           mergedPaths.push(patch.path);
         }
         await updateRun(child.id, stored => { stored.status = 'completed'; stored.reply = result.finalResponse || '';
           stored.patches = patches; stored.output = { ...result.output, proposalOwnerRunId: parent.id };
           stored.tokenUsage = usage; stored.finishedAt = now(); stored.updatedAt = now(); return stored; });
+        await checkpoint({ phase: 'handed-off' });
         emit({ type: 'runtime/delegation', data: { childRunId: child.id, parentRunId: parent.id, phase: 'completed', runtime: 'codex' } });
         return { runId: child.id, childRunId: child.id, status: 'completed', reply: result.finalResponse || '', output: result.output,
           proposals: patches.map(patch => ({ path: patch.path, baseVersion: patch.baseVersion })), usage };
@@ -119,6 +147,7 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
           stored.output = { ...stored.output, proposalOwnerRunId: parent.id, mergedPaths };
           if (preserveWorkspace) stored.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: true };
           stored.error = { code: failure.code, message: failure.message, retryable: false }; return stored; });
+        if (root) await checkpoint({ phase: result?.ok ? 'handoff-failed' : 'worker-failed' });
         emit({ type: 'runtime/delegation', data: { childRunId: child.id, parentRunId: parent.id, phase: combined.aborted ? 'cancelled' : 'failed', runtime: 'codex' } });
         throw error;
       } finally {
@@ -127,7 +156,8 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
         await updateRun(parent.id, stored => { stored.workerTokenUsage = { totalTokens: childTokens }; return stored; });
         controller.abort();
         if (merger) await merger.close();
-        if (root && !preserveWorkspace) await fs.rm(root, { recursive: true, force: true });
+        // Private baseline, worker history and merge receipts belong to this Run.
+        // Retention is independent from process termination confirmation.
       }
     });
   }

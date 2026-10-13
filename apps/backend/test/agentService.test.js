@@ -227,7 +227,7 @@ test('a packed context reaches the model once without unbounded raw duplicates',
   assert.ok(input.includes('packed selection') && input.includes('packed log') && input.includes('human advice'));
 });
 
-test('isolated Run workspaces are reclaimed on completion, failure and cancellation; starts deduplicate', async () => {
+test('isolated Run workspaces retain stopped ownership and immutable baselines; starts deduplicate', async () => {
   for (const outcome of ['completed', 'failed', 'cancelled']) {
     let workspacePath;
     let calls = 0;
@@ -264,7 +264,13 @@ test('isolated Run workspaces are reclaimed on completion, failure and cancellat
       else release();
       const finished = await waitForHarnessRun('test', run.id);
       assert.equal(finished.status, outcome);
-      await assert.rejects(fs.access(workspacePath), { code: 'ENOENT' });
+      await fs.access(workspacePath);
+      const runtimeRoot = path.dirname(workspacePath);
+      const checkpoint = JSON.parse(await fs.readFile(path.join(runtimeRoot, 'checkpoint.json'), 'utf8'));
+      const owner = JSON.parse(await fs.readFile(path.join(runtimeRoot, 'owner.json'), 'utf8'));
+      assert.equal(checkpoint.runId, run.id); assert.equal(checkpoint.status, outcome);
+      assert.equal(checkpoint.stopConfirmed, true); assert.equal(owner.released, true);
+      assert.equal(await fs.readFile(path.join(runtimeRoot, 'baseline', 'main.tex'), 'utf8'), 'saved manuscript');
       assert.equal(await fs.readFile(path.join(dataDir, 'test', 'main.tex'), 'utf8'), 'saved manuscript');
     } finally {
       release();

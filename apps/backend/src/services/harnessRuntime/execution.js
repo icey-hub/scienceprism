@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { assertProjectPath, capabilityForToolName, isPathAllowed } from './capabilities.js';
 import { asRuntimeError, HarnessRuntimeError } from './errors.js';
 import { resolveHarnessProjectRoot } from './repository.js';
@@ -10,7 +10,9 @@ import { fileVersion } from './fileVersions.js';
 import { finalizeAssistantReply } from '../assistantReply.js';
 import { createCurrentToolPolicy } from './currentToolPolicy.js';
 import { createCodexDelegation, usageTotal } from './codexDelegation.js';
-import { createCodexWorker } from './adapters/codexWorker.js';
+import { createCodexWorker, CODEX_WORKER_TOOLS } from './adapters/codexWorker.js';
+import { CODEX_PROTOCOL_VERSION } from './adapters/codexAdapter.js';
+import { createRetainedWorkspace } from './retainedWorkspace.js';
 import { getEnv } from '../../config/constants.js';
 import { resolveLLMConfig, normalizeBaseURL, normalizeChatEndpoint } from '../llmService.js';
 
@@ -98,6 +100,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
     const readPolicy = createCurrentToolPolicy({ initialRun: run, getRun: () => getRun(projectId, runId),
       readConstraints: () => readProjectConstraints(projectRoot), signal: control.controller.signal });
     let runRoot;
+    let retained;
     let workspace;
     let dshHome;
     let workspaceSnapshot;
@@ -141,12 +144,17 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         }
         // Only the SDK executes in a workspace. Legacy reads the project through
         // guarded tools; Fake needs no files. Copying for them was unused work.
-        runRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'scienceprism-harness-'));
-        workspace = path.join(runRoot, 'workspace');
-        dshHome = path.join(runRoot, 'dsh-home');
+        retained = await createRetainedWorkspace({ projectRoot, runId, attempt: run.attempt,
+          expectedVersions: { runtime: 'scienceprism-harness-retention-v1', codex: CODEX_PROTOCOL_VERSION,
+            toolsHash: createHash('sha256').update(JSON.stringify(CODEX_WORKER_TOOLS)).digest('hex') } });
+        runRoot = retained.root;
+        workspace = retained.workspace;
+        dshHome = retained.dshHome;
+        await updateRun(projectId, runId, current => { current.retainedWorkspace = { format: 'scienceprism-harness-retention-v1', attempt: run.attempt }; return current; });
         if (run.capabilities.granted.includes('project.read')) await copyWorkspace(projectRoot, workspace, run.capabilities);
         else await fs.mkdir(workspace, { recursive: true });
         workspaceSnapshot = await snapshotWorkspace(workspace, run.capabilities);
+        await copyWorkspace(workspace, path.join(runRoot, 'baseline'), run.capabilities);
         for (const file of run.contextPack.files || []) {
           const snapshot = workspaceSnapshot.get(file.path);
           if (snapshot === undefined || snapshot === null || fileVersion(snapshot).sha256 !== file.sha256) {
@@ -156,6 +164,8 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         skillProjection = await projectSelectedSkillDocuments({ projectId, projectRoot, workspaceRoot: workspace,
           enabledSkillNames: request.researchSkills || [], capabilityPolicy: run.capabilities, signal: control.controller.signal });
         excludedSkillPaths = skillProjection.excludedPaths;
+        await retained.update({ status: 'running', skills: skillProjection.documents.map(document => ({ path: document.projectionPath, sha256: document.sha256, bytes: document.bytes })),
+          baseFiles: [...workspaceSnapshot].map(([file, text]) => ({ path: file, sha256: text === null ? null : createHash('sha256').update(text).digest('hex'), bytes: text === null ? 0 : Buffer.byteLength(text) })) });
         await updateRun(projectId, runId, current => {
           current.skillVersions = { format: skillProjection.format, documents: skillProjection.documents, totalBytes: skillProjection.totalBytes, scriptsIncluded: false };
           return current;
@@ -166,7 +176,11 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             workspace, runtimeHome: runRoot, skillProjection,
             provider: { baseUrl: normalizeBaseURL(normalizeChatEndpoint(provider.endpoint)), model: provider.model, apiKey: provider.apiKey },
             worker: codexWorker(), readPolicy, getRun: id => getRun(projectId, id), updateRun: (id, updater) => updateRun(projectId, id, updater),
-            runChild, signal: control.controller.signal, emit, flushEvents: () => eventWrite });
+            runChild, signal: control.controller.signal, emit, flushEvents: () => eventWrite,
+            onChildCheckpoint: async child => {
+              const checkpoint = await retained.read();
+              await retained.update({ children: [...checkpoint.children.filter(previous => previous.runId !== child.runId), child] });
+            } });
         }
       }
       const task = adapter.run({
@@ -233,7 +247,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
       const runtimeError = control.controller.stopError || control.violation || control.timeoutError || asRuntimeError(error);
       control.stopUnconfirmed = ['HARNESS_STOP_UNCONFIRMED', 'CODEX_STOP_FAILED', 'DSH_STOP_FAILED'].includes(runtimeError.code) || delegation?.preserveWorkspace;
       if (!control.stopUnconfirmed && (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED')) {
-        return updateRun(projectId, runId, (current) => {
+        return await updateRun(projectId, runId, (current) => {
           current.status = 'cancelled';
           current.finishedAt = now();
           current.updatedAt = current.finishedAt;
@@ -242,7 +256,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         });
       }
       if (!control.stopUnconfirmed && (control.pauseRequested || control.controller.signal.reason?.code === 'HARNESS_PAUSED')) {
-        return updateRun(projectId, runId, (current) => {
+        return await updateRun(projectId, runId, (current) => {
           current.status = 'paused';
           current.updatedAt = now();
           current.error = { code: 'HARNESS_PAUSED', message: 'Harness Run was paused and can be resumed.', retryable: true };
@@ -293,7 +307,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         } catch (fallbackError) {
           if (control.controller.stopError) {
             control.stopUnconfirmed = true;
-            return updateRun(projectId, runId, current => {
+            return await updateRun(projectId, runId, current => {
               current.status = 'failed'; current.finishedAt = now(); current.updatedAt = now();
               current.error = { code: 'HARNESS_STOP_UNCONFIRMED', message: control.controller.stopError.message, retryable: false };
               current.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: Boolean(runRoot), modelSlotRetained: true };
@@ -301,7 +315,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             });
           }
           if (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED') {
-            return updateRun(projectId, runId, (current) => {
+            return await updateRun(projectId, runId, (current) => {
               current.status = 'cancelled';
               current.finishedAt = now();
               current.updatedAt = current.finishedAt;
@@ -310,7 +324,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             });
           }
           if (control.pauseRequested || control.controller.signal.reason?.code === 'HARNESS_PAUSED') {
-            return updateRun(projectId, runId, (current) => {
+            return await updateRun(projectId, runId, (current) => {
               current.status = 'paused';
               current.updatedAt = now();
               current.error = { code: 'HARNESS_PAUSED', message: 'Harness Run was paused and can be resumed.', retryable: true };
@@ -318,7 +332,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
             });
           }
           const fallbackRuntimeError = asRuntimeError(fallbackError, 'FALLBACK_FAILED');
-          return updateRun(projectId, runId, (current) => {
+          return await updateRun(projectId, runId, (current) => {
             current.status = 'failed';
             current.finishedAt = now();
             current.updatedAt = current.finishedAt;
@@ -329,7 +343,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         }
       }
 
-      return updateRun(projectId, runId, (current) => {
+      return await updateRun(projectId, runId, (current) => {
         current.status = 'failed';
         current.finishedAt = now();
         current.updatedAt = current.finishedAt;
@@ -344,7 +358,13 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         if (control.stopUnconfirmed) void delegation.close().catch(() => {});
         else await delegation.close();
       }
-      if (runRoot && !control.stopUnconfirmed && !delegation?.preserveWorkspace) await fs.rm(runRoot, { recursive: true, force: true }).catch(() => {});
+      if (retained) {
+        // Terminal updates above must settle before releasing retained ownership.
+        const current = await getRun(projectId, runId);
+        await retained.release({ status: current.status === 'completed' || current.status === 'awaiting_approval' ? 'completed'
+          : current.status === 'cancelled' ? 'cancelled' : control.stopUnconfirmed ? 'ambiguous' : 'failed',
+          stopConfirmed: !control.stopUnconfirmed && !delegation?.preserveWorkspace });
+      }
     }
   }
 

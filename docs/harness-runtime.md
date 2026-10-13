@@ -75,6 +75,23 @@ worker after a server restart. The connection retains at most 128 tool identitie
 and 8 pending responses. Pending input writes are limited to 4 MiB; a stalled
 connection that exceeds this limit fails and is closed by the owning worker.
 
+DeepSeek Runs now retain their private working copy, immutable baseline, selected
+Skill manifest and child-process checkpoints outside the original project. Codex
+stores its controls, saved thread/turn identity and bounded tool receipts there;
+completed results are saved before handoff to the parent's copy. Each project
+operation records a prepared receipt before execution. Completed receipts must
+match the current policy and actual file evidence to replay; an uncertain prepared
+operation is never automatically reissued. Parent handoff uses the same receipt
+boundary and keeps conflicting worker results for reconciliation.
+
+The retained Run has one process owner. A live or unconfirmed earlier process
+blocks recovery, and a checkpoint failure cannot mask an unconfirmed stop.
+An internal result reader can inspect the exact completed Codex turn without
+resuming a thread or starting a model task. This is retention and readback
+infrastructure: automatic DSH continuation and a public restart-recovery command
+are not yet available. Retained files are not deleted automatically; operators
+must account for their disk usage.
+
 ## Context Pack
 
 Each Run is created with a deterministic Context Pack by

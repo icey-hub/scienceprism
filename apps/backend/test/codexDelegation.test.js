@@ -55,13 +55,16 @@ test('DSH delegates once per tool identity, records a child session and merges p
   assert.ok(child.events.some(event => event.decision === 'allow'));
   assert.equal(JSON.stringify([...f.rows.values()]).includes('not-persisted'), false);
   assert.deepEqual(f.delegate.usage, { totalTokens: 42 });
-  assert.equal((await fs.readdir(f.root)).some(name => name.startsWith('delegated-')), false);
+  assert.equal((await fs.readdir(f.root)).filter(name => name.startsWith('delegated-')).length, 1);
+  assert.equal(child.recovery.phase, 'handed-off');
+  assert.equal(child.workerResult.finalResponse, 'done');
+  assert.equal((await fs.stat(path.join(f.root, child.recovery.root, 'baseline', 'main.tex'))).isFile(), true);
   await assert.rejects(f.delegate.run({ task: 'different' }, options), { code: 'DELEGATION_ID_CONFLICT' });
 });
 
 test('current parent revocation prevents the worker proposal from reaching the parent copy', async t => {
   const f = await fixture(t, async (args, controls) => { const result = await propose(args); controls.revoke(); return result; });
-  await assert.rejects(f.delegate.run({ task: 'edit' }, { callId: 'revoke' }), { code: 'CAPABILITY_DENIED' });
+  await assert.rejects(f.delegate.run({ task: 'edit' }, { callId: 'revoke' }), { code: 'CODEX_RECEIPT_POLICY_DENIED' });
   assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'original');
   assert.equal([...f.rows.values()][1].status, 'failed');
 });
@@ -90,7 +93,7 @@ test('worker cannot choose provider or cwd, and concurrent parent changes cause 
   const f = await fixture(t, async args => { const result = await propose(args); await fs.writeFile(path.join(f.workspace, 'main.tex'), 'new parent text'); return result; });
   await assert.rejects(f.delegate.run({ task: 'edit', cwd: '/outside' }, { callId: 'invalid' }), { code: 'CODEX_WORKER_INPUT_INVALID' });
   assert.equal(f.calls(), 0);
-  await assert.rejects(f.delegate.run({ task: 'edit' }, { callId: 'conflict' }), { code: 'DSH_FILE_CONFLICT' });
+  await assert.rejects(f.delegate.run({ task: 'edit' }, { callId: 'conflict' }), { code: 'CODEX_RECEIPT_INPUT_CONFLICT' });
   assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'new parent text');
 });
 
@@ -100,4 +103,16 @@ test('unconfirmed worker termination retains private workspace for recovery', as
   assert.equal(f.delegate.preserveWorkspace, true);
   assert.equal([...f.rows.values()][1].cleanup.workspaceRetained, true);
   assert.equal((await fs.readdir(f.root)).filter(name => name.startsWith('delegated-')).length, 1);
+});
+
+
+test('a completed worker result and immutable baseline survive a parent handoff failure', async t => {
+  const f = await fixture(t, async args => { const result = await propose(args); await fs.writeFile(path.join(f.workspace, 'main.tex'), 'parent changed'); return result; });
+  await assert.rejects(f.delegate.run({ task: 'edit' }, { callId: 'handoff-conflict' }), { code: 'CODEX_RECEIPT_INPUT_CONFLICT' });
+  const child = [...f.rows.values()][1];
+  assert.equal(child.workerResult.finalResponse, 'done'); assert.equal(child.recovery.phase, 'handoff-failed');
+  assert.equal(child.recovery.workerCompleted, true);
+  assert.equal(await fs.readFile(path.join(f.root, child.recovery.root, 'baseline', 'main.tex'), 'utf8'), 'original');
+  assert.equal(await fs.readFile(path.join(f.root, child.recovery.root, 'workspace', 'main.tex'), 'utf8'), 'proposed');
+  assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'parent changed');
 });

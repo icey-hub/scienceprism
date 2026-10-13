@@ -14,6 +14,7 @@ process.env.SCIENCEPRISM_DATA_DIR = dataRoot;
 // below never launches this path, a CLI, a network request, or a model.
 process.env.SCIENCEPRISM_CODEX_EXECUTABLE = '/fixture/not-executed-codex';
 const { createRunExecutor } = await import('../src/services/harnessRuntime/execution.js');
+const { createDshFileBroker } = await import('../src/services/harnessRuntime/dshFileBroker.js');
 after(async () => {
   await fs.rm(dataRoot, { recursive: true, force: true });
   if (oldData === undefined) delete process.env.SCIENCEPRISM_DATA_DIR; else process.env.SCIENCEPRISM_DATA_DIR = oldData;
@@ -39,11 +40,52 @@ async function fixture(id, granted, adapterRun, workerRun, { stopTimeoutMs = 100
     adapterFor: adapter => { assert.equal(adapter, 'deepseek'); return { run: adapterRun }; },
     forgetRequest: () => {}, stopTimeoutMs, readProjectConstraints: async () => ({ capabilities: ['project.read', 'patch.propose'] }),
     runChild: async (child, _controller, work) => { rows.set(child.id, structuredClone(child)); return work(); },
-    codexWorker: () => ({ run: async args => { workerCalls += 1; await args.onSession({ threadId: 'fixture-thread', turnId: 'fixture-turn' }); return workerRun(args); } })
+    codexWorker: () => ({ run: async args => {
+      workerCalls += 1; await args.onSession({ threadId: 'fixture-thread', turnId: 'fixture-turn' });
+      let terminalStatus = 'failed'; let stopConfirmed = true;
+      try { const result = await workerRun(args); terminalStatus = 'completed'; await args.onResult(result); return result; }
+      catch (error) { if (error.code === 'CODEX_STOP_FAILED') stopConfirmed = false; throw error; }
+      finally { await args.onStorage({ pid: null, phase: stopConfirmed ? 'stopped' : 'stop-unconfirmed', stopConfirmed, terminalStatus }); }
+    } })
   });
   return { root, rows, controller, control, run: () => execute(id, run.id, { projectId: id, task: run.task, prompt: 'Use only the supplied task.', researchSkills: [],
     llmConfig: { endpoint: 'http://127.0.0.1:9/v1/chat/completions', model: 'fixture-model', apiKey: 'fixture-no-network' } }, control), workerCalls: () => workerCalls };
 }
+
+test('successful parent execution retains worker history, immutable baselines and handoff receipts without applying the original project', async () => {
+  let workspace; let childId;
+  const original = 'private manuscript must stay in its project';
+  const f = await fixture('retained-success', ['project.read', 'patch.propose'], async args => {
+    workspace = args.workspace;
+    const result = await args.delegateCodex({ task: 'Propose the bounded edit.', maxTokens: 128 }, { callId: 'retained-success' });
+    childId = result.childRunId;
+    assert.equal(await fs.readFile(path.join(workspace, 'main.tex'), 'utf8'), 'a proposed manuscript');
+    return { ok: true, finalResponse: 'The proposal is ready for review.', usage: { totalTokens: 10 } };
+  }, async args => {
+    const broker = await createDshFileBroker(args);
+    try {
+      const file = await broker.execute({ tool: 'project_read_file', callId: 'read', arguments: { path: 'main.tex' } });
+      await broker.execute({ tool: 'project_propose_patch', callId: 'write', arguments: { path: 'main.tex', content: 'a proposed manuscript', expectedSha256: file.sha256 } });
+      return { ok: true, finalResponse: 'Worker proposal complete.', usage: { totalTokens: 20 }, output: { codex: { threadId: 'fixture-thread', turnId: 'fixture-turn' } } };
+    } finally { await broker.close(); }
+  });
+  const result = await f.run();
+  assert.equal(result.status, 'completed'); assert.equal(result.patches.length, 1);
+  assert.equal(result.patches[0].original, original); assert.equal(result.patches[0].content, 'a proposed manuscript');
+  assert.equal(await fs.readFile(path.join(f.root, 'main.tex'), 'utf8'), original);
+  const root = path.dirname(workspace);
+  const checkpoint = JSON.parse(await fs.readFile(path.join(root, 'checkpoint.json'), 'utf8'));
+  assert.equal(checkpoint.status, 'completed'); assert.equal(checkpoint.stopConfirmed, true);
+  assert.equal(checkpoint.children.length, 1); assert.equal(checkpoint.children[0].runId, childId);
+  assert.equal(checkpoint.children[0].stopConfirmed, true); assert.equal(checkpoint.children[0].status, 'completed');
+  assert.equal(await fs.readFile(path.join(root, 'baseline', 'main.tex'), 'utf8'), original);
+  const child = f.rows.get(childId);
+  assert.equal(child.workerResult.finalResponse, 'Worker proposal complete.'); assert.equal(child.recovery.phase, 'handed-off');
+  const childRoot = path.join(root, child.recovery.root);
+  assert.equal(await fs.readFile(path.join(childRoot, 'baseline', 'main.tex'), 'utf8'), original);
+  assert.equal(await fs.readFile(path.join(childRoot, 'workspace', 'main.tex'), 'utf8'), 'a proposed manuscript');
+  assert.ok((await fs.readdir(path.join(childRoot, 'handoff-receipts'))).length > 0);
+});
 
 test('metadata-only DSH execution creates an empty workspace and never copies or reads manuscript files', async t => {
   let inspected = false;
@@ -121,7 +163,9 @@ test('cancellation keeps the workspace and executing promise until a slow adapte
   const result = await completion;
   assert.equal(result.status, 'cancelled');
   assert.notEqual(f.control.stopUnconfirmed, true);
-  await assert.rejects(fs.stat(workspace), { code: 'ENOENT' });
+  assert.equal((await fs.stat(workspace)).isDirectory(), true);
+  const checkpoint = JSON.parse(await fs.readFile(path.join(path.dirname(workspace), 'checkpoint.json'), 'utf8'));
+  assert.equal(checkpoint.status, 'cancelled'); assert.equal(checkpoint.stopConfirmed, true);
 });
 
 test('unconfirmed shutdown retains the private workspace and marks its model slot retained', async t => {

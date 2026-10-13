@@ -35,6 +35,8 @@ function spawnFixture(_executable, args, _options, duplicate = false) {
       reply(message, { exitCode: control ? 0 : 1, stdout: control ? 'scienceprism-worker-control' : '', stderr: '' });
     }
     if (message.method === 'thread/start') reply(message, { thread: { id: 'thread' } });
+    if (message.method === 'thread/read') reply(message, { thread: { id: 'thread', cwd: _options.cwd, modelProvider: 'scienceprism_worker_provider', ephemeral: false, turns: [], status: { type: 'notLoaded' } } });
+    if (message.method === 'thread/turns/list') reply(message, { data: [{ id: 'turn', status: 'completed', itemsView: 'full', items: [{ id: 'reply', type: 'agentMessage', text: 'Worker completed.' }] }], nextCursor: null });
     if (message.method === 'turn/start') { reply(message, { turn: { id: 'turn', status: 'inProgress' } }); call(901, 'project_read_file', { path: 'main.tex' }); }
     if (message.id === 901 && message.result?.success) {
       const read = JSON.parse(message.result.contentItems[0].text);
@@ -57,13 +59,13 @@ async function fixture(t, revoke = false, duplicate = false) {
   await fs.mkdir(cache, { recursive: true }); const root = await fs.mkdtemp(path.join(cache, 'codex-events-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const workspace = path.join(root, 'workspace'); await fs.mkdir(workspace); await fs.writeFile(path.join(workspace, 'main.tex'), 'old');
-  const events = []; const decisions = []; const order = []; let active = true;
-  const worker = createCodexWorker({ executable: '/fixture/codex', spawnProcess: (file, args, options) => spawnFixture(file, args, options, duplicate) });
+  const events = []; const decisions = []; const order = []; const storage = [], results = [], outbound = []; let active = true;
+  const worker = createCodexWorker({ executable: '/fixture/codex', spawnProcess: (file, args, options) => { const child = spawnFixture(file, args, options, duplicate); child.stdin.on('data', chunk => { for (const line of String(chunk).trim().split('\n')) { try { const message = JSON.parse(line); if (message.method) outbound.push(message.method); } catch {} } }); return child; } });
   const options = { provider: { baseUrl: 'http://127.0.0.1:9/v1', model: 'fixture', apiKey: 'fixture-key' }, task: 'Read then propose.', workspace, runtimeHome: path.join(root, 'controls'), timeoutMs: 1000, maxTokens: 512,
     readPolicy: async () => ({ projectId: 'project', runId: 'child', role: 'writer', task: 'draft', version: 'v1', active, mode: 'auto', capabilities: { granted: ['project.read', 'patch.propose'], allowedPaths: ['main.tex'], networkAllowlist: [] } }),
-    onSession: async () => {}, onDecision: async event => { decisions.push(event); order.push(`${event.callId}:${event.decision}`); if (revoke && event.tool === 'project_propose_patch' && event.decision === 'allow') active = false; },
+    parentRunId: 'parent', onStorage: async value => storage.push(structuredClone(value)), onResult: async value => results.push(structuredClone(value)), onSession: async () => {}, onDecision: async event => { decisions.push(event); order.push(`${event.callId}:${event.decision}`); if (revoke && event.tool === 'project_propose_patch' && event.decision === 'allow') active = false; },
     emit: event => { events.push(summarizeEvent(event)); order.push(`${event.data.callId}:${event.type}`); } };
-  return { workspace, events, decisions, order, run: () => worker.run(options) };
+  return { worker, outbound, workspace, events, decisions, order, storage, results, options, run: () => worker.run(options) };
 }
 
 test('Codex controlled reads and proposals emit paired standard graph events after policy audit', async t => {
@@ -92,6 +94,7 @@ test('Codex rejected proposal emits tool/error paired by call identity and never
   assert.equal(JSON.parse(failed.error).code, 'DSH_RUN_INACTIVE');
   assert.equal(f.events.some(event => event.type === 'tool/end' && event.callId === 'call-902'), false);
   assert.ok(f.decisions.some(event => event.callId === 'call-902' && event.decision === 'deny'));
+  assert.equal(f.storage.at(-1).terminalStatus, 'failed', 'Cleanup cancellation must not relabel the actual worker failure.');
 });
 
 test('retransmitted Codex read and proposal complete with one actual file operation and graph pair', async t => {
@@ -104,3 +107,65 @@ test('retransmitted Codex read and proposal complete with one actual file operat
     ['tool/start', 'call-901'], ['tool/end', 'call-901'], ['tool/start', 'call-902'], ['tool/end', 'call-902']
   ]);
 });
+
+
+test('actual worker retains its controls and durable receipts before returning its result', async t => {
+  const f = await fixture(t); const result = await f.run();
+  assert.equal(f.results.length, 1); assert.deepEqual(f.results[0], result);
+  assert.equal(f.storage[0].phase, 'prepared');
+  assert.equal(f.storage.at(-1).phase, 'stopped'); assert.equal(f.storage.at(-1).stopConfirmed, true);
+  assert.equal(f.storage.at(-1).threadId, 'thread'); assert.equal(f.storage.at(-1).turnId, 'turn');
+  const root = path.join(f.options.runtimeHome, f.storage[0].root);
+  const ledger = JSON.parse(await fs.readFile(path.join(root, 'receipts', 'tool-receipts.json'), 'utf8'));
+  assert.equal(ledger.binding.parentRunId, 'parent'); assert.equal(ledger.binding.workerRunId, 'child');
+  assert.deepEqual(ledger.receipts.map(row => [row.callId, row.status]), [['call-901', 'completed'], ['call-902', 'completed']]);
+  assert.equal(JSON.stringify(ledger).includes('new'), false); assert.equal(JSON.stringify(ledger).includes('not-persisted-key'), false);
+  assert.equal((await fs.stat(root)).isDirectory(), true);
+});
+
+test('worker refuses to start if its recovery location cannot be durably recorded', async t => {
+  const f = await fixture(t); f.options.onStorage = async () => { throw new Error('checkpoint unavailable'); };
+  await assert.rejects(f.run(), /checkpoint unavailable/);
+  assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'old');
+  assert.equal(f.events.some(event => event.type === 'tool/start'), false);
+});
+
+
+test('stopped worker inspection reads the exact saved turn without starting another model task', async t => {
+  const f = await fixture(t); await f.run(); const saved = f.storage.at(-1), calls = f.outbound.length;
+  const result = await f.worker.readResult({ ...f.options, storage: saved, assertOwnership: async () => {} });
+  assert.equal(result.finalResponse, 'Worker completed.'); assert.equal(result.usage, undefined);
+  assert.deepEqual(f.outbound.slice(calls), ['initialize', 'initialized', 'thread/read', 'thread/turns/list']);
+  assert.equal(f.storage.at(-1).stopConfirmed, true);
+  assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'new');
+});
+
+test('unconfirmed/live worker identity, stale version and current revocation block inspection before spawning', async t => {
+  const f = await fixture(t); await f.run(); const saved = f.storage.at(-1), calls = f.outbound.length;
+  for (const [patch, code] of [[{stopConfirmed:false}, 'CODEX_RECOVERY_INVALID'], [{pid:process.pid}, 'CODEX_RECOVERY_OWNER_ACTIVE'], [{implementationHash:'0'.repeat(64)}, 'CODEX_RECOVERY_INVALID']]) {
+    await assert.rejects(f.worker.readResult({ ...f.options, storage:{...saved,...patch}, assertOwnership:async()=>{} }), {code});
+  }
+  await assert.rejects(f.worker.readResult({ ...f.options, storage:saved, readPolicy:async()=>({...await f.options.readPolicy(),active:false}), assertOwnership:async()=>{} }), {code:'CODEX_RECOVERY_POLICY_DENIED'});
+  assert.equal(f.outbound.length,calls);
+});
+
+for (const inspect of [false, true]) {
+  test(`an unconfirmed ${inspect ? 'inspection' : 'worker'} stop remains fatal when checkpoint saving also fails`, async t => {
+    const f = await fixture(t);
+    if (inspect) await f.run();
+    const storage = f.storage.at(-1), attempted = [];
+    let app;
+    const worker = createCodexWorker({ executable: '/fixture/codex', spawnProcess: (file, args, options) => {
+      const child = spawnFixture(file, args, options);
+      if (args[0] === 'app-server') { app = child; child.stdin.removeAllListeners('end'); child.kill = () => false; }
+      return child;
+    } });
+    t.after(() => { if (app) { app.stdin.destroy(); app.close(); } });
+    const options = { ...f.options, storage, assertOwnership: async () => {}, onStorage: async value => {
+      attempted.push(structuredClone(value));
+      if (value.phase === 'stop-unconfirmed') throw new Error('checkpoint unavailable');
+    } };
+    await assert.rejects(inspect ? worker.readResult(options) : worker.run(options), { code: 'CODEX_STOP_FAILED' });
+    assert.equal(attempted.at(-1).stopConfirmed, false);
+  });
+}
