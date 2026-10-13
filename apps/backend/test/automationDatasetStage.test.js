@@ -42,7 +42,7 @@ async function blockedFixture(id, { missing = false } = {}) {
   const state = await readAutomation(id);
   await saveAutomationPolicy(id, { actor: 'human', expectedVersion: state.version, policy: { enabled: true, overrides: {}, agentMode: 'specialists',
     datasetScope: { allowedHosts: ['raw.githubusercontent.com'], maxBytes: 1024, maxDatasets: 1 } } });
-  const plan = { dataset: imported.dataset.id, datasetVersion: imported.dataset.sha256, protocol: 'Read the actual CSV input.',
+  const plan = { dataset: imported.dataset.id, datasetVersion: '0'.repeat(64), protocol: 'Read the actual CSV input.',
     execution: { adapter: 'node', entrypoint: 'run.mjs', args: [] }, seed: 0, successCriteria: ['Record actual metrics'], artifacts: [{ path: 'results/metrics.json', kind: 'metric' }] };
   const fakeResponse = JSON.stringify({ stage: 'execution_proposal', plan: missing ? null : plan, missing: missing ? ['Prepare verified accessible input and environment.'] : [] });
   const runtime = { adapter: 'fake', testInput: { replication: { fakeResponse }, execution_proposal: { fakeResponse } } };
@@ -54,7 +54,7 @@ async function blockedFixture(id, { missing = false } = {}) {
     await new Promise(resolve => setTimeout(resolve, 5));
   }
   assert.equal(final.session.status, 'blocked', JSON.stringify(final.session));
-  assert.equal(final.session.error.code, missing ? 'AUTOMATION_MATERIALS_REQUIRED' : 'AUTOMATION_DATASET_INPUT_REQUIRED', JSON.stringify(final.session.error));
+  assert.equal(final.session.error.code, missing ? 'AUTOMATION_MATERIALS_REQUIRED' : 'AUTOMATION_DATASET_VERSION_CHANGED', JSON.stringify(final.session.error));
   return { root, final, imported, runtime };
 }
 
@@ -70,7 +70,7 @@ async function snapshot(root) {
   await visit(root); return result;
 }
 
-test('correct actual dataset ID/SHA from a completed model proposal cannot approve or execute a private blob', async () => {
+test('wrong acquired dataset SHA from a completed model proposal cannot approve or execute a private blob', async () => {
   const id = 'private-input', { final, imported } = await blockedFixture(id);
   const step = final.session.steps.find(item => item.stage === 'replication');
   assert.equal(step.prepared, undefined); assert.equal(step.approved, undefined); assert.equal(step.result, undefined); assert.equal(step.experimentRunId, undefined);
@@ -78,7 +78,7 @@ test('correct actual dataset ID/SHA from a completed model proposal cannot appro
   assert.deepEqual(await listExperimentRuns(id), []);
   const runs = await listHarnessRuns(id), producer = runs.find(run => run.task === 'research:execution_proposal');
   assert.ok(producer); assert.equal(producer.status, 'completed');
-  assert.ok(producer.reply.includes(imported.dataset.id)); assert.ok(producer.reply.includes(imported.dataset.sha256));
+  assert.ok(producer.reply.includes(imported.dataset.id)); assert.ok(producer.reply.includes('0'.repeat(64)));
   assert.equal(runs.filter(run => run.task === 'research:reproduction_plan').length, 0);
   const workflow = await getResearchWorkflow(id), replication = workflow.stages.find(stage => stage.id === 'replication');
   assert.equal(workflow.currentStage, 'replication'); assert.equal(replication.status, 'in_progress');

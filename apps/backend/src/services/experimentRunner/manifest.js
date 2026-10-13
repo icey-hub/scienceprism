@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { ExperimentRunnerError } from './errors.js';
 import { environmentService } from './environments.js';
+import { resolveExperimentDataset } from './datasetInput.js';
 
 export const RUNNER_VERSION = '1';
 export const EXPERIMENT_ADAPTERS = Object.freeze(['node', 'python', 'fake']);
@@ -158,6 +159,12 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
     maxOutputBytes: Math.min(Math.max(Number(source.resources?.maxOutputBytes) || 2 * 1024 * 1024, 1_024), 50 * 1024 * 1024),
     maxArtifactBytes: Math.min(Math.max(Number(source.resources?.maxArtifactBytes) || 50 * 1024 * 1024, 1_024), 500 * 1024 * 1024)
   };
+  const dataset = await resolveExperimentDataset(projectId, { id: datasetId, version: datasetVersion, evidenceId: text(datasetValue.evidenceId) || null });
+  const artifacts = normalizeArtifacts(source.artifacts || source.artifactPaths);
+  if (dataset.input) {
+    if (dataset.input.byteLength > resources.maxArtifactBytes) throw new ExperimentRunnerError(413, 'EXPERIMENT_DATASET_BUDGET', 'The fixed dataset exceeds the input archive budget.');
+    if (snapshot.files.some(file => file.path === dataset.input.path) || artifacts.some(file => file.path === dataset.input.path || dataset.input.path.startsWith(`${file.path}/`))) throw new ExperimentRunnerError(409, 'EXPERIMENT_DATASET_COLLISION', 'The fixed dataset input cannot replace project code or be declared as an output.');
+  }
   const seed = source.seed === undefined || source.seed === null ? null : String(source.seed);
   return {
     schemaVersion: 1,
@@ -171,7 +178,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
       paths: snapshot.paths,
       ...(replicationContext ? { repository: text(replicationContext.plan.repository) } : {})
     },
-    dataset: { id: datasetId, version: datasetVersion, evidenceId: text(datasetValue.evidenceId) || null },
+    dataset,
     environment: {
       node: process.version,
       platform: process.platform,
@@ -195,7 +202,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
     seed,
     resources,
     successCriteria,
-    artifacts: normalizeArtifacts(source.artifacts || source.artifactPaths),
+    artifacts,
     ...(replicationContext ? { replication: replicationContext } : {}),
     ...(researchContext ? { researchPlan: researchContext } : {}),
     createdAt: now()

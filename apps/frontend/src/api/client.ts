@@ -782,7 +782,7 @@ export interface ExperimentRun {
   // must keep those records readable and show an explicit "not recorded" value.
   manifest?: {
     code?: { version?: string; snapshotHash?: string };
-    dataset?: { id?: string; version?: string };
+    dataset?: { id?: string; version?: string; input?: { path: string; sha256: string; byteLength: number; filename: string; source: {kind: string; url: string | null; revision: string | null}; license: {label: string; verified: boolean}; split: string } };
     environment?: { node?: string; platform?: string; arch?: string; runner?: string; recorded?: string; preparation?: {id: string; sha256: string; lockSha256: string}; python?: {version: string; implementation: string} };
     command?: { adapter?: string; entrypoint?: string; args?: string[] };
     parameters?: Record<string, unknown>;

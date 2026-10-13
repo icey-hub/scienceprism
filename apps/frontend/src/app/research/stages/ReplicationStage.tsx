@@ -1,7 +1,9 @@
 import type { ExperimentRun } from '../../../api/client';
 import type { PaperCandidate, ReplicationPlan } from '../researchStages';
+import { DatasetVersionPicker } from './DatasetVersionPicker';
 
 export interface ReplicationStageProps {
+  projectId?: string;
   selectedPapers: readonly PaperCandidate[];
   value: ReplicationPlan;
   busy?: boolean;
@@ -25,7 +27,7 @@ function artifactDeclarations(value: ReplicationPlan) {
   return (value.artifacts || []).map((artifact) => artifact.path).join('\n');
 }
 
-export function ReplicationStage({ selectedPapers, value, busy = false, stageApproved = false, stageStatus = 'in_progress', run, onChange, onSavePlan, onSkip, onCreateRun, onApproveRun, onStartRun, onCancelRun }: ReplicationStageProps) {
+export function ReplicationStage({ projectId, selectedPapers, value, busy = false, stageApproved = false, stageStatus = 'in_progress', run, onChange, onSavePlan, onSkip, onCreateRun, onApproveRun, onStartRun, onCancelRun }: ReplicationStageProps) {
   const qualityPassed = selectedPapers.filter((paper) => paper.eligibility === 'pass').length;
   const execution = executionFor(value);
   const hasRequiredPreparation = Boolean(value.repository.trim() && value.environment.trim() && value.dataset.trim() && value.datasetVersion?.trim() && value.note.trim());
@@ -43,6 +45,7 @@ export function ReplicationStage({ selectedPapers, value, busy = false, stageApp
       </section>
       <section className="research-panel">
         <fieldset className="research-form-grid" disabled={busy || stageApproved}>
+          {projectId && <DatasetVersionPicker projectId={projectId} value={value.dataset} disabled={busy || stageApproved} onChange={(dataset, datasetVersion) => onChange({ ...value, dataset, datasetVersion })} />}
           <label className="research-field research-field-wide"><span>代码仓库</span><input value={value.repository} placeholder="仓库 URL 或项目内路径" onChange={(event) => onChange({ ...value, repository: event.target.value })} /></label>
           <label className="research-field"><span>运行环境</span><input value={value.environment} placeholder="例如：Python 3.11 / CUDA 12" onChange={(event) => onChange({ ...value, environment: event.target.value })} /></label>
           <label className="research-field"><span>复现数据集</span><input value={value.dataset} placeholder="名称、版本或访问位置" onChange={(event) => onChange({ ...value, dataset: event.target.value })} /></label>
@@ -69,6 +72,7 @@ export function ReplicationStage({ selectedPapers, value, busy = false, stageApp
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">RUN MANIFEST</span><h3>复现运行状态</h3></div><span className="research-status-note">{run?.status || '尚未创建'}</span></div>
         {!run ? <div className="research-empty-inline">创建 Run 后，服务端生成的来源快照、代码版本和数据版本会在这里显示。</div> : <>
+          {run.manifest?.dataset?.input && <p className="research-panel-copy">固定数据输入：{run.manifest.dataset.input.filename} · {run.manifest.dataset.input.byteLength.toLocaleString()} bytes · SHA256 {run.manifest.dataset.input.sha256.slice(0, 16)}。运行前后核对，原始数据独立归档。</p>}
           <dl className="research-run-summary"><div><dt>来源阶段</dt><dd>{run.manifest?.replication?.sourceStage || 'replication'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>代码快照</dt><dd>{(run.manifest?.code?.snapshotHash || '未记录').slice(0, 16)}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控适配器'}</dd></div></dl>
           <div className="research-callout"><strong>证据状态</strong><p>{run.status === 'completed' ? '产物已归档为 pending，仍需人工核对后确认；运行成功不等于科学结论。' : run.status === 'failed' || run.status === 'cancelled' ? '该 Run 保持 unverified，未视为复现成功。' : '结果尚未完成，不能作为科学证据。'}</p></div>
           {run.error?.message && <div className="research-callout research-callout-warning"><strong>运行失败</strong><p>{run.error.message}</p></div>}

@@ -1,6 +1,7 @@
 import type { ExperimentPlan } from '../researchStages';
 import type { ExperimentRun } from '../../../api/client';
 import { PythonEnvironmentPanel } from './PythonEnvironmentPanel';
+import { DatasetVersionPicker } from './DatasetVersionPicker';
 
 export interface ExperimentStageProps {
   projectId?: string;
@@ -32,6 +33,7 @@ export function ExperimentStage({ projectId, value, busy = false, onChange, onSa
           <span className="research-status-note">{value.status || '待规划'}</span>
         </div>
         <div className="research-form-grid">
+          {projectId && <DatasetVersionPicker projectId={projectId} value={value.dataset} disabled={busy} onChange={(dataset, datasetVersion) => onChange({ ...value, dataset, datasetVersion })} />}
           <label className="research-field"><span>运行适配器</span><select value={execution.adapter} onChange={(event) => onChange({ ...value, execution: { ...execution, adapter: event.target.value as 'node' | 'python', environmentId: event.target.value === 'python' ? execution.environmentId : undefined } })}><option value="node">Node.js</option><option value="python">Python</option></select></label>
           <label className="research-field"><span>数据集</span><input value={value.dataset} placeholder="数据集名称或受控路径" onChange={(event) => onChange({ ...value, dataset: event.target.value })} /></label>
           <label className="research-field"><span>数据版本</span><input value={value.datasetVersion} placeholder="版本、提交号或快照日期" onChange={(event) => onChange({ ...value, datasetVersion: event.target.value })} /></label>
@@ -60,6 +62,7 @@ export function ExperimentStage({ projectId, value, busy = false, onChange, onSa
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">RUN MANIFEST</span><h3>受控运行</h3></div><span className="research-status-note">{run?.status || '尚未创建'}</span></div>
         {!run ? <div className="research-empty-inline">保存并确认实验计划后，可以创建一次待审批的受控运行。</div> : <>
+          {run.manifest?.dataset?.input && <p className="research-panel-copy">固定数据输入：{run.manifest.dataset.input.filename} · {run.manifest.dataset.input.byteLength.toLocaleString()} bytes · SHA256 {run.manifest.dataset.input.sha256.slice(0, 16)}。运行前后核对，原始数据独立归档。</p>}
           <dl className="research-run-summary"><div><dt>代码版本</dt><dd>{run.manifest?.code?.version || '未记录'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>Python 环境</dt><dd>{run.manifest?.environment?.python ? `${run.manifest.environment.python.version} · ${run.manifest.environment.preparation?.sha256.slice(0, 12) || '未绑定版本'}` : '未记录'}</dd></div><div><dt>种子</dt><dd>{run.manifest?.seed || '未设置'}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控测试适配器'}</dd></div><div><dt>关联方法</dt><dd>{run.manifest?.researchPlan?.plan?.methodId || '未记录'}</dd></div><div><dt>计划重复 / 预算</dt><dd>{run.manifest?.researchPlan?.plan?.repetitions || 1} 次 · {run.manifest?.researchPlan?.plan?.budget || '未记录'}</dd></div></dl>
           {run.error?.message && <div className="research-callout research-callout-warning"><strong>运行失败</strong><p>{run.error.message}</p></div>}
           <div className="research-inline-actions">

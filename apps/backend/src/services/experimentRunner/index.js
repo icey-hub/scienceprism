@@ -12,6 +12,7 @@ import { withWorkflowLock } from '../researchWorkflow/repository.js';
 import { artifactDirectory, clone, readExperimentRuns, resolveExperimentProjectRoot, withExperimentRunLock, writeExperimentRuns } from './repository.js';
 import { experimentAdapters } from './adapters.js';
 import { environmentService } from './environments.js';
+import { prepareExperimentDataset, assertExperimentDatasetInput } from './datasetInput.js';
 import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary, experimentManifestHash } from './manifest.js';
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
@@ -287,7 +288,7 @@ function assertExecutionAllowed(constraints, run, rolloutEnabled = true) {
   if (constraints.allowExperimentExecution === false) throw new ExperimentRunnerError(403, 'EXPERIMENT_EXECUTION_DENIED', 'Project Constraints explicitly disable experiment execution.');
   const allowedPaths = constraints.allowedPaths ?? constraints.fileScope ?? [];
   if (!Array.isArray(allowedPaths) || allowedPaths.some(value => typeof value !== 'string')) throw new ExperimentRunnerError(400, 'EXPERIMENT_PATH_SCOPE_INVALID', 'The project experiment file scope is invalid.');
-  const files = [...(run.manifest.code.files || []).map(file => file.path), run.manifest.command.entrypoint, ...(run.manifest.artifacts || []).map(artifact => artifact.path)].filter(Boolean);
+  const files = [...(run.manifest.code.files || []).map(file => file.path), run.manifest.command.entrypoint, run.manifest.dataset.input?.path, ...(run.manifest.artifacts || []).map(artifact => artifact.path)].filter(Boolean);
   if (files.some(file => !isPathAllowed(file, { allowedPaths }))) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed experiment inputs or outputs exceed the project file scope.');
   const maxConcurrent = Math.min(Math.max(Number(constraints.maxConcurrent) || 1, 1), 32);
   const activeCount = [...activeRuns].filter(([id, item]) => id !== run.id && item.projectId === run.projectId).length;
@@ -378,7 +379,17 @@ async function archiveExperimentInputs(root, workspaceRoot, run, artifacts) {
     files.push({ ...file, status: 'archived', artifactId: artifact.id });
     bytes += artifact.bytes;
   }
-  const snapshot = { runId: run.id, codeSnapshotHash: run.manifest.code.snapshotHash, complete: files.every((file) => file.status !== 'not-archived'), maxBytes: limit, bytes, files };
+  let dataset = null;
+  if (run.manifest.dataset.input) {
+    const input = await assertExperimentDatasetInput(workspaceRoot, run.manifest.dataset);
+    if (bytes + input.byteLength > limit) throw new ExperimentRunnerError(413, 'EXPERIMENT_DATASET_BUDGET', 'The fixed data and code exceed the input archive budget.');
+    const relative = path.posix.join('inputs', input.path);
+    const artifact = await saveArtifact(root, run, safeJoin(workspaceRoot, input.path), relative, 'environment', relative, limit);
+    if (artifact.sha256 !== input.sha256) throw new ExperimentRunnerError(409, 'EXPERIMENT_DATASET_CHANGED', 'Dataset changed before input archival.');
+    artifacts.push(artifact); bytes += artifact.bytes;
+    dataset = { ...input, id: run.manifest.dataset.id, version: run.manifest.dataset.version, artifactId: artifact.id, status: 'archived' };
+  }
+  const snapshot = { runId: run.id, codeSnapshotHash: run.manifest.code.snapshotHash, complete: files.every((file) => file.status !== 'not-archived'), maxBytes: limit, bytes, files, ...(dataset ? { dataset } : {}) };
   artifacts.push(await saveTextArtifact(root, run, 'input-snapshot.json', `${JSON.stringify(snapshot, null, 2)}\n`, 'environment', 'input-snapshot.json', limit));
 }
 
@@ -493,6 +504,7 @@ async function executeRun(projectId, runId, control) {
   try {
     await copyProjectWorkspace(root, workspaceRoot, control.allowedPaths);
     await assertExperimentCodeSnapshot(workspaceRoot, run.manifest);
+    if (run.manifest.dataset.input && !isPathAllowed(run.manifest.dataset.input.path, { allowedPaths: control.allowedPaths })) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed dataset exceeds the parent execution file scope.');
     // Declared outputs must be produced by this Run, not inherited from the project.
     for (const artifact of run.manifest.artifacts) {
       if (artifact.path === run.manifest.command.entrypoint) throw new ExperimentRunnerError(400, 'ARTIFACT_INPUT_COLLISION', 'An execution entrypoint cannot also be a declared output.');
@@ -500,6 +512,7 @@ async function executeRun(projectId, runId, control) {
       try { await fs.unlink(target); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     await writeExperimentInput(workspaceRoot, run);
+    await prepareExperimentDataset(projectId, workspaceRoot, run.manifest.dataset, { signal: control.controller.signal, beforeEffect: control.beforeLaunch });
     await archiveExperimentInputs(root, workspaceRoot, run, inputArtifacts);
     const beforeLaunch = async () => {
       control.controller.signal.throwIfAborted();
@@ -511,6 +524,7 @@ async function executeRun(projectId, runId, control) {
         || !isDeepStrictEqual(intersectPaths(control.allowedPaths, latestScope), control.allowedPaths)) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_SCOPE_CHANGED', 'The copied workspace scope changed before launch.');
       const policy = await readConstraintPolicy(projectId);
       assertExecutionAllowed(constraints, latest, isConstraintEnabled(policy, 'C-16'));
+      if (latest.manifest.dataset.input && !isPathAllowed(latest.manifest.dataset.input.path, { allowedPaths: control.allowedPaths })) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed dataset exceeds the parent execution file scope.');
       if (latest.approval?.authorization) await requireAutomatic(projectId, 'execution', latest.approval.authorization.sessionId);
       if (latest.manifest.researchPlan || latest.manifest.replication) {
         const workflow = await getResearchWorkflow(projectId);
@@ -519,6 +533,7 @@ async function executeRun(projectId, runId, control) {
       }
       await control.beforeLaunch?.();
       if (run.manifest.command.environmentId) await environmentService.verify(projectId, run.manifest.command.environmentId, run.manifest.environment.preparation?.sha256);
+      await assertExperimentDatasetInput(workspaceRoot, run.manifest.dataset);
       control.controller.signal.throwIfAborted();
     };
     const onProcess = async state => {
@@ -533,6 +548,7 @@ async function executeRun(projectId, runId, control) {
     }, run.manifest.resources.timeoutMs);
     try {
       result = await task;
+      await assertExperimentDatasetInput(workspaceRoot, run.manifest.dataset);
       if (control.timedOut) executionError = new ExperimentRunnerError(504, 'EXPERIMENT_TIMEOUT', 'Experiment Run exceeded its configured timeout.');
     }
     finally { clearTimeout(timer); }
@@ -618,6 +634,7 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
     } else if (next.executionBinding) throw new ExperimentRunnerError(409, 'EXPERIMENT_OWNER_CHANGED', 'This Experiment Run must be started by its bound parent.');
     if (next.approval?.authorization) await requireAutomatic(projectId, 'execution', next.approval.authorization.sessionId);
     assertExecutionAllowed(constraints, next, rolloutEnabled);
+    if (next.manifest.dataset.input && !isPathAllowed(next.manifest.dataset.input.path, { allowedPaths: control.allowedPaths })) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed dataset exceeds the parent execution file scope.');
     if (next.manifest?.replication) {
       if (!workflow) throw new ExperimentRunnerError(409, 'REPLICATION_WORKFLOW_REQUIRED', 'The replication workflow must be available before execution.');
       assertReplicationPreparationUnchangedFromWorkflow(projectId, workflow, next.manifest.replication);

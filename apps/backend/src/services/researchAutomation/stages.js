@@ -13,6 +13,7 @@ import { datasetService } from '../datasets/index.js';
 import { acquireAutomationDataset } from './datasetAcquisition.js';
 import { prepareAutomationEnvironment } from './environmentPreparation.js';
 import { environmentService } from '../experimentRunner/environments.js';
+import { resolveExperimentDataset } from '../experimentRunner/datasetInput.js';
 import { allowsAutomatic } from './policy.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
@@ -141,16 +142,16 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     if (!plan) {
       availableDatasets=[...new Map(availableDatasets.map(dataset=>[dataset.id,dataset])).values()];
       const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files,
-        ...(availableDatasets.length?{availableDatasets:availableDatasets.map(dataset=>({id:dataset.id,sha256:dataset.sha256,byteLength:dataset.byteLength,source:dataset.source,split:dataset.split,preview:dataset.preview}))}:{}),
+        ...(availableDatasets.length?{availableDatasets:availableDatasets.map(dataset=>({id:dataset.id,sha256:dataset.sha256,byteLength:dataset.byteLength,filename:dataset.filename,source:dataset.source,split:dataset.split,preview:dataset.preview}))}:{}),
         ...(availableEnvironments.length?{availableEnvironments:availableEnvironments.map(environment=>({id:environment.id,sha256:environment.sha256,python:environment.python.version,packages:environment.packages})),environmentInstruction:'A Python plan must select one exact prepared environmentId. Existing private dataset copies and code still need Runner preparation; an environment alone is not reproduction.'}:{}),
-        instructions: availableDatasets.length?'Choose an existing code entrypoint and an acquired dataset exact id and sha256. Acquired raw data is in private storage; it is not an accessible experiment file until the Runner prepares a verified copy. If executable code, accessible input or environment is missing, return plan:null and list missing materials. Acquisition is not reproduction. Do not fabricate a runnable reproduction.':'Choose an existing code entrypoint and a real recorded dataset/version. If data or code is missing, return plan:null and list missing materials. Do not fabricate a runnable reproduction.' });
+        instructions: availableDatasets.length?'Choose existing executable code and an acquired dataset exact id and sha256. The Runner verifies and copies the fixed data into its sandbox; code must read SCIENCEPRISM_EXPERIMENT_INPUT JSON and use dataset.input.path. Never access private storage. Inspect whether the existing entrypoint consumes this input correctly. Missing code, incompatible data reader, protocol or environment requires plan:null with specific missing materials. Acquisition is not reproduction. Do not fabricate results.':'Choose an existing code entrypoint and a real recorded dataset/version. If data or code is missing, return plan:null and list missing materials. Do not fabricate a runnable reproduction.' });
       if (!result.output.plan || result.output.missing.length) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', `需要补充复现/实验材料：${result.output.missing.join('；') || '代码入口、数据及版本'}`);
       plan = result.output.plan;
       if(availableEnvironments.length&&plan.execution.adapter==='python'&&!availableEnvironments.some(environment=>environment.id===plan.execution.environmentId))throw new ResearchWorkflowError(409,'AUTOMATION_ENVIRONMENT_BINDING_REQUIRED','Python计划需要选择已准备的固定环境版本。');
       if(availableDatasets.length&&!availableDatasets.some(dataset=>dataset.id===plan.dataset&&dataset.sha256===plan.datasetVersion))throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_VERSION_CHANGED','实验建议没有绑定已核对的数据版本。');
       origin = 'model';
     }
-    if(/^dataset-[a-f0-9]{64}$/.test(plan.dataset))throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_INPUT_REQUIRED','数据已取得，但尚未准备给受控实验的输入副本和环境；不能将下载完成当作复现完成。');
+    if(/^dataset-[a-f0-9]{64}$/.test(plan.dataset))await resolveExperimentDataset(projectId,{id:plan.dataset,version:plan.datasetVersion});
     if (!files.includes(plan.execution?.entrypoint) || !plan.dataset || !plan.datasetVersion) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', '项目内需要可运行的代码入口、真实数据和数据版本。');
     await runtime.automationBindExecutionPlan(plan, origin);
     // The Runner validates paths, resources and snapshots again before dispatch.

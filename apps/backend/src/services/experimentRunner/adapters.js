@@ -114,7 +114,7 @@ export async function nodePermissionCommand(workspaceRoot, entrypoint, args) {
   };
 }
 
-async function macSandboxCommand(workspaceRoot, executable, entrypoint, args, extraReadablePaths = []) {
+async function macSandboxCommand(workspaceRoot, executable, entrypoint, args, extraReadablePaths = [], readOnlyPaths = []) {
   const nodeRealPath = await fs.realpath(executable);
   const workspaceRealPath = await fs.realpath(workspaceRoot);
   const nodeRuntimeRoot = path.dirname(path.dirname(nodeRealPath));
@@ -145,7 +145,8 @@ async function macSandboxCommand(workspaceRoot, executable, entrypoint, args, ex
     '(allow default)',
     '(deny network*)',
     `(deny file-read* (require-not ${readableFilter}))`,
-    `(deny file-write* (require-not ${writableFilter}))`
+    `(deny file-write* (require-not ${writableFilter}))`,
+    ...readOnlyPaths.map(file => `(deny file-write* (literal ${sandboxLiteral(file)}))`)
   ].join('\n');
   return { executable: sandboxExecutable, args: ['-p', profile, executable, entrypoint, ...args], isolation: 'macos-sandbox-exec' };
 }
@@ -162,13 +163,14 @@ export function chooseIsolationStrategy({ platform = process.platform, osSandbox
   return null;
 }
 
-async function isolatedCommand(workspaceRoot, entrypoint, args) {
+async function isolatedCommand(workspaceRoot, entrypoint, args, readOnlyPaths = []) {
   const applicability = process.platform === 'darwin' ? await macSandboxApplicability() : { ok: false, reason: `no OS sandbox is implemented for ${process.platform}` };
   const strategy = chooseIsolationStrategy({
     osSandboxApplicable: applicability.ok,
     nodePermissionSupported: supportsNodePermissionModel()
   });
-  if (strategy === 'macos-sandbox-exec') return macSandboxCommand(workspaceRoot, process.execPath, entrypoint, args);
+  if (strategy === 'macos-sandbox-exec') return macSandboxCommand(workspaceRoot, process.execPath, entrypoint, args, [], readOnlyPaths);
+  if (readOnlyPaths.length) throw new ExperimentRunnerError(503, 'EXPERIMENT_DATASET_ISOLATION_REQUIRED', 'Fixed raw data requires OS-enforced read-only isolation; the Node permission fallback cannot protect it.');
   if (strategy === 'node-permission') return nodePermissionCommand(workspaceRoot, entrypoint, args);
   throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `No enforceable Experiment Runner sandbox is available (${applicability.reason}; node permission model unsupported); the Experiment Run was not started.`);
 }
@@ -250,7 +252,8 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
 }
 
 export async function runNodeExperiment(manifest, options = {}) {
-  return runProcessExperiment(manifest, options, isolatedCommand);
+  const readOnlyPaths = manifest.dataset?.input ? [path.join(options.workspaceRoot, manifest.dataset.input.path)] : [];
+  return runProcessExperiment(manifest, options, (root, entrypoint, args) => isolatedCommand(root, entrypoint, args, readOnlyPaths));
 }
 
 export async function runPythonExperiment(manifest, options = {}) {
@@ -264,8 +267,9 @@ export async function runPythonExperiment(manifest, options = {}) {
   const applicability = await isOsSandboxApplicable();
   if (!applicability.ok) throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `Python runs require the macOS OS sandbox (${applicability.reason}).`);
   const venvRoot = path.dirname(path.dirname(configured));
+  const readOnlyPaths = manifest.dataset?.input ? [path.join(options.workspaceRoot, manifest.dataset.input.path)] : [];
   return runProcessExperiment(manifest, options, (workspaceRoot, entrypoint, args) =>
-    macSandboxCommand(workspaceRoot, configured, entrypoint, args, [venvRoot]));
+    macSandboxCommand(workspaceRoot, configured, entrypoint, args, [venvRoot], readOnlyPaths));
 }
 
 export async function runFakeExperiment(manifest, { inputPath, beforeLaunch } = {}) {
