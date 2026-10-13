@@ -21,7 +21,10 @@ const now = () => new Date().toISOString();
 const waiting = part => new ResearchWorkflowError(409, 'AUTOMATION_CONFIRMATION_REQUIRED', '该环节等待人工确认，确认后可继续链路。', { part });
 
 export async function getAutomation(projectId) {
-  const state = await readAutomation(projectId);
+  let state = await readAutomation(projectId);
+  // A worker can persist its terminal state and leave the map while this read
+  // is awaiting I/O. Re-read before interpreting that old snapshot as restart.
+  if (state.session && ['running', 'queued', 'stopping'].includes(state.session.status) && !workers.has(projectId)) state = await readAutomation(projectId);
   if (state.session?.status === 'stopping' && !workers.has(projectId)) state.session = { ...state.session, status: 'stopped', message: '停止请求已保留；服务重启后没有继续后台链路。' };
   if (state.session && ['running', 'queued'].includes(state.session.status) && !workers.has(projectId)) state.session = { ...state.session, status: 'interrupted', message: '服务已重启；已完成步骤保留，请继续并检查未结束的Run。' };
   return { ...state, parts: AUTOMATION_PARTS, agents: RESEARCH_SPECIALISTS };

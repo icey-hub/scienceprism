@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { promises as fileIO } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -22,6 +23,23 @@ registerResearchSourceAdapter({ id: 'arxiv', label: 'Controlled source', async s
   if (sourceWait) await sourceWait;
   return [{ id: 'p1', title: 'Controlled paper', abstract: 'Testing actual pipeline plumbing.', authors: ['Fixture Author'], year: 2025, url: 'https://arxiv.org/abs/2601.00001', venue: 'Test Conference', publicationType: 'conference', peerReviewed: true, source: 'arxiv' }];
 } });
+
+test('a stale running snapshot cannot relabel a durably completed research chain as interrupted', async t => {
+  await project('terminal-query');
+  await mutateAutomation('terminal-query', state => { state.session = { id: 'query-fixture', status: 'completed', steps: [], message: 'done' }; });
+  const read = fileIO.readFile.bind(fileIO); let delayedSnapshot = false;
+  t.mock.method(fileIO, 'readFile', async (file, ...args) => {
+    const content = await read(file, ...args);
+    if (String(file).endsWith('research-automation.json') && !delayedSnapshot) {
+      delayedSnapshot = true;
+      const stale = JSON.parse(content); stale.session.status = 'running';
+      return JSON.stringify(stale);
+    }
+    return content;
+  });
+  const actual = await getAutomation('terminal-query');
+  assert.equal(delayedSnapshot, true); assert.equal(actual.session.status, 'completed'); assert.equal(actual.session.message, 'done');
+});
 const runtime = { adapter: 'fake', testInput: {
   search: { fakeResponse: JSON.stringify({ stage: 'search_strategy', researchQuestion: 'Question', humanDirection: 'Question', queries: ['Question'], sources: ['arxiv'], rationale: 'Controlled strategy' }) },
   paper_selection: { fakeResponse: JSON.stringify({ stage: 'paper_selection', paperIds: ['p1'], rationale: 'Relevant controlled source' }) },
