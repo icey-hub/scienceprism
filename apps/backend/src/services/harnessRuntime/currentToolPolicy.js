@@ -10,7 +10,7 @@ function scope(values) {
   }
   return [...new Set(values)];
 }
-function intersectPaths(left, right) {
+export function intersectPaths(left, right) {
   if (!left.length) return right;
   if (!right.length) return left;
   return [...new Set(left.flatMap(a => right.flatMap(b => a === b || a.startsWith(`${b}/`) ? [a] : b.startsWith(`${a}/`) ? [b] : [])))];

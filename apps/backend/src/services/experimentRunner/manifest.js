@@ -200,6 +200,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
 export function manifestSummary(manifest) {
   return {
     id: manifest.id,
+    manifestSha256: experimentManifestHash(manifest),
     planId: manifest.planId,
     codeVersion: manifest.code.version,
     codeSnapshotHash: manifest.code.snapshotHash,
@@ -215,5 +216,7 @@ export function manifestSummary(manifest) {
     ...(manifest.researchPlan ? { researchPlan: manifest.researchPlan } : {})
   };
 }
+
+export function experimentManifestHash(manifest) { return createHash('sha256').update(JSON.stringify(manifest)).digest('hex'); }
 
 export { normalizeRelativePath };

@@ -173,7 +173,7 @@ async function isolatedCommand(workspaceRoot, entrypoint, args) {
   throw new ExperimentRunnerError(503, 'EXPERIMENT_SANDBOX_UNAVAILABLE', `No enforceable Experiment Runner sandbox is available (${applicability.reason}; node permission model unsupported); the Experiment Run was not started.`);
 }
 
-async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal, onOutput } = {}, commandFactory) {
+async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal, onOutput, beforeLaunch, onProcess } = {}, commandFactory) {
   const entrypoint = path.resolve(workspaceRoot, manifest.command.entrypoint);
   const workspaceRealPath = await fs.realpath(workspaceRoot);
   const entrypointRealPath = await fs.realpath(entrypoint).catch(() => null);
@@ -183,6 +183,7 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
   await fs.mkdir(path.join(workspaceRoot, '.experiment-home'), { recursive: true });
   await fs.mkdir(path.join(workspaceRoot, '.experiment-tmp'), { recursive: true });
   const command = await commandFactory(workspaceRoot, entrypoint, manifest.command.args);
+  await beforeLaunch?.();
   if (signal?.aborted) return { exitCode: null, signal: 'SIGTERM', stdout: '', stderr: 'Cancelled before process launch.', isolation: command.isolation };
   const child = spawn(command.executable, command.args, {
     cwd: workspaceRoot,
@@ -191,6 +192,11 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
     windowsHide: true,
     detached: process.platform !== 'win32'
   });
+  const closed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (exitCode, closeSignal) => resolve({ exitCode, signal: closeSignal }));
+  });
+  closed.catch(() => {});
   let stdout = '';
   let stderr = '';
   let bytes = 0;
@@ -228,13 +234,13 @@ async function runProcessExperiment(manifest, { workspaceRoot, inputPath, signal
   });
   let result;
   try {
-    result = await new Promise((resolve, reject) => {
-      child.once('error', reject);
-      child.once('close', (exitCode, closeSignal) => resolve({ exitCode, signal: closeSignal, stdout, stderr }));
-    });
+    try { if (child.pid) await onProcess?.({ pid: child.pid, stopConfirmed: false }); }
+    catch (error) { stop(); await closed.catch(() => {}); throw new ExperimentRunnerError(503, 'EXPERIMENT_PROCESS_OWNER_UNAVAILABLE', 'The experiment process ownership could not be saved.'); }
+    result = { ...await closed, stdout, stderr };
   } finally {
     clearTimeout(stopTimer);
     signal?.removeEventListener('abort', stop);
+    await onProcess?.({ pid: child.pid || null, stopConfirmed: true });
   }
   if (processError) throw Object.assign(processError, { stdout, stderr });
   if (result.exitCode !== 0 && isSandboxApplyFailure(result.stderr)) {
@@ -261,7 +267,8 @@ export async function runPythonExperiment(manifest, options = {}) {
     macSandboxCommand(workspaceRoot, configured, entrypoint, args, [venvRoot]));
 }
 
-export async function runFakeExperiment(manifest, { inputPath } = {}) {
+export async function runFakeExperiment(manifest, { inputPath, beforeLaunch } = {}) {
+  await beforeLaunch?.();
   const input = JSON.parse(await fs.readFile(inputPath, 'utf8'));
   return {
     exitCode: 0,

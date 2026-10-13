@@ -3,14 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { requireAutomatic } from '../researchAutomation/policy.js';
-import { isSensitivePath } from '../harnessRuntime/capabilities.js';
+import { isSensitivePath, isPathAllowed } from '../harnessRuntime/capabilities.js';
+import { intersectPaths } from '../harnessRuntime/currentToolPolicy.js';
 import { upsertEvidence, linkEvidence } from '../evidenceLedger/index.js';
 import { getHarnessRun } from '../harnessRuntime/index.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
 import { withWorkflowLock } from '../researchWorkflow/repository.js';
 import { artifactDirectory, clone, readExperimentRuns, resolveExperimentProjectRoot, withExperimentRunLock, writeExperimentRuns } from './repository.js';
 import { experimentAdapters } from './adapters.js';
-import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary } from './manifest.js';
+import { assertExperimentCodeSnapshot, buildExperimentManifest, manifestSummary, experimentManifestHash } from './manifest.js';
 import { ExperimentRunnerError } from './errors.js';
 import { getFeatureFlags } from '../featureFlags.js';
 import { isConstraintEnabled, readConstraintPolicy } from '../constraintRegistry/index.js';
@@ -135,6 +136,13 @@ async function recoverInterruptedExperiments(projectId) {
     const latest = await readExperimentRuns(root, projectId);
     for (const run of latest.runs) {
       if (run.status !== 'running' || activeRuns.has(run.id)) continue;
+      const processState = run.execution?.process;
+      let stopped = processState?.stopConfirmed === true;
+      if (processState?.pid) {
+        stopped = false;
+        try { process.kill(processState.pid, 0); } catch (error) { stopped = error.code === 'ESRCH'; }
+      }
+      if (!stopped) throw new ExperimentRunnerError(409, 'EXPERIMENT_STOP_UNCONFIRMED', 'The previous experiment process has not confirmed stopping; execution cannot be retried.');
       run.status = 'failed';
       run.error = { code: 'EXPERIMENT_INTERRUPTED', message: 'Experiment execution was interrupted by a server restart.', retryable: true };
       run.execution = { ...run.execution, finishedAt: now(), error: { code: run.error.code, message: run.error.message } };
@@ -261,6 +269,7 @@ export function automaticallyApproveExperiment(projectId, runId, sessionId) {
       run.approval = { decision: 'approve', actor: 'system', authorization, at: now(), note: '按项目自动研究授权执行。' };
       run.manifest.permissions.approval = 'user-policy-authorized';
       run.manifest.permissions.execution = 'user-policy-and-project-capability';
+      run.manifestSummary = manifestSummary(run.manifest);
       run.updatedAt = now();
       return run;
     });
@@ -275,8 +284,12 @@ function assertExecutionAllowed(constraints, run, rolloutEnabled = true) {
     throw new ExperimentRunnerError(403, 'EXPERIMENT_EXECUTION_DENIED', 'Project Constraints do not grant experiment.execute.');
   }
   if (constraints.allowExperimentExecution === false) throw new ExperimentRunnerError(403, 'EXPERIMENT_EXECUTION_DENIED', 'Project Constraints explicitly disable experiment execution.');
+  const allowedPaths = constraints.allowedPaths ?? constraints.fileScope ?? [];
+  if (!Array.isArray(allowedPaths) || allowedPaths.some(value => typeof value !== 'string')) throw new ExperimentRunnerError(400, 'EXPERIMENT_PATH_SCOPE_INVALID', 'The project experiment file scope is invalid.');
+  const files = [...(run.manifest.code.files || []).map(file => file.path), run.manifest.command.entrypoint, ...(run.manifest.artifacts || []).map(artifact => artifact.path)].filter(Boolean);
+  if (files.some(file => !isPathAllowed(file, { allowedPaths }))) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The fixed experiment inputs or outputs exceed the project file scope.');
   const maxConcurrent = Math.min(Math.max(Number(constraints.maxConcurrent) || 1, 1), 32);
-  const activeCount = [...activeRuns.values()].filter((item) => item.projectId === run.projectId).length;
+  const activeCount = [...activeRuns].filter(([id, item]) => id !== run.id && item.projectId === run.projectId).length;
   if (activeCount >= maxConcurrent) throw new ExperimentRunnerError(409, 'EXPERIMENT_CONCURRENCY_LIMIT', 'The project experiment concurrency limit has been reached.', { maxConcurrent });
   const configuredTimeout = Number(constraints.experimentTimeoutMs || constraints.timeoutMs);
   if (Number.isFinite(configuredTimeout) && run.manifest.resources.timeoutMs > configuredTimeout) {
@@ -285,15 +298,16 @@ function assertExecutionAllowed(constraints, run, rolloutEnabled = true) {
   return { maxConcurrent };
 }
 
-function copyFilter(source, projectRoot) {
+function copyFilter(source, projectRoot, allowedPaths = []) {
   const relative = path.relative(projectRoot, source).replace(/\\/g, '/');
   if (!relative) return true;
   const first = relative.split('/')[0];
-  return !isSensitivePath(relative) && !['.git', '.scienceprism', '.openprism', 'node_modules', '.cache'].includes(first);
+  return !isSensitivePath(relative) && !['.git', '.scienceprism', '.openprism', 'node_modules', '.cache'].includes(first)
+    && (isPathAllowed(relative, { allowedPaths }) || allowedPaths.some(path => path.startsWith(`${relative}/`)));
 }
 
-async function copyProjectWorkspace(projectRoot, workspaceRoot) {
-  await fs.cp(projectRoot, workspaceRoot, { recursive: true, filter: (source) => copyFilter(source, projectRoot) });
+async function copyProjectWorkspace(projectRoot, workspaceRoot, allowedPaths) {
+  await fs.cp(projectRoot, workspaceRoot, { recursive: true, filter: (source) => copyFilter(source, projectRoot, allowedPaths) });
 }
 
 async function writeExperimentInput(workspaceRoot, run) {
@@ -476,7 +490,7 @@ async function executeRun(projectId, runId, control) {
   let executionError = null;
   const startedAt = now();
   try {
-    await copyProjectWorkspace(root, workspaceRoot);
+    await copyProjectWorkspace(root, workspaceRoot, control.allowedPaths);
     await assertExperimentCodeSnapshot(workspaceRoot, run.manifest);
     // Declared outputs must be produced by this Run, not inherited from the project.
     for (const artifact of run.manifest.artifacts) {
@@ -486,7 +500,30 @@ async function executeRun(projectId, runId, control) {
     }
     await writeExperimentInput(workspaceRoot, run);
     await archiveExperimentInputs(root, workspaceRoot, run, inputArtifacts);
-    const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal });
+    const beforeLaunch = async () => {
+      control.controller.signal.throwIfAborted();
+      const latest = await getExperimentRun(projectId, runId);
+      if (latest.status !== 'running' || experimentManifestHash(latest.manifest) !== experimentManifestHash(run.manifest)) throw new ExperimentRunnerError(409, 'EXPERIMENT_MANIFEST_CHANGED', 'The fixed execution manifest or state changed before launch.');
+      const constraints = await readConstraints(root);
+      const latestScope = constraints.allowedPaths ?? constraints.fileScope ?? [];
+      if (!Array.isArray(latestScope) || latestScope.some(value => typeof value !== 'string')
+        || !isDeepStrictEqual(intersectPaths(control.allowedPaths, latestScope), control.allowedPaths)) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_SCOPE_CHANGED', 'The copied workspace scope changed before launch.');
+      const policy = await readConstraintPolicy(projectId);
+      assertExecutionAllowed(constraints, latest, isConstraintEnabled(policy, 'C-16'));
+      if (latest.approval?.authorization) await requireAutomatic(projectId, 'execution', latest.approval.authorization.sessionId);
+      if (latest.manifest.researchPlan || latest.manifest.replication) {
+        const workflow = await getResearchWorkflow(projectId);
+        if (latest.manifest.researchPlan) assertExperimentPlanUnchangedFromWorkflow(projectId, workflow, latest.manifest.researchPlan);
+        if (latest.manifest.replication) assertReplicationPreparationUnchangedFromWorkflow(projectId, workflow, latest.manifest.replication);
+      }
+      await control.beforeLaunch?.();
+      control.controller.signal.throwIfAborted();
+    };
+    const onProcess = async state => {
+      control.process = state;
+      await updateRun(projectId, runId, current => { current.execution = { ...current.execution, process: state }; return current; });
+    };
+    const task = adapter(run.manifest, { workspaceRoot, inputPath, signal: control.controller.signal, beforeLaunch, onProcess });
     const timer = setTimeout(() => {
       control.timedOut = true;
       control.controller.abort(new Error('Experiment Run timed out.'));
@@ -524,6 +561,7 @@ async function executeRun(projectId, runId, control) {
       startedAt,
       finishedAt,
       isolation: result?.isolation || null,
+      process: control.process || { pid: null, stopConfirmed: true },
       exitCode: result?.exitCode ?? null,
       signal: result?.signal || null,
       error: executionError ? { code: executionError.code, message: executionError.message } : null
@@ -532,7 +570,7 @@ async function executeRun(projectId, runId, control) {
     current.metrics = metrics;
     current.artifacts = artifacts;
     current.error = cancelled
-      ? { code: 'EXPERIMENT_CANCELLED', message: 'Experiment Run was cancelled by human.', retryable: false }
+      ? { code: 'EXPERIMENT_CANCELLED', message: 'Experiment Run was cancelled.', retryable: false }
       : executionError
       ? { code: executionError.code, message: executionError.message, retryable: status === 'failed' && executionError.code !== 'EXPERIMENT_SANDBOX_UNAVAILABLE' }
       : status === 'failed'
@@ -562,6 +600,7 @@ async function executeRun(projectId, runId, control) {
 
 async function transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled, workflow = null) {
   return withExperimentRunLock(projectId, async () => {
+    control.controller.signal.throwIfAborted();
     if (shuttingDown) throw new ExperimentRunnerError(503, 'EXPERIMENT_RUNNER_STOPPING', 'The server is shutting down. Retry after restart.');
     const document = await readExperimentRuns(root, projectId);
     const index = document.runs.findIndex((run) => run.id === runId);
@@ -569,6 +608,11 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
     if (activeRuns.has(runId)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_ACTIVE', 'The Experiment Run is already executing.');
     const next = clone(document.runs[index]);
     if (next.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
+    if (control.executionBinding) {
+      if (experimentManifestHash(next.manifest) !== control.executionBinding.manifestSha256) throw new ExperimentRunnerError(409, 'EXPERIMENT_MANIFEST_CHANGED', 'The approved manifest changed before execution.');
+      if (next.executionBinding && !isDeepStrictEqual(next.executionBinding, control.executionBinding)) throw new ExperimentRunnerError(409, 'EXPERIMENT_OWNER_CHANGED', 'This Experiment Run belongs to another parent execution.');
+      next.executionBinding = clone(control.executionBinding);
+    } else if (next.executionBinding) throw new ExperimentRunnerError(409, 'EXPERIMENT_OWNER_CHANGED', 'This Experiment Run must be started by its bound parent.');
     if (next.approval?.authorization) await requireAutomatic(projectId, 'execution', next.approval.authorization.sessionId);
     assertExecutionAllowed(constraints, next, rolloutEnabled);
     if (next.manifest?.replication) {
@@ -580,6 +624,7 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
       assertExperimentPlanUnchangedFromWorkflow(projectId, workflow, next.manifest.researchPlan);
     }
     next.status = 'running';
+    next.execution = { ...next.execution, process: { pid: null, stopConfirmed: false } };
     next.phase = 'execution';
     next.attempt = Number(next.attempt || 0) + 1;
     next.startedAt = now();
@@ -587,22 +632,38 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
     document.runs[index] = next;
     document.version += 1;
     document.updatedAt = now();
-    activeRuns.set(runId, { projectId, control, promise: null });
+    activeRuns.set(runId, { projectId, control, promise: control.settled });
     await writeExperimentRuns(root, document);
     return clone(next);
   });
 }
 
-export async function startExperimentRun(projectId, runId, { wait = false } = {}) {
+export async function startExperimentRun(projectId, runId, { wait = false, signal, beforeLaunch, executionBinding, allowedPaths = [] } = {}) {
+  signal?.throwIfAborted();
+  if (!Array.isArray(allowedPaths) || allowedPaths.length > 200 || allowedPaths.some(value => typeof value !== 'string' || !value || value.includes('\\') || path.posix.isAbsolute(value) || value.split('/').some(part => !part || ['.', '..'].includes(part)) || isSensitivePath(value))) throw new ExperimentRunnerError(400, 'EXPERIMENT_PATH_SCOPE_INVALID', 'The trusted experiment file scope is invalid.');
+  if (beforeLaunch !== undefined && typeof beforeLaunch !== 'function' || executionBinding && (typeof executionBinding !== 'object' || Array.isArray(executionBinding)
+    || Object.keys(executionBinding).some(key => !['parentRunId', 'policyVersion', 'manifestSha256'].includes(key))
+    || typeof executionBinding.parentRunId !== 'string' || !executionBinding.parentRunId || executionBinding.parentRunId.length > 200
+    || typeof executionBinding.policyVersion !== 'string' || !executionBinding.policyVersion || executionBinding.policyVersion.length > 200
+    || !/^[a-f0-9]{64}$/.test(executionBinding.manifestSha256))) throw new ExperimentRunnerError(400, 'EXPERIMENT_BINDING_INVALID', 'A trusted parent execution binding is required.');
   if (shuttingDown) throw new ExperimentRunnerError(503, 'EXPERIMENT_RUNNER_STOPPING', 'The server is shutting down. Retry after restart.');
   const { root } = await getRunDocument(projectId);
   if (activeRuns.has(runId)) throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_ACTIVE', 'The Experiment Run is already executing.');
   const current = await getExperimentRun(projectId, runId);
   if (current.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
   const constraints = await readConstraints(root);
+  const projectPaths = constraints.allowedPaths ?? constraints.fileScope ?? [];
+  if (!Array.isArray(projectPaths) || projectPaths.some(value => typeof value !== 'string')) throw new ExperimentRunnerError(400, 'EXPERIMENT_PATH_SCOPE_INVALID', 'The project experiment file scope is invalid.');
+  const fileScope = intersectPaths(allowedPaths, projectPaths);
+  if (allowedPaths.length && projectPaths.length && !fileScope.length) throw new ExperimentRunnerError(403, 'EXPERIMENT_PATH_DENIED', 'The parent and project file scopes do not intersect.');
   const constraintPolicy = await readConstraintPolicy(projectId);
   const controller = new AbortController();
-  const control = { projectId, controller, cancelRequested: false, timedOut: false };
+  const forwardAbort = () => controller.abort(signal.reason || new Error('Parent execution stopped.'));
+  signal?.addEventListener('abort', forwardAbort, { once: true });
+  if (signal?.aborted) forwardAbort();
+  const control = { projectId, controller, cancelRequested: false, timedOut: false, beforeLaunch, executionBinding, allowedPaths: [...fileScope] };
+  let settle;
+  control.settled = new Promise(resolve => { settle = resolve; });
   const rolloutEnabled = isConstraintEnabled(constraintPolicy, 'C-16');
   let run;
   try {
@@ -615,10 +676,12 @@ export async function startExperimentRun(projectId, runId, { wait = false } = {}
       run = await transitionRunToRunning(projectId, runId, root, control, constraints, rolloutEnabled);
     }
   } catch (error) {
+    settle();
+    signal?.removeEventListener('abort', forwardAbort);
     if (activeRuns.get(runId)?.control === control) activeRuns.delete(runId);
     throw error;
   }
-  const promise = executeRun(projectId, runId, control).finally(() => activeRuns.delete(runId));
+  const promise = executeRun(projectId, runId, control).finally(() => { settle(); activeRuns.delete(runId); signal?.removeEventListener('abort', forwardAbort); });
   activeRuns.set(runId, { projectId, control, promise });
   if (wait) return promise;
   return run;

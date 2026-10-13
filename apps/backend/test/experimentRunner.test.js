@@ -457,13 +457,14 @@ test('a missing declared artifact keeps the new Run logs and other produced metr
   assert.equal(ledger.entries.find(entry => entry.id === result.evidence.runId).verificationStatus, 'unverified');
 });
 
-test('a persisted running experiment without a live executor becomes a retryable interruption', async () => {
+test('a persisted running experiment with confirmed process stop becomes a retryable interruption', async () => {
   const projectId = 'experiment-crash-recovery';
   const root = await createProject(projectId);
   const run = await createExperimentRun(projectId, { plan: plan(0.8) });
   const { readExperimentRuns, writeExperimentRuns } = await import('../src/services/experimentRunner/repository.js');
   const document = await readExperimentRuns(root, projectId);
   document.runs[0].status = 'running';
+  document.runs[0].execution = { process: { pid: null, stopConfirmed: true } };
   document.runs[0].logs = { stdout: 'LOG_BEFORE_CRASH', stderr: '' };
   await writeExperimentRuns(root, document);
   const recovered = await getExperimentRun(projectId, run.id);
