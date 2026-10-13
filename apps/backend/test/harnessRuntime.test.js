@@ -26,6 +26,7 @@ const { buildContextPack, contextManifest, estimateTokens } = await import('../s
 const { assertCapability, resolveCapabilityPolicy } = await import('../src/services/harnessRuntime/capabilities.js');
 const { buildInput, childEnvironment } = await import('../src/services/harnessRuntime/adapters/deepseekAdapter.js');
 const { PROJECT_CONSTRAINT_LIMITS } = await import('../src/config/projectConstraintDefaults.js');
+const fileIO = (await import('node:fs')).promises;
 
 async function createProject(id) {
   const root = path.join(dataDir, id);
@@ -34,6 +35,26 @@ async function createProject(id) {
   await writeFile(path.join(root, 'main.tex'), 'old\n');
   return root;
 }
+
+test('external research cancellation during running-state persistence aborts before tool effects', async t => {
+  await createProject('external-abort');
+  const prepared = await createHarnessRun('external-abort', { adapter: 'fake', capabilities: ['project.read'], fakeResponse: 'must not return' });
+  const controller = new AbortController(), rename = fileIO.rename.bind(fileIO); let interrupted = false;
+  t.mock.method(fileIO, 'rename', async (from, to) => {
+    if (String(to).endsWith('harness-runs.json') && !interrupted) {
+      const stored = JSON.parse(await readFile(from, 'utf8'));
+      if (stored.runs.some(run => run.id === prepared.id && run.status === 'running')) {
+        interrupted = true; controller.abort(Object.assign(new Error('Research stopped'), { code: 'AUTOMATION_STOPPED' }));
+      }
+    }
+    return rename(from, to);
+  });
+  const result = await runHarnessRequest({ projectId: 'external-abort', existingRunId: prepared.id, signal: controller.signal });
+  assert(interrupted); assert.equal(result.ok, false); assert.equal(result.reply, '');
+  const stopped = await getHarnessRun('external-abort', prepared.id);
+  assert.equal(stopped.status, 'cancelled'); assert.equal(stopped.events.filter(event => event.type === 'tool/start').length, 0);
+  assert.equal(await readFile(path.join(dataDir, 'external-abort/main.tex'), 'utf8'), 'old\n');
+});
 
 test('Fake Adapter persists a completed Run, events, context hash, Patch, and human decision state', async () => {
   const projectId = 'harness-fake';

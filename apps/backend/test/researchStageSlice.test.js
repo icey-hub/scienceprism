@@ -358,7 +358,9 @@ test('failed stage task is persisted without changing the confirmed previous sta
   await createProject(projectId);
   let workflow = await initializeResearchWorkflow(projectId, { data: { researchQuestion: 'Question' } });
   workflow = await approve(projectId, 'direction');
-  const failed = await runUiAction(projectId, { action: 'search', query: 'query', adapter: 'fake', fakeError: 'temporary failure' }, 'human');
+  const failed = await runUiAction(projectId, { action: 'search', query: 'query', adapter: 'fake', fakeError: 'temporary failure' }, 'human', {
+    search: async () => ({ id: 'fixture-failed-search', candidates: [], sourceResults: [], failures: [{ source: 'arxiv', code: 'SOURCE_HTTP_ERROR', message: 'Controlled source failure' }] })
+  });
   assert.equal(stageData(failed, 'search').task.status, 'failed');
   assert.equal(failed.stages.find((stage) => stage.id === 'direction').status, 'approved');
   assert.equal(failed.currentStage, 'search');

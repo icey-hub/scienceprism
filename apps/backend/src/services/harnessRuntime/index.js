@@ -224,10 +224,34 @@ async function assertDocumentVersions(root, versions, policy) {
   }
 }
 
-export async function createHarnessRun(projectId, request = {}) {
+function assertCoordinatorControl(run, automationSessionId) {
+  if (run.kind === 'research-coordinator') throw new HarnessRuntimeError(409, 'AUTOMATION_OWNS_COORDINATOR', 'Control this coordinator through its research chain.');
+  if (run.kind === 'research-stage' && (!automationSessionId || run.automationSessionId !== automationSessionId)) throw new HarnessRuntimeError(409, 'AUTOMATION_OWNS_STAGE', 'Control this stage through its research chain.');
+}
+
+// The automation service owns this ledger record; it never starts a model.
+export function createAutomationCoordinator(projectId, sessionId, workflowId) {
+  if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 100 || typeof workflowId !== 'string' || !workflowId || workflowId.length > 100) throw new HarnessRuntimeError(400, 'INVALID_AUTOMATION_COORDINATOR', 'A saved research session and workflow are required.');
+  return createHarnessRun(projectId, { task: 'research:automation-coordinator', role: 'research-stage-assistant',
+    adapter: 'fake', capabilities: ['project.read'], source: 'research-automation', requestId: sessionId, input: { sessionId, workflowId } }, { coordinatorSessionId: sessionId });
+}
+
+export function recordAutomationCoordinator(projectId, runId, { sessionId, status, currentStage }) {
+  return updateRun(projectId, runId, run => {
+    if (run.kind !== 'research-coordinator' || run.coordinatorSessionId !== sessionId) throw new HarnessRuntimeError(409, 'AUTOMATION_COORDINATOR_CHANGED', 'The research coordinator belongs to another session.');
+    run.coordination = { sessionId, status, currentStage: currentStage || null };
+    run.updatedAt = now();
+    if (status === 'completed') { run.status = 'completed'; run.finishedAt = run.updatedAt; run.reply = 'Research chain completed. Individual results retain their own verification status.'; }
+    return run;
+  });
+}
+
+export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId } = {}) {
   const projectRoot = await resolveHarnessProjectRoot(projectId);
   const constraintPolicy = await readConstraintPolicy(projectId);
   const parent = request.parentRunId ? await getHarnessRun(projectId, request.parentRunId) : null;
+  if (parent?.kind === 'research-coordinator' && parent.coordinatorSessionId !== automationSessionId) throw new HarnessRuntimeError(409, 'AUTOMATION_OWNS_STAGE', 'Only the research chain can delegate from this coordinator.');
+  if (automationSessionId && (parent?.kind !== 'research-coordinator' || parent.coordinatorSessionId !== automationSessionId)) throw new HarnessRuntimeError(409, 'AUTOMATION_COORDINATOR_CHANGED', 'The stage requires its actual research coordinator.');
   if (parent) {
     if (parent.archived || parent.parentRunId || parent.status !== 'created') {
       throw new HarnessRuntimeError(409, 'INVALID_DELEGATION_PARENT', 'A child Run requires an unstarted root Run in the same project.');
@@ -290,6 +314,8 @@ export async function createHarnessRun(projectId, request = {}) {
     schemaVersion: 1,
     runtimeInstanceId,
     id: randomUUID(),
+    ...(coordinatorSessionId ? { kind: 'research-coordinator', coordinatorSessionId } : {}),
+    ...(automationSessionId ? { kind: 'research-stage', automationSessionId } : {}),
     projectId,
     stage: request.stage || null,
     task: request.task || 'polish',
@@ -334,7 +360,7 @@ export async function createHarnessRun(projectId, request = {}) {
     // Conversation and composed execution history must retain proposals,
     // worker identity, sessions and the exact Skill evidence they used.
     const composedParents = new Set(allRuns.filter(old => old.kind === 'codex-worker').map(old => old.parentRunId));
-    const archivable = olderRuns.filter((old) => old.request?.source !== 'editor' && old.kind !== 'codex-worker' &&
+    const archivable = olderRuns.filter((old) => !['editor', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
       !composedParents.has(old.id) && !old.cleanup?.modelSlotRetained && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
     const archivedIds = new Set(archivable.map((old) => old.id));
     document.runs = allRuns.filter((old) => !archivedIds.has(old.id));
@@ -381,7 +407,9 @@ export async function listHarnessRuns(projectId, { status, stage, parentRunId, s
     .map(clone);
 }
 
-export async function startHarnessRun(projectId, runId, { wait = false, request = {} } = {}) {
+export async function startHarnessRun(projectId, runId, { wait = false, request = {}, signal, automationSessionId } = {}) {
+  signal?.throwIfAborted();
+  assertCoordinatorControl(await getHarnessRun(projectId, runId), automationSessionId);
   if (activeRuns.get(runId)?.recovering) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run is reconciling retained results.');
   const run = await getHarnessRun(projectId, runId);
   if (run.adapter === 'deepseek' && run.retainedWorkspace && run.recovery?.status !== 'ready' && ['paused','failed','cancelled'].includes(run.status)) {
@@ -422,6 +450,9 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
   }
   const controller = new AbortController();
   const control = { controller, pauseRequested: false, cancelRequested: false, timeoutError: null, violation: null };
+  const abort = () => { control.cancelRequested = true; controller.abort(signal.reason); };
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
   activeRuns.set(runId, { projectId, controller, control, promise: null });
   let started;
   try {
@@ -435,11 +466,12 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
       return current;
     });
   } catch (error) {
+    signal?.removeEventListener('abort', abort);
     activeRuns.delete(runId);
     throw error;
   }
   const effectiveRequest = mergeRequest(started, request);
-  const promise = executeRun(projectId, runId, effectiveRequest, control).finally(() => { if (!control.stopUnconfirmed) activeRuns.delete(runId); });
+  const promise = executeRun(projectId, runId, effectiveRequest, control).finally(() => { signal?.removeEventListener('abort', abort); if (!control.stopUnconfirmed) activeRuns.delete(runId); });
   activeRuns.set(runId, { projectId, controller, control, promise });
   return wait ? promise : started;
 }
@@ -450,6 +482,7 @@ export async function waitForHarnessRun(projectId, runId) {
 }
 
 export async function pauseHarnessRun(projectId, runId) {
+  assertCoordinatorControl(await getHarnessRun(projectId, runId));
   const active = activeRuns.get(runId);
   if (!active) {
     const run = await getHarnessRun(projectId, runId);
@@ -470,6 +503,7 @@ export async function resumeHarnessRun(projectId, runId, options = {}) {
 }
 
 export async function recoverHarnessRun(projectId, runId, { request = {} } = {}) {
+  assertCoordinatorControl(await getHarnessRun(projectId, runId));
   if (activeRuns.has(runId)) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run still has an active execution or recovery.');
   const controller = new AbortController();
   const control = { controller, cancelRequested: false, stopUnconfirmed: false };
@@ -492,6 +526,7 @@ export async function recoverHarnessRun(projectId, runId, { request = {} } = {})
 }
 
 export async function cancelHarnessRun(projectId, runId) {
+  assertCoordinatorControl(await getHarnessRun(projectId, runId));
   const active = activeRuns.get(runId);
   if (!active) {
     return updateRun(projectId, runId, (current) => {
@@ -510,6 +545,7 @@ export async function cancelHarnessRun(projectId, runId) {
 
 export async function replayHarnessRun(projectId, runId, { request = {}, start = true } = {}) {
   const original = await getHarnessRun(projectId, runId);
+  assertCoordinatorControl(original);
   if (original.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_RUN_CONTROL', 'Retry the owning DSH task.');
   const run = await createHarnessRun(projectId, { ...original.request, ...request, stage: original.stage, task: original.task, replayOf: original.id });
   return start ? startHarnessRun(projectId, run.id, { wait: true, request }) : run;
@@ -518,6 +554,7 @@ export async function replayHarnessRun(projectId, runId, { request = {}, start =
 export async function decideHarnessRun(projectId, runId, { decision, actor = 'human', note = '', paths } = {}) {
   if (!['accept', 'reject'].includes(decision)) throw new HarnessRuntimeError(400, 'INVALID_HUMAN_DECISION', 'decision must be accept or reject.');
   return updateRun(projectId, runId, (run) => {
+    assertCoordinatorControl(run);
     if (run.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_PROPOSAL_OWNER', 'Review the combined proposal on the owning DSH task.');
     if (!TERMINAL_HARNESS_RUN_STATUSES.includes(run.status)) {
       throw new HarnessRuntimeError(409, 'HARNESS_RUN_NOT_DECIDABLE', 'Only a finished Harness Run can receive a human decision.');
@@ -553,6 +590,7 @@ export async function applyHarnessRunPatches(projectId, runId, { actor = 'human'
     const index = document.runs.findIndex((run) => run.id === runId);
     if (index < 0) throw new HarnessRuntimeError(404, 'HARNESS_RUN_NOT_FOUND', 'Harness Run not found.', { runId });
     if (document.runs[index].kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_PROPOSAL_OWNER', 'Apply the combined proposal on the owning DSH task.');
+    assertCoordinatorControl(document.runs[index]);
     const constraints = await readProjectConstraints(root);
     const policy = applyProjectConstraintPolicy(
       resolveCapabilityPolicy({ configured: constraints.capabilities || DEFAULT_PROJECT_CAPABILITIES }), constraints
@@ -573,12 +611,12 @@ export async function recordHarnessRunValidation(projectId, runId, validation) {
   });
 }
 
-export async function runHarnessRequest(request = {}) {
+export async function runHarnessRequest(request = {}, { automationSessionId } = {}) {
   if (!request.projectId) return { ok: false, reply: 'Missing project id.', patches: [], runtime: normalizeAdapter(request.adapter) };
   const run = request.existingRunId
     ? await getHarnessRun(request.projectId, request.existingRunId)
-    : await createHarnessRun(request.projectId, request);
-  const result = await startHarnessRun(request.projectId, run.id, { wait: true, request });
+    : await createHarnessRun(request.projectId, request, { automationSessionId });
+  const result = await startHarnessRun(request.projectId, run.id, { wait: true, request, signal: request.signal, automationSessionId });
   return {
     ok: result.status === 'completed',
     reply: result.reply || '',

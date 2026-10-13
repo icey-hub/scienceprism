@@ -58,7 +58,7 @@ export async function loadPaperSearches(projectId) {
 }
 
 /** Shared search command. It never selects a manuscript or writes bibliography files. */
-export async function searchProjectPapers(projectId, input, { signal, search = searchResearchSources, beforeRequest, beforePersist } = {}) {
+export async function searchProjectPapers(projectId, input, { signal, search = searchResearchSources, beforeRequest, beforePersist, automation } = {}) {
   await getProjectRoot(projectId);
   const criteria = normalizeSearchInput(input);
   signal?.throwIfAborted();
@@ -69,6 +69,7 @@ export async function searchProjectPapers(projectId, input, { signal, search = s
   const ranked = applyPaperRankings(candidates, catalogs.catalogs, criteria.ranking);
   const session = {
     id: randomUUID(), projectId, createdAt: new Date().toISOString(), criteria,
+    ...(automation ? { automation: structuredClone(automation) } : {}),
     status: result.failures.length ? (result.batches.length ? 'partial' : 'failed') : 'completed',
     candidates: ranked.candidates, failures: result.failures, rankingCoverage: { ...ranked.coverage, catalogVersion: catalogs.version },
     sourceResults: result.batches.map(batch => ({ source: batch.source || null, retrievedAt: batch.retrievedAt || null, total: batch.total ?? null, filterMode: batch.filterMode || 'batch', received: Math.min(batch.candidates.length, criteria.pageSize), matched: batch.candidates.slice(0, criteria.pageSize).filter(candidate => matchesFilters(candidate, criteria.filters)).length })),

@@ -6,29 +6,74 @@ import { snapshotExperimentCode } from '../experimentRunner/manifest.js';
 import { resolveProjectRoot } from '../researchWorkflow/repository.js';
 import { ResearchWorkflowError } from '../researchWorkflow/errors.js';
 import { automationRole } from './agents.js';
+import { createHash } from 'node:crypto';
+import { createHarnessRun, getHarnessRun, runHarnessRequest } from '../harnessRuntime/index.js';
+import { loadPaperSearches, searchProjectPapers } from '../paperSearch.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
   const direction = stageData(workflow, 'direction');
+  const step = session.steps.find(step => step.stage === stage);
+  let calls = [...(step.calls || [])], searches = [...(step.searches || [])];
+  const beforeEffect = runtime.automationCheckpoint || (async () => {});
+  const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const cachedResult = run => ({ ok: run.status === 'completed', reply: run.reply || '', patches: run.patches || [], runtime: run.adapter,
+    runId: run.id, events: run.events || [], fallback: run.fallback, error: run.error });
+  const runHarness = async request => {
+    await beforeEffect();
+    const inputHash = hash({ task: request.task, role: request.role, input: request.input, context: request.context, prompt: request.prompt, skills: request.researchSkills, adapter: request.adapter });
+    const saved = calls.findLast(call => call.inputHash === inputHash);
+    if (saved) {
+      const previous = await getHarnessRun(projectId, saved.runId);
+      if (previous.parentRunId !== session.coordinatorRunId || previous.request?.context?.automationHandoff?.sessionId !== session.id) throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_OWNER_CHANGED', '阶段Run不属于当前交接。');
+      if (previous.cleanup?.modelSlotRetained || previous.error?.code === 'HARNESS_INTERRUPTED') throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '上次Run的进程或持久结果尚未对账，不能自动重跑。');
+      if (previous.status === 'completed') return cachedResult(previous);
+      if (previous.retainedWorkspace && previous.recovery?.status !== 'ready') throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '未结束Run的持久结果尚未对账，不能自动重跑。');
+      if (previous.status === 'created') return runHarnessRequest({ ...request, existingRunId: previous.id, signal: runtime.signal }, { automationSessionId: session.id });
+      if (!['failed', 'cancelled'].includes(previous.status) || (saved.attempt || 0) >= (session.attempt || 0)) throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '已记录阶段Run；不会重复启动未知或未结束的调用。');
+    }
+    const prepared = await createHarnessRun(projectId, { ...request, parentRunId: session.coordinatorRunId, delegationTask: request.task,
+      source: 'research-automation', requestId: `${session.id}:${stage}:${inputHash}` }, { automationSessionId: session.id });
+    calls.push({ runId: prepared.id, inputHash, task: request.task, attempt: session.attempt || 0 });
+    await saveStep({ calls, runIds: calls.map(call => call.runId) });
+    await beforeEffect();
+    return runHarnessRequest({ ...request, existingRunId: prepared.id, signal: runtime.signal }, { automationSessionId: session.id });
+  };
+  const runStage = params => runResearchStage({ ...params, workflowStage: stage, context: { ...params.context, automationHandoff: step.handoff }, runHarness });
+  const search = async (id, input, options = {}) => {
+    await beforeEffect();
+    const key = `${session.id}:${stage}:${hash(input)}`;
+    const saved = searches.find(item => item.key === key);
+    const previous = (await loadPaperSearches(projectId)).sessions.find(item => item.automation?.key === key);
+    if (previous) {
+      if (previous.automation.sessionId !== session.id || previous.automation.parentRunId !== session.coordinatorRunId) throw new ResearchWorkflowError(409, 'AUTOMATION_SEARCH_OWNER_CHANGED', '检索记录不属于当前交接。');
+      return previous;
+    }
+    if (saved) throw new ResearchWorkflowError(409, 'AUTOMATION_SEARCH_UNRESOLVED', '检索已开始但没有完整回执；请核对已有搜索记录，不会自动重复。');
+    searches.push({ key, status: 'prepared' }); await saveStep({ searches });
+    const result = await searchProjectPapers(id, input, { ...options, signal: runtime.signal, beforeRequest: () => beforeEffect(), beforePersist: () => beforeEffect(),
+      automation: { key, sessionId: session.id, parentRunId: session.coordinatorRunId, stage } });
+    searches = searches.map(item => item.key === key ? { ...item, status: 'completed', searchSessionId: result.id } : item);
+    await saveStep({ searches }); return result;
+  };
+  const actionOptions = { signal: runtime.signal, runStage, search, beforeCommit: beforeEffect };
   const body = { expectedVersion: workflow.version, role, llmConfig: runtime.llmConfig, adapter: runtime.adapter,
     idempotencyKey: `${session.id}:${stage}:prepare:${session.attempt || 0}`, ...runtime.testInput?.[stage] };
   const humanInstructions = Object.entries(workflow.humanInstructions || {}).map(([stage, value]) => `${stage}: ${value}`).join('\n');
   const run = async (contract, input) => {
-    const result = await runResearchStage({ stage: contract, workflowStage: stage, projectId, input, role, humanInstructions, llmConfig: runtime.llmConfig, adapter: runtime.adapter, ...runtime.testInput?.[contract] });
-    if (result.runId) await saveStep({ runIds: [...new Set([...(session.steps.find(step => step.stage === stage)?.runIds || []), result.runId])] });
+    const result = await runStage({ stage: contract, workflowStage: stage, projectId, input, role, humanInstructions, llmConfig: runtime.llmConfig, adapter: runtime.adapter, ...runtime.testInput?.[contract] });
     if (!result.ok || !result.output) throw new ResearchWorkflowError(409, 'AUTOMATION_MODEL_FAILED', 'Agent输出未通过校验，已保留Run供检查。', result.validation);
     return result;
   };
-  const update = data => updateResearchWorkflow(projectId, { actor: 'system', stageId: stage, data, expectedVersion: workflow.version, idempotencyKey: `${session.id}:${stage}:prepare:${session.attempt || 0}` });
+  const update = data => updateResearchWorkflow(projectId, { actor: 'system', stageId: stage, data, expectedVersion: workflow.version, beforeCommit: beforeEffect, idempotencyKey: `${session.id}:${stage}:prepare:${session.attempt || 0}` });
 
   if (stage === 'direction') {
     if (!String(direction.researchQuestion || direction.topic || '').trim()) throw new ResearchWorkflowError(409, 'RESEARCH_QUESTION_REQUIRED', '请先填写研究问题。');
     return workflow;
   }
   if (stage === 'search') {
-    const next = await runUiAction(projectId, { ...body, action: 'search', direction: { question: direction.researchQuestion || direction.topic }, query: direction.researchQuestion || direction.topic, maxResults: 10 }, 'system');
+    const next = await runUiAction(projectId, { ...body, action: 'search', direction: { question: direction.researchQuestion || direction.topic }, query: direction.researchQuestion || direction.topic, maxResults: 10 }, 'system', actionOptions);
     const task = stageData(next, stage).task;
-    if (task.harness?.runId) await saveStep({ runIds: [task.harness.runId] });
     if (!stageData(next, stage).papers?.length || task.validation?.ok === false) throw new ResearchWorkflowError(409, 'AUTOMATION_NO_PAPERS', '检索没有得到可用论文，请检查来源与检索条件。');
     return next;
   }
@@ -66,9 +111,8 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
   const results = session.steps.filter(step => step.result).map(step => step.result);
   const next = await runUiAction(projectId, { ...body, action, replicationResults: results,
     ...(session.steps.find(step => step.stage === 'replication')?.experimentRunId ? { replicationRunId: session.steps.find(step => step.stage === 'replication').experimentRunId } : {}),
-    ...(session.steps.find(step => step.stage === 'experiment')?.experimentRunId ? { experimentRunId: session.steps.find(step => step.stage === 'experiment').experimentRunId } : {}) }, 'system');
+    ...(session.steps.find(step => step.stage === 'experiment')?.experimentRunId ? { experimentRunId: session.steps.find(step => step.stage === 'experiment').experimentRunId } : {}) }, 'system', actionOptions);
   const task = stageData(next, stage).task;
-  if (task?.harness?.runId) await saveStep({ runIds: [task.harness.runId] });
   if (task?.validation?.ok === false || task?.status === 'failed') throw new ResearchWorkflowError(409, 'AUTOMATION_MODEL_FAILED', '当前阶段Agent输出未通过校验。');
   return next;
 }

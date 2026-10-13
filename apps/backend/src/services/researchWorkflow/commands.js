@@ -160,7 +160,7 @@ export function updateResearchWorkflow(projectId, options = {}) {
   return mutateWorkflow(projectId, {
     command: 'update', actor: options.actor, note: options.note, expectedVersion: options.expectedVersion, idempotencyKey: options.idempotencyKey,
     payload: { stageId: options.stageId, data: options.data, patch: options.patch, status: options.status },
-    mutate: (workflow) => applyStageUpdate(workflow, options)
+    mutate: async (workflow) => { await options.beforeCommit?.(workflow); return applyStageUpdate(workflow, options); }
   });
 }
 

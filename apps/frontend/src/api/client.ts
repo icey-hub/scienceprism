@@ -454,7 +454,8 @@ export function getProjectExploration(projectId: string, query: Record<string,st
 }
 export interface HarnessRun {
   id: string;
-  kind?: 'codex-worker';
+  kind?: 'codex-worker' | 'research-coordinator' | 'research-stage';
+  coordination?: { sessionId: string; status: string; currentStage: string | null };
   sessionId?: string;
   output?: { codex?: { threadId: string; turnId: string | null }; proposalOwnerRunId?: string };
   projectId: string;

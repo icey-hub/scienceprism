@@ -19,8 +19,10 @@ const { listHarnessRuns, runHarnessRequest, decideHarnessRun } = await import('.
 const { registerResearchSourceAdapter } = await import('../src/services/researchSources/index.js');
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
 let sourceWait;
-registerResearchSourceAdapter({ id: 'arxiv', label: 'Controlled source', async search() {
-  if (sourceWait) await sourceWait;
+let sourceCalls = 0;
+registerResearchSourceAdapter({ id: 'arxiv', label: 'Controlled source', async search({ beforeRequest }) {
+  await beforeRequest?.({ source: 'arxiv', url: 'https://export.arxiv.org/api/query' });
+  sourceCalls++; if (sourceWait) await sourceWait;
   return [{ id: 'p1', title: 'Controlled paper', abstract: 'Testing actual pipeline plumbing.', authors: ['Fixture Author'], year: 2025, url: 'https://arxiv.org/abs/2601.00001', venue: 'Test Conference', publicationType: 'conference', peerReviewed: true, source: 'arxiv' }];
 } });
 
@@ -66,6 +68,25 @@ async function settled(id) {
   throw new Error('automation did not settle');
 }
 
+function interruptSearchSave(t) {
+  const rename = fileIO.rename.bind(fileIO); let interrupted = false;
+  t.mock.method(fileIO, 'rename', async (from, to) => {
+    if (!interrupted && String(to).endsWith('research-workflow.json')) {
+      const document = JSON.parse(await readFile(from, 'utf8'));
+      if (document.stages.find(stage => stage.id === 'search').data.task) {
+        interrupted = true; throw Object.assign(new Error('Fixture interrupted workflow save'), { code: 'EIO' });
+      }
+    }
+    return rename(from, to);
+  });
+  return () => interrupted;
+}
+
+async function waitForSource(previous) {
+  for (let i = 0; i < 200 && sourceCalls === previous; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert(sourceCalls > previous, 'the actual source request must be running before stop or revocation');
+}
+
 test('automatic policy has a project default, explicit overrides, human authorship and version conflicts', async () => {
   await project('policy');
   const state = await readAutomation('policy');
@@ -92,7 +113,7 @@ test('manual confirmation pauses, can be approved once, and resume does not rege
   await resumeAutomation('manual', { actor: 'human' }, runtime);
   state = await settled('manual');
   assert.equal(state.session.status, 'completed', JSON.stringify(state.session));
-  assert.equal((await listHarnessRuns('manual')).length, 1);
+  assert.equal((await listHarnessRuns('manual')).length, 2);
 });
 
 test('a real Node reproduction is followed by a distinct analysis Agent without human-confirmed Evidence', async () => {
@@ -158,13 +179,14 @@ test('the full eight-stage chain hands two actual experiments to the writing Age
 test('stop and revoke during source lookup prevent later side effects and a duplicate start', async () => {
   await project('stop'); await enable('stop'); let release;
   sourceWait = new Promise(resolve => { release = resolve; });
+  const calls = sourceCalls;
   await startAutomation('stop', { actor: 'human', question: 'Question', skipReplication: true }, runtime);
-  for (let i = 0; i < 100; i++) { if ((await getAutomation('stop')).session.currentStage === 'search') break; await new Promise(resolve => setTimeout(resolve, 10)); }
+  await waitForSource(calls);
   await assert.rejects(() => startAutomation('stop', { actor: 'human' }, runtime), { code: 'AUTOMATION_ACTIVE' });
   await stopAutomation('stop', { actor: 'human' }); release(); sourceWait = null;
   const state = await settled('stop'); assert.equal(state.session.status, 'stopped');
   assert.equal((await getResearchWorkflow('stop')).currentStage, 'search');
-  assert.equal((await listHarnessRuns('stop')).length, 1);
+  assert.equal((await listHarnessRuns('stop')).length, 2);
 });
 
 test('automation HTTP validates actor and does not accept persisted provider configuration', async () => {
@@ -181,14 +203,15 @@ test('automation HTTP validates actor and does not accept persisted provider con
 test('revoking automatic confirmation while a source request runs stops at the current stage', async () => {
   await project('revoke'); await enable('revoke'); let release;
   sourceWait = new Promise(resolve => { release = resolve; });
+  const calls = sourceCalls;
   await startAutomation('revoke',{actor:'human',question:'Question',skipReplication:true},runtime);
-  for(let i=0;i<100;i++){if((await getAutomation('revoke')).session.currentStage==='search')break;await new Promise(resolve=>setTimeout(resolve,10));}
+  await waitForSource(calls);
   const state=await readAutomation('revoke');
   await saveAutomationPolicy('revoke',{actor:'human',expectedVersion:state.version,policy:{...state.policy,enabled:false}});
   release();sourceWait=null;
   const finished=await settled('revoke');assert.equal(finished.session.status,'waiting_confirmation');
   assert.equal((await getResearchWorkflow('revoke')).currentStage,'search');
-  assert.equal((await listHarnessRuns('revoke')).length,1);
+  assert.equal((await listHarnessRuns('revoke')).length,2);
 });
 
 test('an interrupted stopping session exposes continuation without mutating its persisted record', async () => {
@@ -207,7 +230,7 @@ test('failed model outputs remain blocked and an explicit retry can repair the s
   assert.equal((await getResearchWorkflow('bad-output')).currentStage,'search');
   await resumeAutomation('bad-output',{actor:'human'},runtime);
   const after=await settled('bad-output');assert.equal(after.session.status,'completed',JSON.stringify(after.session));
-  assert.equal((await listHarnessRuns('bad-output')).length,3);
+  assert.equal((await listHarnessRuns('bad-output')).length,4);
 });
 
 test('automatic manuscript application keeps the original version guard and respects rejected proposals', async () => {
@@ -226,4 +249,88 @@ test('automatic manuscript application keeps the original version guard and resp
   await decideHarnessRun('patches',rejected.runId,{decision:'reject',actor:'human'});
   await assert.rejects(()=>automaticallyApplyPatches('patches',rejected.runId),{code:'AUTOMATION_PATCH_REJECTED'});
   assert.equal(await readFile(path.join(root,'main.tex'),'utf8'),'human edit');
+});
+
+test('a workflow save failure resumes from durable model and search results without repeating them', async t => {
+  await project('save-recovery'); await enable('save-recovery');
+  const interrupted = interruptSearchSave(t);
+  const beforeCalls = sourceCalls;
+  await startAutomation('save-recovery', { actor: 'human', question: 'Question', targetStage: 'search' }, runtime);
+  const blocked = await settled('save-recovery'); assert.equal(blocked.session.status, 'blocked'); assert(interrupted());
+  const step = blocked.session.steps.find(step => step.stage === 'search');
+  assert.equal(step.calls.length, 1); assert.equal(step.searches.length, 1);
+  const model = await import('../src/services/harnessRuntime/index.js');
+  assert.equal((await model.getHarnessRun('save-recovery', step.calls[0].runId)).status, 'completed');
+  const ledgerPath = path.join(process.env.SCIENCEPRISM_DATA_DIR, 'save-recovery/.scienceprism/harness-runs.json');
+  const ledger = JSON.parse(await readFile(ledgerPath, 'utf8'));
+  ledger.runs.find(run => run.id === step.calls[0].runId).retainedWorkspace = { format: 'harness-workspace-v1', attempt: 1 };
+  await writeFile(ledgerPath, JSON.stringify(ledger));
+  assert.equal(step.handoff.parentRunId, blocked.session.coordinatorRunId);
+  const sourceAfterFailure = sourceCalls; assert(sourceAfterFailure > beforeCalls);
+  await resumeAutomation('save-recovery', { actor: 'human' }, runtime);
+  const done = await settled('save-recovery'); assert.equal(done.session.status, 'completed', JSON.stringify(done.session));
+  assert.equal(sourceCalls, sourceAfterFailure); assert.equal((await listHarnessRuns('save-recovery')).length, 2);
+  const runs = await listHarnessRuns('save-recovery');
+  assert(runs.filter(run => run.kind !== 'research-coordinator').every(run => run.parentRunId === done.session.coordinatorRunId));
+  assert.equal((await model.getHarnessRun('save-recovery', done.session.coordinatorRunId)).status, 'completed');
+});
+
+test('the research coordinator cannot independently run, replay, cancel or approve model work', async () => {
+  await project('coordinator-control');
+  await startAutomation('coordinator-control', { actor: 'human', question: 'Question', targetStage: 'search' }, runtime);
+  const state = await settled('coordinator-control'), id = state.session.coordinatorRunId;
+  const model = await import('../src/services/harnessRuntime/index.js');
+  for (const command of [model.startHarnessRun, model.pauseHarnessRun, model.cancelHarnessRun, model.replayHarnessRun, model.recoverHarnessRun]) {
+    await assert.rejects(() => command('coordinator-control', id), { code: 'AUTOMATION_OWNS_COORDINATOR' });
+  }
+  await assert.rejects(() => model.decideHarnessRun('coordinator-control', id, { decision: 'accept' }), { code: 'AUTOMATION_OWNS_COORDINATOR' });
+  assert.equal((await model.getHarnessRun('coordinator-control', id)).status, 'created');
+});
+
+test('changed upstream source data blocks continuation before another specialist is called', async () => {
+  const root = await project('handoff-drift'); await enable('handoff-drift', { selection: 'manual' });
+  await startAutomation('handoff-drift', { actor: 'human', question: 'Question', skipReplication: true }, runtime);
+  const waiting = await settled('handoff-drift'); assert.equal(waiting.session.status, 'waiting_confirmation');
+  const before = await listHarnessRuns('handoff-drift');
+  const file = path.join(root, '.scienceprism/research-workflow.json'), workflow = JSON.parse(await readFile(file, 'utf8'));
+  workflow.stages.find(stage => stage.id === 'search').data.papers[0].title = 'Changed fixture source';
+  await writeFile(file, JSON.stringify(workflow));
+  await enable('handoff-drift'); await resumeAutomation('handoff-drift', { actor: 'human' }, runtime);
+  const blocked = await settled('handoff-drift'); assert.equal(blocked.session.error.code, 'AUTOMATION_HANDOFF_INPUT_CHANGED');
+  assert.equal((await listHarnessRuns('handoff-drift')).length, before.length);
+});
+
+test('a restarted unknown stage Run stays unresolved instead of creating a replacement', async t => {
+  const root = await project('unknown-stage'); await enable('unknown-stage'); interruptSearchSave(t);
+  await startAutomation('unknown-stage', { actor: 'human', question: 'Question', targetStage: 'search' }, runtime);
+  const blocked = await settled('unknown-stage'); assert.equal(blocked.session.status, 'blocked');
+  const calls = sourceCalls, file = path.join(root, '.scienceprism/harness-runs.json');
+  const ledger = JSON.parse(await readFile(file, 'utf8'));
+  const run = ledger.runs.find(run => run.kind === 'research-stage');
+  run.status = 'running'; run.runtimeInstanceId = 'old-service-fixture';
+  await writeFile(file, JSON.stringify(ledger));
+  await resumeAutomation('unknown-stage', { actor: 'human' }, runtime);
+  const after = await settled('unknown-stage'); assert.equal(after.session.error.code, 'AUTOMATION_RUN_UNRESOLVED');
+  assert.equal((await listHarnessRuns('unknown-stage')).length, 2); assert.equal(sourceCalls, calls);
+});
+
+test('stage tasks and coordinator delegation require the trusted owning chain', async () => {
+  await project('stage-control'); await enable('stage-control', { selection: 'manual' });
+  await startAutomation('stage-control', { actor: 'human', question: 'Question', skipReplication: true }, runtime);
+  const state = await settled('stage-control'), runs = await listHarnessRuns('stage-control');
+  const child = runs.find(run => run.kind === 'research-stage'), model = await import('../src/services/harnessRuntime/index.js');
+  for (const command of [model.startHarnessRun, model.pauseHarnessRun, model.cancelHarnessRun, model.replayHarnessRun, model.recoverHarnessRun]) await assert.rejects(() => command('stage-control', child.id), { code: 'AUTOMATION_OWNS_STAGE' });
+  await assert.rejects(() => model.decideHarnessRun('stage-control', child.id, { decision: 'accept' }), { code: 'AUTOMATION_OWNS_STAGE' });
+  await assert.rejects(() => model.createHarnessRun('stage-control', { parentRunId: state.session.coordinatorRunId, delegationTask: 'forged', automationSessionId: state.session.id, capabilities: ['project.read'] }), { code: 'AUTOMATION_OWNS_STAGE' });
+  assert.equal((await listHarnessRuns('stage-control')).length, runs.length);
+});
+
+test('a changed specialist mode cannot execute under a handoff for the old role', async () => {
+  await project('role-drift'); await enable('role-drift', { selection: 'manual' });
+  await startAutomation('role-drift', { actor: 'human', question: 'Question', skipReplication: true }, runtime);
+  const before = await settled('role-drift'), count = (await listHarnessRuns('role-drift')).length;
+  await saveAutomationPolicy('role-drift', { actor: 'human', expectedVersion: before.version, policy: { enabled: true, overrides: {}, agentMode: 'generalist' } });
+  await resumeAutomation('role-drift', { actor: 'human' }, runtime);
+  const after = await settled('role-drift'); assert.equal(after.session.error.code, 'AUTOMATION_HANDOFF_OWNER_CHANGED');
+  assert.equal((await listHarnessRuns('role-drift')).length, count);
 });

@@ -74,6 +74,26 @@ own authority: the backend does not claim to sandbox or stop them. MCP discovery
 is explicit configuration management, not authorization to execute a tool.
 Neither this check nor a successful Run establishes scientific evidence.
 
+## Research-chain handoffs
+
+Automatic research has one application-owned coordinator record and serial
+stage Runs. The coordinator records ownership and never invokes a model;
+the selected Harness adapter executes each specialist. Stage creation and
+control require the owning chain, rather than independent task-page commands.
+Each new handoff records the workflow version, source-stage content hashes,
+producer Runs, search sessions and experiment IDs under the actual parent Run.
+Changed upstream input or specialist identity blocks continuation.
+
+Stage Run IDs are saved before execution. Completed outputs and search sessions
+are read back after a workflow-save failure, without another model or source
+request. Searches save their chain operation identity in the existing search
+history; a prepared search with no complete receipt remains unresolved. Failed
+or interrupted Runs with unknown stopping or unreconciled retained work are
+also kept unresolved. Older incomplete steps without these receipts require
+inspection. Stop signals reach stage execution and source requests, and an
+unconfirmed runtime stop preserves its retained slot. This does not grant new
+download, environment or arbitrary command authority.
+
 ## HTTP Interface
 
 `/api/projects/:id/harness-runs` supports listing and creating Runs. The

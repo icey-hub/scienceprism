@@ -19,7 +19,8 @@ const {
 test('HARNESS_EXECUTED_STAGES still matches the stages application.js invokes', async () => {
   const source = await readFile(applicationSource, 'utf8');
   const automation = await readFile(path.join(srcRoot, 'services/researchAutomation/stages.js'), 'utf8');
-  const invoked = [...source.matchAll(/runResearchStage\(\{\s*stage:\s*'([a-z_]+)'/g), ...automation.matchAll(/await run\('([a-z_]+)'/g)].map((match) => match[1]);
+  assert.match(source, /runStage = runResearchStage/, 'the injected stage runner defaults to the actual Harness adapter');
+  const invoked = [...source.matchAll(/(?:runResearchStage|runStage)\(\{\s*stage:\s*'([a-z_]+)'/g), ...automation.matchAll(/await run\('([a-z_]+)'/g)].map((match) => match[1]);
   // The application names contract stages; skills bind to workflow stages.
   const normalized = [...new Set(invoked.map((stage) => RESEARCH_SKILL_STAGE_ALIASES[stage] || stage))].sort();
 
