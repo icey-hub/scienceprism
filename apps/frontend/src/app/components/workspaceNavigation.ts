@@ -1,4 +1,4 @@
-import { Activity, BookOpenText, FolderOpen, LayoutDashboard, ListChecks, MessageSquare, Network, Radio, Settings2, Wrench, Sparkles, Bot, Cpu, Plug, Search } from 'lucide-react';
+import { Activity, BookOpenText, FolderOpen, LayoutDashboard, ListChecks, MessageSquare, Network, Radio, Settings2, Wrench, Sparkles, Bot, Cpu, Plug, Search, Database } from 'lucide-react';
 import { researchHref } from '../research/researchLocation';
 
 export const WORKSPACE_GROUPS = [
@@ -7,6 +7,7 @@ export const WORKSPACE_GROUPS = [
     { id: 'chat', label: '对话', icon: MessageSquare, path: 'chat' },
     { id: 'activity', label: '任务与会话', icon: Activity, path: 'tasks' },
     { id: 'search', label: '论文搜索', icon: Search, path: 'papers/search' },
+    { id: 'data', label: '数据', icon: Database, path: 'lab/data' },
     { id: 'library', label: '资料库', icon: BookOpenText, path: 'library' },
     { id: 'evidence', label: '探索', icon: Network, path: 'explore' },
     { id: 'tools', label: '工具执行', icon: Wrench, path: 'tools' },

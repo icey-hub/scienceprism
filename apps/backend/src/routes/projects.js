@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { DATA_DIR, TEMPLATE_DIR } from '../config/constants.js';
 import { ensureDir, readJson, writeJson, copyDir, listFilesRecursive } from '../utils/fsUtils.js';
 import { assertStorageName, safeJoin, sanitizeUploadPath } from '../utils/pathUtils.js';
+import { assertDatasetGenericFileAccess, isDatasetPrivatePath } from '../services/datasets/repository.js';
 import { isTextFile, extractDocumentBody, mergeTemplateBody } from '../utils/texUtils.js';
 import { readTemplateManifest, copyTemplateIntoProject } from '../services/templateService.js';
 import { getProjectRoot } from '../services/projectService.js';
@@ -274,7 +275,7 @@ export function registerProjectRoutes(fastify) {
   fastify.get('/api/projects/:id/tree', async (req) => {
     const { id } = req.params;
     const projectRoot = await getProjectRoot(id);
-    const items = await listFilesRecursive(projectRoot);
+    const items = (await listFilesRecursive(projectRoot)).filter(item => !isDatasetPrivatePath(item.path));
     let fileOrder = {};
     try {
       const meta = await readJson(path.join(projectRoot, 'project.json'));
@@ -304,6 +305,7 @@ export function registerProjectRoutes(fastify) {
     const { path: filePath } = req.query;
     if (!filePath) return { content: '' };
     const projectRoot = await getProjectRoot(id);
+    assertDatasetGenericFileAccess(filePath, { projectRoot });
     const abs = safeJoin(projectRoot, filePath);
     const content = await fs.readFile(abs, 'utf8');
     return { content, version: { exists: true, sha256: contentHash(content) } };
@@ -314,6 +316,7 @@ export function registerProjectRoutes(fastify) {
     const { path: filePath } = req.query;
     if (!filePath) return reply.code(400).send('Missing path');
     const projectRoot = await getProjectRoot(id);
+    assertDatasetGenericFileAccess(filePath, { projectRoot });
     const abs = safeJoin(projectRoot, filePath);
     const buffer = await fs.readFile(abs);
     const ext = path.extname(filePath).toLowerCase();
@@ -339,6 +342,7 @@ export function registerProjectRoutes(fastify) {
       if (part.type !== 'file') continue;
       const relPath = sanitizeUploadPath(part.filename);
       if (!relPath) continue;
+      assertDatasetGenericFileAccess(relPath, { projectRoot, mutation: true });
       const abs = safeJoin(projectRoot, relPath);
       await ensureDir(path.dirname(abs));
       await pipeline(part.file, createWriteStream(abs));
@@ -352,6 +356,7 @@ export function registerProjectRoutes(fastify) {
     const { path: filePath, content, expectedVersion } = req.body || {};
     if (!filePath) return { ok: false };
     const projectRoot = await getProjectRoot(id);
+    assertDatasetGenericFileAccess(filePath, { projectRoot, mutation: true });
     return withHarnessRunLock(id, async () => {
       const abs = safeJoin(projectRoot, filePath);
       const current = await readFileState(projectRoot, filePath);
@@ -379,7 +384,7 @@ export function registerProjectRoutes(fastify) {
   fastify.get('/api/projects/:id/files', async (req) => {
     const { id } = req.params;
     const projectRoot = await getProjectRoot(id);
-    const items = await listFilesRecursive(projectRoot);
+    const items = (await listFilesRecursive(projectRoot)).filter(item => !isDatasetPrivatePath(item.path));
     const files = [];
     for (const item of items) {
       if (item.type !== 'file') continue;
@@ -447,6 +452,7 @@ export function registerProjectRoutes(fastify) {
     const { path: folderPath } = req.body || {};
     if (!folderPath) return { ok: false };
     const projectRoot = await getProjectRoot(id);
+    assertDatasetGenericFileAccess(folderPath, { projectRoot, mutation: true });
     const abs = safeJoin(projectRoot, folderPath);
     await ensureDir(abs);
     return { ok: true };
@@ -457,6 +463,8 @@ export function registerProjectRoutes(fastify) {
     const { from, to } = req.body || {};
     if (!from || !to) return { ok: false };
     const projectRoot = await getProjectRoot(id);
+    assertDatasetGenericFileAccess(from, { projectRoot, mutation: true });
+    assertDatasetGenericFileAccess(to, { projectRoot, mutation: true });
     const absFrom = safeJoin(projectRoot, from);
     const absTo = safeJoin(projectRoot, to);
     await ensureDir(path.dirname(absTo));
@@ -469,6 +477,7 @@ export function registerProjectRoutes(fastify) {
     const { path: filePath } = req.query || {};
     if (!filePath) return { ok: false, error: 'Missing file path' };
     const projectRoot = await getProjectRoot(id);
+    assertDatasetGenericFileAccess(filePath, { projectRoot, mutation: true });
     const abs = safeJoin(projectRoot, filePath);
     // Check if it's a directory
     try {

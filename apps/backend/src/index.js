@@ -7,6 +7,8 @@ import { DATA_DIR, PORT, TUNNEL_MODE } from './config/constants.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerArxivRoutes } from './routes/arxiv.js';
 import { registerPaperAttachmentRoutes } from './routes/paperAttachments.js';
+import { registerDatasetRoutes } from './routes/datasets.js';
+import { datasetService } from './services/datasets/index.js';
 import { registerPaperAnnotationRoutes } from './routes/paperAnnotations.js';
 import { registerTranslationRoutes } from './routes/translation.js';
 import { registerPaperRankingRoutes } from './routes/paperRankings.js';
@@ -58,6 +60,7 @@ registerPaperRankingRoutes(fastify);
 registerSkillDiscoveryRoutes(fastify);
 registerSkillInstallationRoutes(fastify);
 registerPaperAttachmentRoutes(fastify);
+registerDatasetRoutes(fastify);
 registerTranslationRoutes(fastify);
 registerPaperAnnotationRoutes(fastify);
 registerProjectRoutes(fastify);
@@ -98,6 +101,7 @@ async function shutdown() {
   const closing = fastify.close();
   try {
     await shutdownExperimentRuns();
+    await datasetService.shutdown();
     await closing;
     process.exit(0);
   } catch (error) {

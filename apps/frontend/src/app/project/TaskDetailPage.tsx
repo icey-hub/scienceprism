@@ -60,6 +60,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
     {task && <>
       <div className="hub-page-heading task-detail-heading"><div><h2>{run?.kind === 'research-coordinator' ? '研究链路协调任务' : task.title}</h2><p><code>{task.id}</code> · {task.kind}</p></div><DecisionStatus status={task.status} /></div>
       <div className="task-detail-actions">
+        {task.kind === 'dataset-acquisition' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/lab/data`}>查看数据版本</Link>}
         {task.kind === 'paper-download' && typeof task.metadata?.paperId === 'string' && <Link className="hub-small-button" to={`/project/${encodeURIComponent(projectId)}/papers/${encodeURIComponent(task.metadata.paperId)}/read`}>打开 PDF 阅读</Link>}
         {stageHref && <Link className="hub-small-button is-quiet" to={stageHref}>打开相关工作</Link>}
         {run && !run.archived && !['codex-worker','research-coordinator','research-stage'].includes(run.kind || '') ? <>

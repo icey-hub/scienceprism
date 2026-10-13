@@ -151,6 +151,17 @@ function paperDownloadTask(job) {
     createdAt: job.createdAt, updatedAt: job.updatedAt, startedAt: job.startedAt, finishedAt: job.finishedAt });
 }
 
+function datasetTask(job) {
+  const config=job.configuration;
+  return normalizeTask({id:`dataset-acquisition:${job.id}`,kind:'dataset-acquisition',title:`取得数据 · ${config.filename}`,
+    status:job.status==='interrupted'?'paused':job.status==='committing'?'running':job.status,
+    progress:job.status==='completed'?100:job.totalBytes?Math.min(99,Math.round(job.receivedBytes/job.totalBytes*100)):null,
+    error:job.error,retryable:['failed','cancelled','interrupted'].includes(job.status),
+    log:[config.source.url||'本地导入',`${job.receivedBytes} bytes received`,...(job.interrupted?['原任务中断，可核对后继续。']:[])],
+    metadata:{jobId:job.id,datasetId:job.datasetId,filename:config.filename,configurationVersion:config.version,configurationSha256:job.configurationSha256,
+      source:config.source,receivedBytes:job.receivedBytes,totalBytes:job.totalBytes},createdAt:job.createdAt,startedAt:job.startedAt,finishedAt:job.finishedAt,updatedAt:job.updatedAt});
+}
+
 export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
   const stored = await readTasks(projectId);
   const taskMap = new Map(stored.tasks.map((task) => [task.id, task]));
@@ -171,6 +182,8 @@ export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
   } catch {}
   const { paperAttachmentService } = await import('../paperAttachments/index.js');
   for (const job of await paperAttachmentService.listJobs(projectId)) taskMap.set(`paper-download:${job.id}`, paperDownloadTask(job));
+  const { datasetService } = await import('../datasets/index.js');
+  for (const job of await datasetService.listJobs(projectId)) taskMap.set(`dataset-acquisition:${job.id}`, datasetTask(job));
   const linkedRuns = new Set([...taskMap.values()].map(task => task.metadata?.harnessRunId).filter(Boolean));
   let tasks = [...taskMap.values()].filter(task => task.kind !== 'harness' || !linkedRuns.has(task.metadata?.runId))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -189,6 +202,11 @@ export async function getTask(projectId, taskId) {
 
 export async function retryTask(projectId, taskId) {
   const task = await getTask(projectId, taskId);
+  if(task.kind==='dataset-acquisition'){
+    const {datasetService}=await import('../datasets/index.js');
+    const result=await datasetService.resume(projectId,task.metadata.jobId,{expectedConfigurationVersion:task.metadata.configurationVersion});
+    return {task:datasetTask(result.job)};
+  }
   if (task.kind === 'harness' && task.metadata?.runId) {
     const run = await replayHarnessRun(projectId, task.metadata.runId, { start: true });
     return { task: harnessTask(run), run };
@@ -210,6 +228,10 @@ export async function retryTask(projectId, taskId) {
 
 export async function cancelTask(projectId, taskId) {
   const task = await getTask(projectId, taskId);
+  if(task.kind==='dataset-acquisition'){
+    const {datasetService}=await import('../datasets/index.js');
+    return {task:datasetTask(await datasetService.cancel(projectId,task.metadata.jobId))};
+  }
   if (task.kind === 'harness' && task.metadata?.runId) {
     const run = await cancelHarnessRun(projectId, task.metadata.runId);
     return { task: harnessTask(run), run };
