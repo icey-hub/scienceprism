@@ -66,7 +66,7 @@ async function runWithTimeout(task, timeoutMs, controller, stopTimeoutMs) {
     if (controller.signal.aborted) {
       let stopTimer;
       const outcome = await Promise.race([
-        task.then(() => ({ stopped: true }), error => ({ stopped: !['CODEX_STOP_FAILED', 'DSH_STOP_FAILED'].includes(error?.code), error })),
+        task.then(() => ({ stopped: true }), error => ({ stopped: !['CODEX_STOP_FAILED', 'DSH_STOP_FAILED', 'MCP_STOP_FAILED'].includes(error?.code), error })),
         new Promise(resolve => { stopTimer = setTimeout(() => resolve({ stopped: false }), stopTimeoutMs); })
       ]);
       clearTimeout(stopTimer);
@@ -265,7 +265,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
     } catch (error) {
       await eventWrite;
       const runtimeError = control.controller.stopError || control.violation || control.timeoutError || asRuntimeError(error);
-      control.stopUnconfirmed = ['HARNESS_STOP_UNCONFIRMED', 'CODEX_STOP_FAILED', 'DSH_STOP_FAILED'].includes(runtimeError.code) || delegation?.preserveWorkspace;
+      control.stopUnconfirmed = ['HARNESS_STOP_UNCONFIRMED', 'CODEX_STOP_FAILED', 'DSH_STOP_FAILED', 'MCP_STOP_FAILED'].includes(runtimeError.code) || delegation?.preserveWorkspace;
       if (!control.stopUnconfirmed && (control.cancelRequested || control.controller.signal.reason?.code === 'HARNESS_CANCELLED')) {
         return await updateRun(projectId, runId, (current) => {
           current.status = 'cancelled';
@@ -370,7 +370,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         current.finishedAt = now();
         current.updatedAt = current.finishedAt;
         current.error = { code: runtimeError.code, message: runtimeError.message, retryable: runtimeError.retryable };
-        if (control.stopUnconfirmed) current.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: Boolean(runRoot), modelSlotRetained: true };
+        if (control.stopUnconfirmed) current.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: Boolean(runRoot) || run.adapter === 'mcp', modelSlotRetained: true };
         return current;
       });
     } finally {

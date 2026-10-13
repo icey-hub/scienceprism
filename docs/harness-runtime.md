@@ -56,6 +56,24 @@ broker uses the existing ExperimentRunner with an exact saved manifest, existing
 approval, current file scope, parent cancellation and durable process stopping
 proof. Arbitrary commands, model-supplied approvals and unbound MCP remain denied.
 
+Explicit MCP checks use a separate bound call: the selected server, tool, schema
+and arguments must match the current project, Run and role policy. Supported
+schemas use JSON Schema draft 7, including local references; unsupported schema
+dialects, keywords, formats and remote references are rejected before connecting.
+Policy is audited and checked again before transport requests and result release.
+
+Local stdio servers require an available OS sandbox. They receive a scoped,
+read-only input copy and a writable scratch directory, with network and child
+process creation denied. Server runtime/code paths are explicitly checked;
+project ancestors and private directories cannot become directory read grants.
+Process ownership is saved before spawning, and workspace cleanup requires an
+actual stop confirmation. Unknown stops retain the project slot for recovery.
+HTTP checks enforce the allowed host and exact configured endpoint on every
+request, reject redirects and bound response size. Remote servers retain their
+own authority: the backend does not claim to sandbox or stop them. MCP discovery
+is explicit configuration management, not authorization to execute a tool.
+Neither this check nor a successful Run establishes scientific evidence.
+
 ## HTTP Interface
 
 `/api/projects/:id/harness-runs` supports listing and creating Runs. The

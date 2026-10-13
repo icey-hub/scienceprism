@@ -41,11 +41,57 @@ test('real Runtime MCP adapter dispatches bound tools, records calls, rejects de
  const root=await project('execution'),marker=path.join(root,'called.txt');await saveMcpServer('execution',{...config,args:[...config.args,marker],tasks:['mcp-check']});await discoverMcpTools('execution','notes');
  async function run(toolName,adapter='mcp'){const created=await createHarnessRun('execution',{adapter,role:'project-agent',task:'mcp-check',capabilities:['project.read'],mcpCall:{serverId:'notes',toolName,arguments:{label:'verified actual transport'}}});await startHarnessRun('execution',created.id);for(let i=0;i<200;i++){const result=await getHarnessRun('execution',created.id);if(['completed','failed','cancelled'].includes(result.status))return result;await new Promise(resolve=>setTimeout(resolve,10));}throw new Error('Run timed out');}
  let result=await run('unknown_tool');assert.equal(result.status,'failed');await assert.rejects(readFile(marker),error=>error.code==='ENOENT');
- result=await run('read_note');assert.equal(result.status,'completed');assert.equal(await readFile(marker,'utf8'),'called');assert.match(result.reply,/verified actual transport/);assert.equal(result.tokenUsage,null);assert.equal(result.events.find(event=>event.type==='tool/start').name,'mcp__notes__read_note');assert.equal(result.events.find(event=>event.type==='tool/end').capability,'project.read');assert.equal(result.humanDecision.status,'none');
+ result=await run('read_note');assert.equal(result.status,'completed',JSON.stringify(result.error));await assert.rejects(readFile(marker),error=>error.code==='ENOENT');assert.match(result.reply,/verified actual transport/);assert.match(result.reply,/writeBlocked=true/);assert.equal(result.tokenUsage,null);assert.equal(result.events.find(event=>event.type==='tool/start').name,'mcp__notes__read_note');assert.equal(result.events.find(event=>event.type==='tool/end').capability,'project.read');assert.equal(result.humanDecision.status,'none');
+ const decision=result.events.find(event=>event.type==='tool/policy');assert.equal(decision.actor,'system');assert.equal(decision.decision,'allow');assert.ok(decision.policyVersion);
+ const stopped=result.events.filter(event=>event.type==='mcp/process').at(-1);assert.equal(stopped.stopConfirmed,true);assert.ok(['macos-sandbox-exec','node-permission'].includes(stopped.isolation));assert.throws(()=>process.kill(stopped.pid,0),{code:'ESRCH'});
  await saveMcpServer('execution',{...config,args:[...config.args,marker],tasks:['mcp-check'],enabled:false});await writeFile(marker,'unchanged');result=await run('read_note');assert.equal(result.status,'failed');assert.equal(await readFile(marker,'utf8'),'unchanged');
  result=await run('read_note','deepseek');assert.equal(result.status,'failed');assert.equal(result.error.code,'MCP_DSH_RESTRICTED');assert.equal(await readFile(marker,'utf8'),'unchanged');
  assert.throws(()=>assertDshMcpPolicy({mcpToolIds:['notes/read_note']}),error=>error.code==='MCP_DSH_RESTRICTED');
  assert.deepEqual(await readdir(path.join(root,'.scienceprism/mcp-runtime')),[]);
+});
+
+test('Runtime cancellation confirms a SIGTERM-resistant MCP child has exited before releasing its workspace',async()=>{
+ const {createHarnessRun,startHarnessRun,getHarnessRun,cancelHarnessRun}=await import('../src/services/harnessRuntime/index.js');
+ const root=await project('cancel-process');await saveMcpServer('cancel-process',{...config,tasks:['mcp-check'],env:{MCP_TEST_HOLD:'true'}});
+ assert.equal((await discoverMcpTools('cancel-process','notes')).servers[0].discovery.state,'discovered');
+ const created=await createHarnessRun('cancel-process',{adapter:'mcp',role:'project-agent',task:'mcp-check',capabilities:['project.read'],fallback:false,mcpCall:{serverId:'notes',toolName:'read_note',arguments:{label:'wait'}}});
+ await startHarnessRun('cancel-process',created.id);let running;
+ const deadline=Date.now()+5000;
+ do{running=await getHarnessRun('cancel-process',created.id);if(running.events.some(event=>event.type==='tool/start'))break;await new Promise(resolve=>setTimeout(resolve,10));}while(Date.now()<deadline);
+ assert.ok(running.events.some(event=>event.type==='tool/start'));
+ const pid=running.events.filter(event=>event.type==='mcp/process'&&!event.stopConfirmed&&event.pid).at(-1).pid;
+ process.kill(pid,0);
+ const result=await cancelHarnessRun('cancel-process',created.id);
+ assert.equal(result.status,'cancelled',JSON.stringify(result.error));
+ assert.equal(result.events.filter(event=>event.type==='mcp/process').at(-1).stopConfirmed,true);
+ assert.throws(()=>process.kill(pid,0),{code:'ESRCH'});
+ assert.equal(result.events.some(event=>event.type==='tool/end'),false);
+ assert.deepEqual(await readdir(path.join(root,'.scienceprism/mcp-runtime')),[]);
+});
+
+test('Runtime keeps the project slot when retained MCP stop evidence is unknown',async()=>{
+ const {createHarnessRun,startHarnessRun}=await import('../src/services/harnessRuntime/index.js');
+ const root=await project('unknown-process');await saveMcpServer('unknown-process',{...config,tasks:['mcp-check']});
+ assert.equal((await discoverMcpTools('unknown-process','notes')).servers[0].discovery.state,'discovered');
+ const retained=path.join(root,'.scienceprism/mcp-runtime/unknown');await mkdir(retained);await writeFile(path.join(retained,'process.json'),JSON.stringify({pid:null,stopConfirmed:false}));
+ const request={adapter:'mcp',role:'project-agent',task:'mcp-check',capabilities:['project.read'],fallback:false,mcpCall:{serverId:'notes',toolName:'read_note',arguments:{label:'unknown'}}};
+ const created=await createHarnessRun('unknown-process',request);const failed=await startHarnessRun('unknown-process',created.id,{wait:true});
+ assert.equal(failed.error.code,'MCP_STOP_FAILED');assert.equal(failed.cleanup.modelSlotRetained,true);assert.equal(failed.cleanup.workspaceRetained,true);
+ assert.equal(failed.events.some(event=>event.type==='mcp/process'),false);
+ const next=await createHarnessRun('unknown-process',request);await assert.rejects(startHarnessRun('unknown-process',next.id),{code:'HARNESS_STOP_UNCONFIRMED'});
+ assert.equal(JSON.parse(await readFile(path.join(retained,'process.json'),'utf8')).stopConfirmed,false);
+});
+
+test('a failed denied audit cannot mask actual unknown MCP stop evidence',async()=>{
+ const {mcpCheckAdapter}=await import('../src/services/mcp/execution.js');
+ const root=await project('audit-stop');await saveMcpServer('audit-stop',{...config,tasks:['mcp-check']});await discoverMcpTools('audit-stop','notes');
+ const retained=path.join(root,'.scienceprism/mcp-runtime/unknown');await mkdir(retained);await writeFile(path.join(retained,'process.json'),JSON.stringify({pid:null,stopConfirmed:false}));
+ const capabilities={granted:['project.read'],allowedPaths:[],networkAllowlist:[]};
+ const request={projectId:'audit-stop',role:'project-agent',task:'mcp-check',mcpCall:{serverId:'notes',toolName:'read_note',arguments:{label:'wait'}}};
+ await assert.rejects(mcpCheckAdapter.run({request,capabilityPolicy:capabilities,signal:new AbortController().signal,emit:()=>{},
+   readPolicy:async()=>({projectId:'audit-stop',runId:'fixed',role:'project-agent',task:'mcp-check',active:true,mode:'auto',version:'v1',capabilities}),
+   onDecision:async event=>{if(event.decision==='deny')throw new Error('audit failed');}}),{code:'MCP_STOP_FAILED'});
+ assert.equal(JSON.parse(await readFile(path.join(retained,'process.json'),'utf8')).stopConfirmed,false);
 });
 
 test('catalogue counts retained call identities, keeps Skill selection distinct, reports legacy gaps',async()=>{
