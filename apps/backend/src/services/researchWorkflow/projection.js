@@ -24,6 +24,19 @@ function frontendStageState(stage, currentStage) {
   return stage.order === currentOrder + 1 ? 'ready' : 'locked';
 }
 
+function replicationForUi(data) {
+  const projected = structuredClone(data.replication || data.replicationPlan || data);
+  const plan = data.executionPlan;
+  if (plan && typeof plan === 'object' && !Array.isArray(plan)) {
+    for (const field of ['execution', 'resources', 'artifacts', 'parameters', 'seed', 'codePaths']) {
+      // An explicit nested field, including an empty value, belongs to the
+      // user's current preparation. Never merge hidden old execution IDs into it.
+      if (!Object.hasOwn(projected, field) && Object.hasOwn(plan, field)) projected[field] = structuredClone(plan[field]);
+    }
+  }
+  return projected;
+}
+
 export function toFrontendWorkflow(workflow) {
   const direction = getStageData(workflow, 'direction');
   const search = getStageData(workflow, 'search');
@@ -66,7 +79,7 @@ export function toFrontendWorkflow(workflow) {
       policy: search.policy || null
     },
     papers,
-    replication: replication.replication || replication.replicationPlan || replication,
+    replication: replicationForUi(replication),
     ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: textList(idea.evidence || idea.relatedPaperIds), hypothesis: idea.hypothesis || '', novelty: idea.novelty || '', validationPlan: textList(idea.validationPlan), risks: textList(idea.risks), humanReview: idea.humanReview || null, selected: Boolean(idea.selected) })),
     ideaComparison: ideation.comparison || [],
     ideaHumanDirection: ideation.humanDirection || '',

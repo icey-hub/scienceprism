@@ -170,7 +170,7 @@ export function toResearchView(workflow: UiWorkflow, claimMatrix?: WritingEviden
     ...(workflow.replication?.codePaths ? { codePaths: workflow.replication.codePaths } : {}),
     ...(workflow.replication?.execution ? { execution: workflow.replication.execution } : {}),
     ...(workflow.replication?.parameters ? { parameters: workflow.replication.parameters } : {}),
-    ...(workflow.replication?.seed ? { seed: workflow.replication.seed } : {}),
+    ...(workflow.replication?.seed !== undefined && workflow.replication.seed !== null ? { seed: String(workflow.replication.seed) } : {}),
     ...(workflow.replication?.resources ? { resources: workflow.replication.resources } : {}),
     ...(workflow.replication?.artifacts ? { artifacts: workflow.replication.artifacts } : {}),
     status: workflow.replication?.status

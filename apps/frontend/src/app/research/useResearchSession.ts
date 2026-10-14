@@ -375,9 +375,11 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
     setBusy(true); setError(''); setNotice('');
     try {
       const plan: ReplicationRunPlan = {
-        execution: { adapter: replicationExecution.adapter, entrypoint: replicationExecution.entrypoint.trim(), args: replicationExecution.args || [] },
+        execution: { adapter: replicationExecution.adapter, entrypoint: replicationExecution.entrypoint.trim(), args: replicationExecution.args || [],
+          ...(replicationExecution.environmentId ? { environmentId: replicationExecution.environmentId } : {}),
+          ...(replicationExecution.codePreparationId ? { codePreparationId: replicationExecution.codePreparationId } : {}) },
         ...(workflow.replication.parameters ? { parameters: workflow.replication.parameters } : {}),
-        ...(workflow.replication.seed ? { seed: workflow.replication.seed } : {}),
+        ...(workflow.replication.seed !== undefined && workflow.replication.seed !== null ? { seed: String(workflow.replication.seed) } : {}),
         ...(workflow.replication.resources ? { resources: workflow.replication.resources } : {}),
         ...(workflow.replication.artifacts?.length ? { artifacts: workflow.replication.artifacts } : {})
       };
