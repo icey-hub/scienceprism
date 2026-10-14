@@ -20,3 +20,14 @@
 .confirmation-control button{border:0;border-radius:5px;padding:6px 10px;background:transparent;color:#7b7f8d;font:inherit;font-size:12px;cursor:pointer}
 .confirmation-control button[aria-pressed=true]{background:#fff;color:#343746;box-shadow:0 1px 3px #202b381a}
 .confirmation-control button:focus-visible{outline:2px solid #6562a6;outline-offset:2px}.confirmation-control button:disabled{opacity:.5;cursor:wait}
+.automation-scope-note{font-size:12px;color:#7b7f8d;line-height:1.7}
+.automation-code-toggle{display:flex;align-items:center;gap:8px}
+.automation-code-budgets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:15px 0}
+.automation-code-budgets label{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:12px}
+.automation-code-budgets input{width:100%;box-sizing:border-box}
+.automation-code-record{width:100%;box-sizing:border-box;border:1px solid #e2e4eb;border-radius:8px;background:#fff;padding:12px 14px;min-width:0}
+.automation-code-record-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.automation-code-record p{margin:8px 0;font-size:12px;overflow-wrap:anywhere}
+.automation-code-record small{display:block;font-size:11px;color:#7b7f8d;line-height:1.7}
+.automation-code-record code{display:block;max-width:100%;overflow-wrap:anywhere;font-size:11px;line-height:1.7;margin-bottom:8px}
+.automation-code-record .automation-run-links{margin:8px 0}
