@@ -215,6 +215,7 @@ export async function buildExperimentManifest(projectId, runId, input = {}, proj
       interpretation: 'source-artifact-bound'
     },
     protocol,
+    ...(replicationContext?.plan.evaluationProtocol ? { evaluationProtocol: structuredClone(replicationContext.plan.evaluationProtocol) } : {}),
     parameters,
     seed,
     resources,
@@ -237,10 +238,13 @@ export function manifestSummary(manifest) {
     environment: manifest.environment,
     command: manifest.command,
     parameters: manifest.parameters,
+    protocol: manifest.protocol,
     seed: manifest.seed,
     resources: manifest.resources,
     successCriteria: manifest.successCriteria,
     artifacts: manifest.artifacts,
+    ...(manifest.replication ? { paperBinding: manifest.replication.paper ? 'bound' : 'unbound', ...(manifest.replication.paper ? { paper: manifest.replication.paper } : {}) } : {}),
+    ...(manifest.evaluationProtocol ? { evaluationProtocol: manifest.evaluationProtocol } : {}),
     ...(manifest.purpose === 'engineering-trial' ? { purpose: manifest.purpose, trial: manifest.trial } : {}),
     ...(manifest.replication ? { replication: manifest.replication } : {}),
     ...(manifest.researchPlan ? { researchPlan: manifest.researchPlan } : {})

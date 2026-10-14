@@ -122,6 +122,13 @@ export function experimentRunSummary(run, evidenceEntries = []) {
     codeSnapshotHash: run.manifest.code?.snapshotHash || '',
     dataset: run.manifest.dataset,
     environment: run.manifest.environment,
+    protocol: run.manifest.protocol || '',
+    seed: run.manifest.seed ?? null,
+    successCriteria: Array.isArray(run.manifest.successCriteria) ? run.manifest.successCriteria : [],
+    exitCode: run.execution?.exitCode ?? null,
+    errorMessage: run.error?.message || run.execution?.error?.message || '',
+    ...(run.manifest.replication ? { paperBinding: run.manifest.replication.paper ? 'bound' : 'unbound', ...(run.manifest.replication.paper ? { paper: run.manifest.replication.paper } : {}) } : {}),
+    ...(run.manifest.evaluationProtocol ? { evaluationProtocol: run.manifest.evaluationProtocol } : {}),
     metrics: Array.isArray(run.metrics) ? run.metrics : [],
     artifacts: artifactRows
   };

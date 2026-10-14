@@ -7,6 +7,11 @@ const identity = request => createHash('sha256').update(JSON.stringify({ task: r
   input: request.input, context: request.context, prompt: request.prompt, skills: request.researchSkills })).digest('hex');
 const result = run => ({ ok: run.status === 'completed', reply: run.reply || '', patches: run.patches || [], runtime: run.adapter,
   runId: run.id, events: run.events || [], fallback: run.fallback, error: run.error });
+const hasEvaluation = request => request.stageContract?.fields?.some(field => field.startsWith('evaluationProtocol'));
+const contractEnvelope = prompt => {
+  const block = /Required output fields \(name: type\) for reproduction_plan:\n[\s\S]*?(?=Stage-specific project skills:\n)/g;
+  return typeof prompt === 'string' && [...prompt.matchAll(block)].length === 1 ? prompt.replace(block, '') : null;
+};
 
 /** The original stage call ledger owns every producer, including code workers.
  * Bind its effect receipt after the real Run is saved and before any model work. */
@@ -23,12 +28,33 @@ export function createAutomationStageHarness({ projectId, session, stage, step, 
   };
   return async (request, { onPrepared, requireExisting = false } = {}) => {
     await beforeEffect(); signal?.throwIfAborted();
-    const inputHash = identity(request), requestId = `${session.id}:${stage}:${inputHash}`;
+    let inputHash = identity(request), requestId = `${session.id}:${stage}:${inputHash}`;
     let saved = calls.findLast(call => call.inputHash === inputHash), previous;
     if (!saved) {
       for (const candidate of calls.filter(call => call.task === request.task).reverse()) {
         const stored = await readRun(projectId, candidate.runId);
         if (identity(stored.request) === inputHash) { saved = candidate; previous = stored; break; }
+      }
+    }
+    // C3 adds an optional reproduction contract. Only its known prompt block
+    // may change; recover the original request instead of silently re-delegating.
+    if (!saved && request.task === 'research:reproduction_plan' && hasEvaluation(request)) {
+      const recorded = calls.filter(call => call.task === request.task);
+      const listed = await listRuns(projectId, { parentRunId: session.coordinatorRunId, limit: 100 });
+      if (listed.length === 100) fail('AUTOMATION_RUN_UNRESOLVED', '原复现调用清单不完整，不能重新派发。');
+      const pool = new Map(listed.map(run => [run.id, run]));
+      for (const call of recorded) pool.set(call.runId, await readRun(projectId, call.runId));
+      const legacy = [...pool.values()].filter(run => run.request?.task === request.task && run.request.stageContract?.stage === 'reproduction_plan' && !hasEvaluation(run.request));
+      if (legacy.length > 1) fail('AUTOMATION_RUN_UNRESOLVED', '存在多条原复现调用，需要先对账。');
+      if (legacy.length) {
+        previous = legacy[0]; const call = recorded.find(item => item.runId === previous.id), hash = identity(previous.request);
+        check(previous, hash);
+        if (call && call.inputHash !== hash || ['role', 'input', 'context', 'researchSkills'].some(key => JSON.stringify(previous.request[key]) !== JSON.stringify(request[key]))
+          || !contractEnvelope(previous.request.prompt) || contractEnvelope(previous.request.prompt) !== contractEnvelope(request.prompt)) fail('AUTOMATION_RUN_INPUT_CHANGED', '旧复现调用的输入、交接或修复说明发生变化，不能隐式重派。');
+        request = { ...request, prompt: previous.request.prompt, stageContract: previous.request.stageContract }; inputHash = hash;
+        requestId = previous.request.requestId || `${session.id}:${stage}:${hash}`;
+        saved = call || { runId: previous.id, inputHash, inputIdentityVersion: 2, task: request.task, attempt: session.attempt || 0 };
+        if (!call) { calls.push(saved); await persist(); }
       }
     }
     // A crash between Run persistence and the step receipt must reattach the

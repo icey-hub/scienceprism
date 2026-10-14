@@ -752,12 +752,33 @@ export interface ReplicationRunPlan {
   artifacts?: { path: string; kind?: string; name?: string }[];
 }
 
+export interface ReplicationEvaluationProtocol {
+  datasetSplit: string;
+  metricExtraction: string;
+  referenceLocation: string;
+}
+
+export interface ReplicationPaperSource {
+  id: string;
+  title: string;
+  authors?: string[];
+  year?: number | null;
+  doi?: string | null;
+  url?: string | null;
+  source?: string | { provider?: string | null; url?: string | null; path?: string | null } | null;
+  sourceRecords?: { provider?: string; id?: string; retrievedAt?: string; [key: string]: unknown }[];
+  evidenceId?: string | null;
+  sha256: string;
+}
+
 export interface ReplicationProvenance {
   sourceStage: 'replication';
   projectId: string;
   workflowId: string;
   workflowVersion: number;
   stageStatus: string;
+  paper?: ReplicationPaperSource;
+  paperBinding?: 'bound' | 'unbound';
   plan: {
     repository: string;
     codeVersion?: string;
@@ -767,6 +788,8 @@ export interface ReplicationProvenance {
     expectedMetrics?: string;
     gaps?: string;
     note: string;
+    paperId?: string;
+    evaluationProtocol?: ReplicationEvaluationProtocol | null;
   };
 }
 
@@ -788,6 +811,8 @@ export interface ExperimentRun {
     parameters?: Record<string, unknown>;
     seed?: string | null;
     successCriteria?: string[];
+    protocol?: string;
+    evaluationProtocol?: ReplicationEvaluationProtocol | null;
     replication?: ReplicationProvenance;
     researchPlan?: {
       sourceStage: 'experiment';

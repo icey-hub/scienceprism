@@ -1,4 +1,5 @@
-import type { ExperimentRun } from '../../../api/client';
+import { useEffect, useRef, useState } from 'react';
+import type { ExperimentRun, ReplicationEvaluationProtocol } from '../../../api/client';
 import type { PaperCandidate, ReplicationPlan } from '../researchStages';
 import { DatasetVersionPicker } from './DatasetVersionPicker';
 import { CodePreparationPanel } from './CodePreparationPanel';
@@ -29,14 +30,33 @@ function artifactDeclarations(value: ReplicationPlan) {
 }
 
 export function ReplicationStage({ projectId, selectedPapers, value, busy = false, stageApproved = false, stageStatus = 'in_progress', run, onChange, onSavePlan, onSkip, onCreateRun, onApproveRun, onStartRun, onCancelRun }: ReplicationStageProps) {
+  const emptyProtocol = { datasetSplit: '', metricExtraction: '', referenceLocation: '' };
+  const [evaluationDraft, setEvaluationDraft] = useState<ReplicationEvaluationProtocol>(value.evaluationProtocol || emptyProtocol);
+  const evaluationKey = JSON.stringify(value.evaluationProtocol || null);
+  const projectedEvaluation = useRef({ projectId, key: evaluationKey });
+  useEffect(() => {
+    if (projectedEvaluation.current.projectId === projectId && projectedEvaluation.current.key === evaluationKey) return;
+    projectedEvaluation.current = { projectId, key: evaluationKey };
+    setEvaluationDraft(value.evaluationProtocol || { datasetSplit: '', metricExtraction: '', referenceLocation: '' });
+  }, [projectId, evaluationKey]);
+  const changeEvaluation = (field: keyof ReplicationEvaluationProtocol, text: string) => {
+    const next = { ...evaluationDraft, [field]: text };
+    const complete = Object.values(next).every(item => item.trim()) ? next : null;
+    projectedEvaluation.current = { projectId, key: JSON.stringify(complete || null) };
+    setEvaluationDraft(next); onChange({ ...value, evaluationProtocol: complete });
+  };
+  const incompleteEvaluation = Object.values(evaluationDraft).some(item => item.trim()) && !Object.values(evaluationDraft).every(item => item.trim());
   const qualityPassed = selectedPapers.filter((paper) => paper.eligibility === 'pass').length;
   const execution = executionFor(value);
   const hasRequiredPreparation = Boolean(value.repository.trim() && value.environment.trim() && value.dataset.trim() && value.datasetVersion?.trim() && value.note.trim());
   const canCreateRun = stageApproved && hasRequiredPreparation && Boolean(execution.entrypoint.trim());
   const metrics = run?.metrics || [];
+  const fixedPaper = run?.manifest?.replication?.paper;
+  const fixedEvaluation = run?.manifest?.evaluationProtocol;
+  const fixedPaperSource = typeof fixedPaper?.source === 'string' ? fixedPaper.source : fixedPaper?.source?.provider;
   return (
     <div className="research-page-stack">
-      {projectId && <CodePreparationPanel key={`code:${projectId}`} projectId={projectId} value={execution.codePreparationId} entrypoint={execution.entrypoint} disabled={busy} onChange={(codePreparationId, entrypoint, adapter) => onChange({ ...value, execution: { ...execution, codePreparationId, ...(entrypoint ? { entrypoint } : {}), ...(adapter ? { adapter, environmentId: adapter === 'python' ? execution.environmentId : undefined } : {}) } })} />}
+      {projectId && <CodePreparationPanel key={`code:${projectId}`} projectId={projectId} value={execution.codePreparationId} entrypoint={execution.entrypoint} disabled={busy || stageApproved} onChange={(codePreparationId, entrypoint, adapter) => onChange({ ...value, execution: { ...execution, codePreparationId, ...(entrypoint ? { entrypoint } : {}), ...(adapter ? { adapter, environmentId: adapter === 'python' ? execution.environmentId : undefined } : {}) } })} />}
       <section className="research-panel">
         <div className="research-panel-heading">
           <div><span className="research-overline">OPTIONAL REPRODUCTION</span><h3>验证已有工作</h3></div>
@@ -47,6 +67,12 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
       </section>
       <section className="research-panel">
         <fieldset className="research-form-grid" disabled={busy || stageApproved}>
+          <label className="research-field research-field-wide"><span>复现论文</span><select value={value.paperId || ''} onChange={event => onChange({ ...value, paperId: event.target.value })}>
+            <option value="">请选择已选论文（尚未绑定）</option>
+            {value.paperId && !selectedPapers.some(paper => paper.id === value.paperId) && <option value={value.paperId}>已保存论文 {value.paperId}（未在已选列表）</option>}
+            {selectedPapers.map(paper => <option key={paper.id} value={paper.id}>{paper.title}{paper.year ? ` · ${paper.year}` : ''}</option>)}
+          </select></label>
+          {!value.paperId && <p className="research-panel-copy research-field-wide">尚未绑定具体论文；不会自动采用已选列表中的第一篇。</p>}
           {projectId && <DatasetVersionPicker projectId={projectId} value={value.dataset} disabled={busy || stageApproved} onChange={(dataset, datasetVersion) => onChange({ ...value, dataset, datasetVersion })} />}
           <label className="research-field research-field-wide"><span>代码仓库</span><input value={value.repository} placeholder="仓库 URL 或项目内路径" onChange={(event) => onChange({ ...value, repository: event.target.value })} /></label>
           <label className="research-field"><span>运行环境</span><input value={value.environment} placeholder="例如：Python 3.11 / CUDA 12" onChange={(event) => onChange({ ...value, environment: event.target.value })} /></label>
@@ -54,10 +80,15 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
           <label className="research-field"><span>代码版本</span><input value={value.codeVersion || ''} maxLength={2000} placeholder="commit、tag 或文件摘要；未知可留空" onChange={(event) => onChange({ ...value, codeVersion: event.target.value })} /></label>
           <label className="research-field"><span>数据版本</span><input value={value.datasetVersion || ''} maxLength={2000} placeholder="发布版本、划分或校验和" onChange={(event) => onChange({ ...value, datasetVersion: event.target.value })} /></label>
           <label className="research-field research-field-wide"><span>预期指标与对照</span><textarea value={value.expectedMetrics || ''} rows={3} maxLength={2000} placeholder="来源中的指标、评估条件及允许差异；尚未实测" onChange={(event) => onChange({ ...value, expectedMetrics: event.target.value })} /></label>
+          <label className="research-field research-field-wide"><span>数据划分</span><textarea value={evaluationDraft.datasetSplit} rows={2} maxLength={2000} placeholder="训练 / 验证 / 测试划分、类别范围与样本数" onChange={event => changeEvaluation('datasetSplit', event.target.value)} /></label>
+          <label className="research-field research-field-wide"><span>指标提取方式</span><textarea value={evaluationDraft.metricExtraction} rows={2} maxLength={2000} placeholder="从哪些实际输出提取指标，如何汇总和对照" onChange={event => changeEvaluation('metricExtraction', event.target.value)} /></label>
+          <label className="research-field research-field-wide"><span>论文页码 / 图表定位</span><input value={evaluationDraft.referenceLocation} maxLength={2000} placeholder="例如第 5 页 Table 2，或方法段落与公式编号" onChange={event => changeEvaluation('referenceLocation', event.target.value)} /></label>
+          {!value.evaluationProtocol && <p className="research-panel-copy research-field-wide">评价协议需完整填写以上三项后保存；未填写的条件保持为缺口。</p>}
+          {incompleteEvaluation && <p className="research-panel-copy research-field-wide" role="status">评价协议尚未填写完整，请补齐三项或全部清空后保存。</p>}
           <label className="research-field research-field-wide"><span>材料缺口与版本差异</span><textarea value={value.gaps || ''} rows={3} maxLength={2000} placeholder="缺失数据、版本不符、依赖或环境限制，以及待核查事项" onChange={(event) => onChange({ ...value, gaps: event.target.value })} /></label>
           <label className="research-field research-field-wide"><span>复现备注或跳过原因</span><textarea value={value.note} rows={4} placeholder="写下目标、预期对照或缺失材料。" onChange={(event) => onChange({ ...value, note: event.target.value })} /></label>
         </fieldset>
-        <div className="research-panel-footer"><button className="research-button research-button-quiet" disabled={busy || stageApproved} onClick={onSkip} type="button">跳过复现并记录原因</button><button className="research-button research-button-primary" disabled={busy || stageApproved} onClick={onSavePlan} type="button">保存复现计划</button></div>
+        <div className="research-panel-footer"><button className="research-button research-button-quiet" disabled={busy || stageApproved} onClick={onSkip} type="button">跳过复现并记录原因</button><button className="research-button research-button-primary" disabled={busy || stageApproved || incompleteEvaluation} onClick={onSavePlan} type="button">保存复现计划</button></div>
       </section>
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">CONTROLLED ENTRYPOINT</span><h3>受控执行入口</h3></div><span className="research-status-note">{execution.entrypoint ? '已填写' : '未填写'}</span></div>
@@ -78,11 +109,23 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
           {run.manifest?.dataset?.input && <p className="research-panel-copy">固定数据输入：{run.manifest.dataset.input.filename} · {run.manifest.dataset.input.byteLength.toLocaleString()} bytes · SHA256 {run.manifest.dataset.input.sha256.slice(0, 16)}。运行前后核对，原始数据独立归档。</p>}
           {run.manifest?.code?.preparation && <p className="research-panel-copy">固定代码：{run.manifest.code.preparation.sha256.slice(0, 16)} · 来自 DeepSeek / Codex 提案。原项目未应用这些改动。</p>}
           <dl className="research-run-summary"><div><dt>来源阶段</dt><dd>{run.manifest?.replication?.sourceStage || 'replication'}</dd></div><div><dt>数据版本</dt><dd>{run.manifest?.dataset?.version || '未记录'}</dd></div><div><dt>代码快照</dt><dd>{(run.manifest?.code?.snapshotHash || '未记录').slice(0, 16)}</dd></div><div><dt>入口</dt><dd>{run.manifest?.command?.entrypoint || '受控适配器'}</dd></div></dl>
+          <div className="research-callout"><strong>固定论文与评价协议</strong><dl className="research-run-summary">
+            <div><dt>复现论文</dt><dd>{fixedPaper?.title || '未绑定论文；不根据当前选择补造来源'}</dd></div>
+            <div><dt>论文来源</dt><dd>{fixedPaper ? [fixedPaperSource, fixedPaper.year, fixedPaper.doi].filter(Boolean).join(' · ') || '未记录' : '未记录'}</dd></div>
+            <div><dt>数据划分</dt><dd>{fixedEvaluation?.datasetSplit || '缺少评价协议'}</dd></div>
+            <div><dt>指标提取方式</dt><dd>{fixedEvaluation?.metricExtraction || '未记录'}</dd></div>
+            <div><dt>论文页码 / 图表定位</dt><dd>{fixedEvaluation?.referenceLocation || '未记录'}</dd></div>
+            <div><dt>执行协议</dt><dd>{run.manifest?.protocol || '未记录'}</dd></div>
+            <div><dt>随机种子</dt><dd>{run.manifest?.seed ?? '未记录'}</dd></div>
+            <div><dt>评价条件</dt><dd>{run.manifest?.successCriteria?.length ? run.manifest.successCriteria.join('；') : '未记录'}</dd></div>
+            <div><dt>退出码</dt><dd>{run.execution?.exitCode ?? '未报告'}</dd></div>
+          </dl>{fixedPaper?.sha256 && <small>论文来源元数据 SHA256 {fixedPaper.sha256.slice(0, 16)}</small>}</div>
           <div className="research-callout"><strong>证据状态</strong><p>{run.status === 'completed' ? '产物已归档为 pending，仍需人工核对后确认；运行成功不等于科学结论。' : run.status === 'failed' || run.status === 'cancelled' ? '该 Run 保持 unverified，未视为复现成功。' : '结果尚未完成，不能作为科学证据。'}</p></div>
           {run.error?.message && <div className="research-callout research-callout-warning"><strong>运行失败</strong><p>{run.error.message}</p></div>}
           <div className="research-inline-actions">{run.status === 'awaiting_approval' && onApproveRun && <button className="research-button research-button-primary" disabled={busy} onClick={onApproveRun} type="button">批准运行</button>}{run.status === 'approved' && onStartRun && <button className="research-button research-button-primary" disabled={busy} onClick={onStartRun} type="button">启动运行</button>}{['awaiting_approval', 'approved', 'running'].includes(run.status) && onCancelRun && <button className="research-button research-button-quiet" disabled={busy} onClick={onCancelRun} type="button">取消运行</button>}</div>
           {Boolean(run.artifacts?.length) && <div className="research-artifact-list"><strong>已归档产物（待人工验证）</strong>{(run.artifacts || []).map((artifact) => <span key={artifact.id}>{artifact.kind} · {artifact.name} · {artifact.sha256.slice(0, 12)}</span>)}</div>}
           {metrics.length > 0 && <div className="research-metric-table"><div><span>指标</span><span>结果</span><span>不确定性</span></div>{metrics.map((metric) => <div key={metric.name}><span>{metric.name}</span><strong>{metric.value === undefined || metric.value === null ? '等待结果' : String(metric.value)}</strong><span>{metric.uncertainty === undefined || metric.uncertainty === null ? '—' : String(metric.uncertainty)}</span></div>)}</div>}
+          {metrics.length === 0 && <div className="research-empty-inline">指标未报告；未将运行记录视为复现结果。</div>}
         </>}
       </section>
     </div>

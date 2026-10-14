@@ -142,6 +142,13 @@ function runResultSummary(run: ExperimentRun | null | undefined, evidenceEntries
         ? 'Run completed, but its Evidence is pending or unverified; human verification is required before treating findings as successful.'
         : `Run status is ${run.status}; it cannot support a successful finding.`,
     provenance,
+    ...(manifest.replication?.paper ? { paper: manifest.replication.paper } : {}),
+    ...(manifest.evaluationProtocol ? { evaluationProtocol: manifest.evaluationProtocol } : {}),
+    protocol: manifest.protocol || '',
+    seed: manifest.seed ?? null,
+    successCriteria: manifest.successCriteria || [],
+    exitCode: run.execution?.exitCode ?? null,
+    errorMessage: run.error?.message || null,
     codeVersion: manifest.code?.version || '',
     codeSnapshotHash: manifest.code?.snapshotHash || '',
     dataset: { id: manifest.dataset?.id || '', version: manifest.dataset?.version || '' },
@@ -163,6 +170,8 @@ export function toResearchView(workflow: UiWorkflow, claimMatrix?: WritingEviden
   const direction: ResearchDirection = { question: workflow.direction?.question || '', keywords: workflow.direction?.keywords || [], scope: workflow.direction?.scope || '', notes: workflow.direction?.notes || '', falsificationCondition: workflow.direction?.falsificationCondition || '' };
   const search: SearchRunSummary = { ...workflow.search, query: workflow.search?.query || '', candidateCount: workflow.search?.count || workflow.papers?.length || 0, selectedCount: selectedPapers.length, lastRunAt: workflow.search?.lastRunAt, sources: workflow.search?.sources };
   const replication: ReplicationPlan = {
+    ...(workflow.replication?.paperId ? { paperId: workflow.replication.paperId } : {}),
+    ...(workflow.replication?.evaluationProtocol ? { evaluationProtocol: workflow.replication.evaluationProtocol } : {}),
     repository: workflow.replication?.repository || '', codeVersion: workflow.replication?.codeVersion || '',
     environment: workflow.replication?.environment || '', dataset: workflow.replication?.dataset || '',
     datasetVersion: workflow.replication?.datasetVersion || '', expectedMetrics: workflow.replication?.expectedMetrics || '',

@@ -2,6 +2,7 @@ import { ExperimentRunnerError } from './errors.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
 import { isDeepStrictEqual } from 'node:util';
 import { withWorkflowLock } from '../researchWorkflow/repository.js';
+import { sourceHash } from '../researchAutomation/handoff.js';
 
 export function isReplicationRequest(input) {
   if (!plainObject(input)) throw new ExperimentRunnerError(400, 'INVALID_RUN_REQUEST', 'Experiment Run input must be an object.');
@@ -34,6 +35,38 @@ function clone(value) {
   return value === undefined ? value : JSON.parse(JSON.stringify(value));
 }
 
+function replicationPaper(workflow, plan) {
+  if (plan.paperId === undefined || plan.paperId === '') return null;
+  if (typeof plan.paperId !== 'string' || !plan.paperId || plan.paperId !== plan.paperId.trim() || plan.paperId.length > 200
+    || !plan.paperId.isWellFormed() || /[\x00-\x1f\x7f]/.test(plan.paperId)) {
+    throw new ExperimentRunnerError(409, 'REPLICATION_PAPER_ID_INVALID', 'Select one explicit paper from the saved workflow selection.');
+  }
+  const selection = workflow.stages?.find(item => item.id === 'selection')?.data;
+  const papers = Array.isArray(selection?.selectedPapers) ? selection.selectedPapers.filter(item => item?.id === plan.paperId) : [];
+  if (papers.length !== 1 || Array.isArray(selection.selectedPaperIds) && !selection.selectedPaperIds.includes(plan.paperId)) {
+    throw new ExperimentRunnerError(409, 'REPLICATION_PAPER_NOT_SELECTED', 'The replication paper must identify one unique currently selected source.');
+  }
+  const selected = papers[0];
+  if (typeof selected.title !== 'string' || !selected.title.trim() || selected.title.length > 4000) {
+    throw new ExperimentRunnerError(409, 'REPLICATION_PAPER_SOURCE_INVALID', 'The selected paper must retain its actual title and fixed source metadata.');
+  }
+  const paper = { id: selected.id, title: selected.title };
+  for (const field of ['authors', 'year', 'doi', 'url', 'source', 'sourceRecords', 'evidenceId']) {
+    if (selected[field] !== undefined && selected[field] !== null) paper[field] = selected[field];
+  }
+  try { return { ...clone(paper), sha256: sourceHash(paper) }; }
+  catch { throw new ExperimentRunnerError(409, 'REPLICATION_PAPER_SOURCE_INVALID', 'The selected paper source metadata must be complete finite JSON.'); }
+}
+
+function assertEvaluationProtocol(value) {
+  if (value === undefined || value === null) return;
+  const fields = ['datasetSplit', 'metricExtraction', 'referenceLocation'];
+  if (!plainObject(value) || Object.keys(value).length !== fields.length || Object.keys(value).some(field => !fields.includes(field))
+    || fields.some(field => typeof value[field] !== 'string' || !value[field].trim() || value[field].length > 4000 || !value[field].isWellFormed())) {
+    throw new ExperimentRunnerError(409, 'REPLICATION_EVALUATION_PROTOCOL_INVALID', 'Specify the data split, metric extraction and paper reference location, each within 4000 characters.');
+  }
+}
+
 export function readReplicationContextFromWorkflow(projectId, workflow, { expectedVersion } = {}) {
   if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
     throw new ExperimentRunnerError(400, 'REPLICATION_VERSION_REQUIRED', 'expectedVersion must be the current research workflow version.');
@@ -54,12 +87,16 @@ export function readReplicationContextFromWorkflow(projectId, workflow, { expect
   for (const field of ['repository', 'environment', 'dataset', 'datasetVersion', 'note']) {
     if (!text(plan[field])) throw new ExperimentRunnerError(409, 'REPLICATION_PLAN_INCOMPLETE', `The saved replication plan is missing ${field}.`);
   }
+  assertEvaluationProtocol(plan.evaluationProtocol);
+  const paper = replicationPaper(workflow, plan);
   return {
     sourceStage: 'replication',
     projectId,
     workflowId: workflow.id,
     workflowVersion: workflow.version,
     stageStatus: stage.status,
+    paperBinding: paper ? 'bound' : 'unbound',
+    ...(paper ? { paper } : {}),
     plan: clone(plan)
   };
 }
@@ -72,7 +109,8 @@ export function assertReplicationPreparationUnchangedFromWorkflow(projectId, wor
   const current = readReplicationContextFromWorkflow(projectId, workflow, { expectedVersion: workflow.version });
   const samePreparation = current.workflowId === savedContext.workflowId
     && current.stageStatus === savedContext.stageStatus
-    && isDeepStrictEqual(current.plan, savedContext.plan);
+    && isDeepStrictEqual(current.plan, savedContext.plan)
+    && isDeepStrictEqual(current.paper, savedContext.paper);
   if (!samePreparation) {
     throw new ExperimentRunnerError(409, 'REPLICATION_PLAN_CHANGED', 'The approved replication preparation changed after this Run was created. Create a new Run from the current approved preparation.', {
       runWorkflowVersion: savedContext.workflowVersion,

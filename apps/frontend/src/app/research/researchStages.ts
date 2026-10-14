@@ -113,6 +113,8 @@ export interface PaperCandidate {
 }
 
 export interface ReplicationPlan {
+  paperId?: string;
+  evaluationProtocol?: import('../../api/client').ReplicationEvaluationProtocol | null;
   codePaths?: string[];
   repository: string;
   codeVersion?: string;
@@ -198,6 +200,13 @@ export interface ReplicationResultSummary {
   evidenceConfirmed?: boolean;
   supportsSuccessfulFinding?: boolean;
   verificationNote?: string;
+  paper?: import('../../api/client').ReplicationPaperSource;
+  evaluationProtocol?: import('../../api/client').ReplicationEvaluationProtocol;
+  protocol?: string;
+  seed?: string | null;
+  successCriteria?: string[];
+  exitCode?: number | null;
+  errorMessage?: string | null;
   provenance: import('../../api/client').ReplicationProvenance | NonNullable<NonNullable<import('../../api/client').ExperimentRun['manifest']>['researchPlan']>;
   codeVersion: string;
   codeSnapshotHash: string;

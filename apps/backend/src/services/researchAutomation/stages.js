@@ -163,9 +163,15 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     await runtime.automationBindExecutionPlan(plan, origin);
     // The Runner validates paths, resources and snapshots again before dispatch.
     if (stage === 'replication') {
-      const result = await run('reproduction_plan', { papers, paperId: papers[0]?.id, executionPlan: plan });
-      if (!papers.some(paper => String(paper.id) === result.output.paperId)) throw new ResearchWorkflowError(409, 'AUTOMATION_UNKNOWN_PAPER', '复现计划必须引用已选论文。');
-      return update({ executionPlan: plan, replication: { repository: papers[0]?.codeUrl || 'project-workspace', environment: availableEnvironments.length?`Python ${availableEnvironments[0].python.version}; ${availableEnvironments[0].id}`:`${process.platform}; node ${process.version}`, dataset: plan.dataset, datasetVersion: plan.datasetVersion, ...(plan.codePaths?{codePaths:plan.codePaths}:{}), note: result.output.objective, expectedMetrics: result.output.expectedOutputs.join('\n'), aiPlan: result.output }, task: createStageTask({ stage, harness: result, input: { papers, plan }, output: result.output }) });
+      const requestedPaperId = saved.replication?.paperId;
+      const evaluationProtocol = saved.replication?.evaluationProtocol;
+      const result = await run('reproduction_plan', { papers, paperId: requestedPaperId || papers[0]?.id, executionPlan: plan,
+        ...(evaluationProtocol ? { evaluationProtocol } : {}) });
+      const paper = papers.find(paper => String(paper.id) === result.output.paperId);
+      if (!paper || requestedPaperId && requestedPaperId !== result.output.paperId) throw new ResearchWorkflowError(409, 'AUTOMATION_UNKNOWN_PAPER', '复现计划必须引用当前选定论文；不能替换已明确指定的论文。');
+      return update({ executionPlan: plan, replication: { paperId: String(paper.id), repository: paper.codeUrl || 'project-workspace', environment: availableEnvironments.length?`Python ${availableEnvironments[0].python.version}; ${availableEnvironments[0].id}`:`${process.platform}; node ${process.version}`, dataset: plan.dataset, datasetVersion: plan.datasetVersion, ...(plan.codePaths?{codePaths:plan.codePaths}:{}), note: plan.protocol, expectedMetrics: (plan.successCriteria || []).join('\n'),
+        ...((evaluationProtocol || result.output.evaluationProtocol) ? { evaluationProtocol: evaluationProtocol || result.output.evaluationProtocol } : {}),
+        aiPlan: result.output }, task: createStageTask({ stage, harness: result, input: { papers, plan, protocolSource: 'execution-plan', ...(evaluationProtocol ? { evaluationProtocol } : {}) }, output: result.output }) });
     }
     const method = stageData(workflow, 'method').method || {};
     const result = await run('experiment_plan', { method, methodId: method.id || method.title, datasetIds: [plan.dataset], baselineIds: method.baselines || [] });

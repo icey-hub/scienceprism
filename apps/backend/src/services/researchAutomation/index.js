@@ -206,7 +206,16 @@ async function executeStep(projectId, control, stage) {
     // execution fields, data and resources still belong to the bound input.
     const expected = { ...materials, seed: String(materials.seed), ...(stage === 'experiment' && saved.task?.output?.successCriteria ? { successCriteria: saved.task.output.successCriteria } : {}) };
     if (sourceHash({ ...actual, seed: String(actual.seed) }) !== sourceHash(expected)) throw new ResearchWorkflowError(409, 'AUTOMATION_EXECUTION_PLAN_CHANGED', '实际执行材料已偏离绑定的计划版本。');
-    if (stage === 'replication' && saved.task?.output && (context.plan.note !== saved.task.output.objective || context.plan.expectedMetrics !== saved.task.output.expectedOutputs?.join('\n'))) throw new ResearchWorkflowError(409, 'AUTOMATION_EXECUTION_PLAN_CHANGED', '复现协议或预期输出已偏离已记录的模型计划。');
+    if (stage === 'replication' && saved.task?.output) {
+      const fixedProtocol = saved.task.input?.protocolSource === 'execution-plan';
+      const protocol = fixedProtocol ? materials.protocol : saved.task.output.objective;
+      const criteria = fixedProtocol ? (materials.successCriteria || []).join('\n') : saved.task.output.expectedOutputs?.join('\n');
+      const evaluation = saved.task.input?.evaluationProtocol || saved.task.output.evaluationProtocol || null;
+      if (context.plan.note !== protocol || context.plan.expectedMetrics !== criteria
+        || fixedProtocol && (context.plan.paperId !== saved.task.output.paperId || sourceHash(context.plan.evaluationProtocol || null) !== sourceHash(evaluation))) {
+        throw new ResearchWorkflowError(409, 'AUTOMATION_EXECUTION_PLAN_CHANGED', '复现论文、协议或评价条件已偏离已记录的计划。');
+      }
+    }
     await bindStageExecutionPlan(projectId, control, stage, materials, state.session.executionPlanOrigin || 'stage');
     const run = await createExperimentRun(projectId, { sourceStage: stage, expectedVersion: workflow.version,
       ...(stage === 'replication' ? { plan: { execution: plan.execution, parameters: plan.parameters, seed: plan.seed, resources: plan.resources, artifacts: plan.artifacts } } : {}) }, { actor: 'system' });

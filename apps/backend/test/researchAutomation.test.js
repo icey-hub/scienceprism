@@ -130,6 +130,9 @@ test('a real Node reproduction is followed by a distinct analysis Agent without 
   const step = state.session.steps.find(step => step.stage === 'replication');
   const run = await getExperimentRun('pipeline', step.experimentRunId);
   assert.equal(run.status, 'completed'); assert.equal(run.metrics[0].value, 4);
+  assert.equal(run.manifest.replication.paper.id, 'p1');
+  assert.equal(run.manifest.protocol, plan.protocol, 'The model objective must not replace the fixed execution protocol');
+  assert.deepEqual(run.manifest.successCriteria, plan.successCriteria || []);
   assert.equal(run.approval.actor, 'system'); assert.equal(run.approval.authorization.sessionId, state.session.id);
   assert.ok((await getEvidenceLedger('pipeline')).entries.every(entry => !['verified', 'human-confirmed'].includes(entry.verificationStatus)));
   const workflow = await getResearchWorkflow('pipeline');

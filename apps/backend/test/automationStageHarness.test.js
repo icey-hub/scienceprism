@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createAutomationStageHarness } from '../src/services/researchAutomation/stageHarness.js';
 import { createCodeAuthorization } from '../src/services/researchAutomation/codeAuthorization.js';
 import { sourceHash } from '../src/services/researchAutomation/handoff.js';
+import { buildResearchHarnessPrompt } from '../src/services/researchResearch/harnessAdapter.js';
+import { RESEARCH_STAGE_CONTRACTS } from '../src/services/researchResearch/schemas.js';
 
 const clone = value => structuredClone(value);
 function fixture() {
@@ -25,7 +27,7 @@ function fixture() {
     },
     readRun: async (projectId, id) => { assert.equal(projectId, 'stage-project'); assert.ok(runs.has(id)); return clone(runs.get(id)); },
     listRuns: async (projectId, query) => { assert.equal(projectId, 'stage-project'); assert.equal(query.limit, 100);
-      return [...runs.values()].filter(run => run.request.requestId === query.requestId).map(clone); },
+      return [...runs.values()].filter(run => query.parentRunId ? run.parentRunId === query.parentRunId : run.request.requestId === query.requestId).map(clone); },
     saveStep: async value => { saves.push(clone(value)); Object.assign(step, clone(value)); effects.push('saved'); },
     execute: async (value, options) => {
       assert.equal(options.automationSessionId, session.id); assert.equal(value.signal, controller.signal);
@@ -177,4 +179,53 @@ test('legacy non-code failed stage can be explicitly retried in a later session 
   const f = fixture(), first = await f.harness()(f.request); f.runs.get(first.runId).status = 'failed'; f.session.attempt = 2;
   const next = await f.harness()(f.request);
   assert.notEqual(next.runId, first.runId); assert.equal(f.creates(), 2); assert.deepEqual(f.executed, [first.runId, next.runId]);
+});
+
+function reproductionFixture() {
+  const f = fixture(), contract = clone(RESEARCH_STAGE_CONTRACTS.reproduction_plan);
+  f.request.task = 'research:reproduction_plan';
+  const current = { ...clone(f.request), stageContract: contract,
+    prompt: buildResearchHarnessPrompt({ stage: 'reproduction_plan', input: f.request.input, context: f.request.context }) };
+  const oldContract = { ...clone(contract), fields: contract.fields.filter(field => !field.startsWith('evaluationProtocol')),
+    notes: ['paperId must be a paper id taken from the stage input.'] };
+  const block = /Required output fields \(name: type\) for reproduction_plan:\n[\s\S]*?(?=Stage-specific project skills:\n)/;
+  f.request.stageContract = oldContract;
+  f.request.prompt = current.prompt.replace(block, `Required output fields (name: type) for reproduction_plan:\n\n${oldContract.fields.map(field => `- ${field}`).join('\n')}\n\nOutput contract rules:\n\n${oldContract.rules.map(rule => `- ${rule}`).join('\n')}\n\nField semantics:\n- ${oldContract.notes.join('\n- ')}\n\n`);
+  return { ...f, current };
+}
+
+test('optional reproduction contract migration reuses completed and created original Runs with their exact stored prompt', async () => {
+  for (const status of ['completed', 'created']) {
+    const f = reproductionFixture();
+    if (status === 'created') await assert.rejects(f.harness()(f.request, { onPrepared: () => { throw new Error('Saved before model launch'); } }), /Saved before model launch/);
+    else await f.harness()(f.request);
+    const id = f.step.calls[0].runId, calls = clone(f.step.calls);
+    const result = await f.harness({ execute: async (request, options) => {
+      assert.equal(request.prompt, f.request.prompt); assert.deepEqual(request.stageContract, f.request.stageContract);
+      return f.dependencies.execute(request, options);
+    } })(f.current);
+    assert.equal(result.runId, id); assert.equal(f.creates(), 1); assert.deepEqual(f.step.calls, calls);
+    assert.deepEqual(f.executed, [id]);
+  }
+});
+
+test('optional reproduction migration rejects different inputs, repair instructions, tampered ledger hashes and foreign ownership', async () => {
+  for (const change of [f => { f.current.input.protocol = 'Changed protocol'; }, f => { f.current.prompt += '\n\nYour previous reply was rejected: different repair'; },
+    f => { f.step.calls[0].inputHash = '0'.repeat(64); }, f => { f.runs.get(f.step.calls[0].runId).parentRunId = 'foreign-owner'; }]) {
+    const f = reproductionFixture(); await f.harness()(f.request); change(f);
+    await assert.rejects(f.harness()(f.current), error => ['AUTOMATION_RUN_INPUT_CHANGED', 'AUTOMATION_RUN_OWNER_CHANGED'].includes(error.code));
+    assert.equal(f.creates(), 1); assert.deepEqual(f.executed, [f.step.calls[0].runId]);
+  }
+});
+
+test('legacy reproduction orphan is recovered by actual parent identity; multiple matching old Runs are refused', async () => {
+  const f = reproductionFixture();
+  await assert.rejects(f.harness({ saveStep: async () => { throw new Error('Step disk unavailable'); } })(f.request), /Step disk unavailable/);
+  const id = [...f.runs.keys()][0];
+  const result = await f.harness()(f.current);
+  assert.equal(result.runId, id); assert.equal(f.creates(), 1); assert.deepEqual(f.step.runIds, [id]); assert.deepEqual(f.executed, [id]);
+  const ambiguous = reproductionFixture(); await ambiguous.harness()(ambiguous.request);
+  const original = [...ambiguous.runs.values()][0]; ambiguous.runs.set('other-original', { ...clone(original), id: 'other-original' });
+  await assert.rejects(ambiguous.harness()(ambiguous.current), reject('AUTOMATION_RUN_UNRESOLVED'));
+  assert.equal(ambiguous.creates(), 1); assert.deepEqual(ambiguous.executed, [original.id]);
 });

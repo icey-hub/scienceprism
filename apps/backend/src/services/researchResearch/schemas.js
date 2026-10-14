@@ -44,6 +44,7 @@ const searchStrategySchema = z.object({
 const reproductionPlanSchema = z.object({
   stage: stage('reproduction_plan'),
   paperId: nonEmpty,
+  evaluationProtocol: z.object({ datasetSplit: nonEmpty.max(4000), metricExtraction: nonEmpty.max(4000), referenceLocation: nonEmpty.max(4000) }).strict().optional(),
   objective: nonEmpty,
   prerequisites: z.array(nonEmpty).default([]),
   datasets: z.array(nonEmpty).default([]),
@@ -354,7 +355,8 @@ const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
     'sources must contain ids from input.availableSources (registered Source Adapter ids such as "arxiv"), never venue names or descriptions.'
   ]),
   reproduction_plan: Object.freeze([
-    'paperId must be a paper id taken from the stage input.'
+    'paperId must be a paper id taken from the stage input. Preserve an explicitly requested paperId.',
+    'evaluationProtocol is optional and contains datasetSplit, metricExtraction and referenceLocation. Use only supplied protocol and paper evidence; preserve input.evaluationProtocol when present. Omit the whole object when any field is unknown; never invent paper pages, splits or metric extraction rules. The application preserves the original execution protocol and success criteria.'
   ]),
   innovation_ideas: Object.freeze([
     'ideas[].relatedPaperIds must contain only paper ids taken from the stage input.',
