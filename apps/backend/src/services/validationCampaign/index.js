@@ -9,6 +9,7 @@ import { readExperimentRuns, resolveExperimentProjectRoot } from '../experimentR
 import { createCampaignExperimentRun, automaticallyApproveExperiment, startExperimentRun, cancelExperimentRun, getExperimentRun, experimentRunSummary } from '../experimentRunner/index.js';
 import { getEvidenceLedger } from '../evidenceLedger/index.js';
 import { readCampaigns, mutateCampaigns } from './repository.js';
+import { readValidationCampaignEvaluation } from './evaluation.js';
 
 const fail = (code, message, status = 409) => { throw new ResearchWorkflowError(status, code, message); };
 const terminal = new Set(['completed', 'failed', 'cancelled', 'rejected']);
@@ -28,13 +29,19 @@ export function validateCampaignRequest(input) {
   if (new Set(input.variants.map(variant => variant.id)).size !== input.variants.length || !input.variants.some(variant => variant.kind === 'candidate') || !input.variants.some(variant => variant.kind === 'baseline')) fail('VALIDATION_CAMPAIGN_VARIANT_INVALID', '组别标识须唯一，且至少包含候选方法和比较基线。', 400);
   return structuredClone(input);
 }
-export async function getValidationCampaign(projectId, campaignId) {
+async function readValidationCampaign(projectId, campaignId) {
   const campaign = (await readCampaigns(projectId)).campaigns.find(item => item.id === campaignId);
   if (!campaign) fail('VALIDATION_CAMPAIGN_NOT_FOUND', '本项目没有该创新试验批次。', 404);
   return structuredClone(campaign);
 }
+export async function getValidationCampaign(projectId, campaignId) {
+  const campaign = await readValidationCampaign(projectId, campaignId);
+  return { ...campaign, evaluation: await readValidationCampaignEvaluation(projectId, campaign) };
+}
 export async function listValidationCampaigns(projectId, { ideaId } = {}) {
-  return structuredClone((await readCampaigns(projectId)).campaigns.filter(item => !ideaId || item.ideaId === ideaId));
+  const campaigns = (await readCampaigns(projectId)).campaigns.filter(item => !ideaId || item.ideaId === ideaId), result = [];
+  for (const campaign of campaigns) result.push({ ...structuredClone(campaign), evaluation: await readValidationCampaignEvaluation(projectId, campaign) });
+  return result;
 }
 async function assertSource(projectId, campaign) {
   const authorization = await requireAutomatic(projectId, 'execution', campaign.sessionId), automation = await readAutomation(projectId);
@@ -90,7 +97,7 @@ async function change(projectId, campaignId, callback) {
 }
 /** Read-only certificate called by the Runner while it already holds its own locks. */
 export async function assertCampaignTrial(projectId, campaignId, trialId, { manifest, executionBinding } = {}) {
-  const campaign = await getValidationCampaign(projectId, campaignId), authorization = await assertSource(projectId, campaign);
+  const campaign = await readValidationCampaign(projectId, campaignId), authorization = await assertSource(projectId, campaign);
   const trial = campaign.trials.find(item => item.id === trialId), variant = campaign.variants.find(item => item.id === trial?.variantId);
   if (!trial || !variant || !['prepared', 'running'].includes(campaign.status) || !['reserved', 'awaiting_approval', 'approved', 'running'].includes(trial.status)
     || !Number.isInteger(trial.timeoutMs) || trial.timeoutMs < 100 || campaign.trials.length > campaign.budget.maxRuns || campaign.elapsedSeconds >= campaign.budget.maxSeconds) fail('VALIDATION_CAMPAIGN_NOT_EXECUTABLE', '当前批次项未获执行、已结束或预算耗尽。');
@@ -127,13 +134,13 @@ async function receipt(projectId, campaignId, trialId, run) {
 }
 export async function executeValidationCampaign(projectId, campaignId, { beforeEffect = async () => {}, onRun = () => {}, signal } = {}) {
   try {
-    let campaign = await getValidationCampaign(projectId, campaignId);
+    let campaign = await readValidationCampaign(projectId, campaignId);
     if (campaign.status === 'completed') return campaign;
     if (terminal.has(campaign.status) || campaign.status === 'budget_exhausted') fail('VALIDATION_CAMPAIGN_FAILED', '原批次已结束，不会重复运行。');
     await beforeEffect(); signal?.throwIfAborted(); await assertSource(projectId, campaign);
     campaign = await change(projectId, campaignId, next => { next.status = 'running'; delete next.error; });
     for (const original of campaign.trials) {
-      await beforeEffect(); signal?.throwIfAborted(); campaign = await getValidationCampaign(projectId, campaignId);
+      await beforeEffect(); signal?.throwIfAborted(); campaign = await readValidationCampaign(projectId, campaignId);
       let trial = campaign.trials.find(item => item.id === original.id);
       if (trial.status === 'completed') continue;
       if (terminal.has(trial.status)) fail('VALIDATION_CAMPAIGN_FAILED', '原失败项已保留，本批次不会自动重跑。');
@@ -168,7 +175,7 @@ export async function executeValidationCampaign(projectId, campaignId, { beforeE
   } finally { await onRun(null); }
 }
 export async function cancelValidationCampaign(projectId, campaignId, { sessionId } = {}) {
-  const campaign = await getValidationCampaign(projectId, campaignId);
+  const campaign = await readValidationCampaign(projectId, campaignId);
   if (sessionId && campaign.sessionId !== sessionId) fail('VALIDATION_CAMPAIGN_OWNER_CHANGED', '不能取消其它研究链路的试验批次。');
   await change(projectId, campaignId, next => { if (!terminal.has(next.status)) next.status = 'cancelled'; });
   for (const trial of campaign.trials) {

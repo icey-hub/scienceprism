@@ -774,10 +774,24 @@ export function generateIdeaPlan(projectId:string,ideaId:string,input:{expectedR
 }
 
 export interface ValidationVariant {id:string;label:string;kind:'candidate'|'baseline'|'ablation';parameters:Record<string,unknown>;}
+export type ValidationVerdict = 'supported'|'refuted'|'insufficient';
+export interface ValidationCampaignEvaluation {
+  schemaVersion:1;ruleVersion:'paired-frozen-metrics-v1';scope:'frozen-conditions-only';planRevision:number;planSha256:string;
+  verdict:ValidationVerdict;counts:{supported:number;refuted:number;insufficient:number};
+  rules:{increase:string;decrease:string;target:string;aggregation:string};limitations:string[];
+  summaries:{candidateVariantId:string;candidateLabel:string;comparisonVariantId:string;comparisonLabel:string;comparisonKind:'baseline'|'ablation';
+    metricName:string;direction:'increase'|'decrease'|'target';threshold:number|null;expectedSeeds:string[];completeSeeds:number;
+    candidateMean:number|null;comparisonMean:number|null;meanImprovement:number|null;verdict:ValidationVerdict;issues:string[]}[];
+  rows:{candidateVariantId:string;comparisonVariantId:string;comparisonKind:'baseline'|'ablation';metricName:string;direction:'increase'|'decrease'|'target';threshold:number|null;
+    seed:string;candidateRunId:string|null;comparisonRunId:string|null;candidateStatus:string;comparisonStatus:string;
+    candidateValue:number|null;comparisonValue:number|null;unit:string|null;delta:number|null;dataStatus:'complete'|'insufficient';issues:string[];
+    sourceArtifacts:{runId:string;id:string;path:string;sha256:string;bytes:number}[]}[];
+}
 export interface ValidationCampaign {
   id:string;projectId:string;sessionId:string;ideaId:string;planRevision:number;planSha256:string;plan:IdeaPlan;
   baseRunId:string;baseManifestSha256:string;seeds:string[];variants:ValidationVariant[];
   budget:{maxRuns:number;maxSeconds:number};status:string;elapsedSeconds:number;error?:{code?:string;message?:string}|null;
+  evaluation?:ValidationCampaignEvaluation;
   trials:{id:string;runId:string|null;seed:string;variantId:string;status:string;manifestSha256?:string|null;
     result?:{id:string;status:string;codeVersion?:string;codeSnapshotHash?:string;dataset?:{id:string;version:string};
       metrics?:{name:string;value?:unknown;unit?:string|null}[];errorMessage?:string|null;exitCode?:number|null}|null}[];
