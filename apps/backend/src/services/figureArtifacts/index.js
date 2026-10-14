@@ -13,10 +13,14 @@ import { getProjectFeatureFlags } from '../featureFlags.js';
 import { applyProjectConstraintPolicy, hasCapability, resolveCapabilityPolicy, isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { parseLatexFigureTable } from './tableSource.js';
 import { safeJoin } from '../../utils/pathUtils.js';
+import { validateNativeSpec } from './nativeSpec.js';
+import { readNativeRendererSource, renderNativeWithMcp, validateNativeOutput } from './nativeBackend.js';
 
 const template = fileURLToPath(new URL('./paired_renderer.py', import.meta.url));
 const prefix = 'assets/plots';
 const fileNames = { svg: 'figure.svg', pdf: 'figure.pdf', png: 'figure.png', source: 'source.json', rendererSource: 'renderer.py' };
+const nativeFileNames = { svg: 'figure.svg', pptx: 'figure.pptx', source: 'source.json', rendererSource: 'renderer.mjs' };
+const profile = kind => kind === 'diagram' ? nativeFileNames : fileNames;
 const fail = (code, message, status = 409) => { throw new ResearchWorkflowError(status, code, message); };
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 export function validateCampaignFigureInput(input) {
@@ -74,7 +78,7 @@ async function verifyFigure(root, projectId, campaignId, directory) {
   const absolute = safeJoin(root, `${prefix}/${directory}`), metadataPath = safeJoin(root, `${prefix}/${directory}/metadata.json`);
   const figure = JSON.parse((await digest(metadataPath)).content.toString('utf8'));
   if (figure.projectId !== projectId || campaignId !== undefined && figure.campaignId !== campaignId || figure.id !== directory || !figure.files) fail('CAMPAIGN_FIGURE_SOURCE_CHANGED', '固定图元数据归属发生变化。');
-  for (const [kind, name] of Object.entries(fileNames)) {
+  for (const [kind, name] of Object.entries(profile(figure.kind))) {
     const saved = figure.files[kind], expectedPath = `${prefix}/${directory}/${name}`;
     if (saved?.path !== expectedPath) fail('CAMPAIGN_FIGURE_SOURCE_CHANGED', '图产物路径已变化。');
     const actual = await digest(safeJoin(root, expectedPath));
@@ -82,8 +86,10 @@ async function verifyFigure(root, projectId, campaignId, directory) {
     saved.url = `/api/projects/${encodeURIComponent(projectId)}/blob?path=${encodeURIComponent(expectedPath)}`;
   }
   const source = JSON.parse((await digest(path.join(absolute, 'source.json'))).content.toString('utf8'));
+  const familyScope = figure.kind === 'diagram' && figure.identityVersion === 2 ? { familyId: figure.familyId } : {};
+  if (figure.identityVersion === 2 && (figure.kind !== 'diagram' || !/^diagram-figure-[a-f0-9]{64}$/.test(figure.familyId))) fail('CAMPAIGN_FIGURE_SOURCE_CHANGED', '方法图版本缺少固定归属。');
   if (sourceHash(source) !== figure.sourceSha256 || sourceHash(figure.style) !== figure.styleSha256 || figure.files.rendererSource.sha256 !== figure.renderer.sha256
-    || directory !== `${figure.kind || 'campaign'}-figure-${sourceHash({ source: figure.sourceSha256, style: figure.styleSha256, renderer: figure.renderer.sha256 })}`) fail('CAMPAIGN_FIGURE_SOURCE_CHANGED', '图来源、样式或固定renderer标识发生变化。');
+    || directory !== `${figure.kind || 'campaign'}-figure-${sourceHash({ source: figure.sourceSha256, style: figure.styleSha256, renderer: figure.renderer.sha256, ...familyScope })}`) fail('CAMPAIGN_FIGURE_SOURCE_CHANGED', '图来源、样式或固定renderer标识发生变化。');
   figure.kind ||= source.kind || 'campaign';
   return figure;
 }
@@ -102,39 +108,56 @@ export async function createCampaignFigure(projectId, campaignId, input, options
   return storeFigure(projectId, 'campaign', { campaignId, metricName: input.metricName, candidateVariantId: input.candidateVariantId, comparisonVariantId: input.comparisonVariantId }, prepared, options,
     () => prepareCampaignFigureSource(projectId, campaignId, input));
 }
-async function storeFigure(projectId, kind, identity, prepared, { actor = 'human', signal, render = runPythonExperiment, parentFigureId } = {}, checkSource = async () => prepared) {
+async function storeFigure(projectId, kind, identity, prepared, { actor = 'human', signal, render = runPythonExperiment, nativeRender = renderNativeWithMcp, parentFigureId } = {}, checkSource = async () => prepared) {
   if (actor !== 'human') fail('HUMAN_INPUT_REQUIRED', '本入口由人工请求固定科学图导出。', 403);
   await admission(projectId); signal?.throwIfAborted();
-  const rendererSource = await fs.readFile(kind === 'campaign' ? template : fileURLToPath(new URL('./table_renderer.py', import.meta.url))), rendererSha256 = createHash('sha256').update(rendererSource).digest('hex');
+  const rendererSource = kind === 'diagram' ? await readNativeRendererSource() : await fs.readFile(kind === 'campaign' ? template : fileURLToPath(new URL('./table_renderer.py', import.meta.url))), rendererSha256 = createHash('sha256').update(rendererSource).digest('hex');
   const campaignId = identity.campaignId;
-  const id = `${kind}-figure-${sourceHash({ source: prepared.sourceSha256, style: prepared.styleSha256, renderer: rendererSha256 })}`;
+  // A revision may match another diagram's contents without joining its history.
+  const familyScope = kind === 'diagram' && identity.familyId ? { familyId: identity.familyId } : {};
+  const id = `${kind}-figure-${sourceHash({ source: prepared.sourceSha256, style: prepared.styleSha256, renderer: rendererSha256, ...familyScope })}`;
   const root = await resolveProjectRoot(projectId), directory = safeJoin(root, `${prefix}/${id}`);
   try { await fs.access(directory); return await verifyFigure(root, projectId, campaignId, id); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const work = safeJoin(root, `${prefix}/.figure-work-${randomUUID()}`); await fs.mkdir(work, { recursive: true });
   try {
-    await fs.writeFile(path.join(work, 'renderer.py'), rendererSource, { flag: 'wx' });
+    await fs.writeFile(path.join(work, profile(kind).rendererSource), rendererSource, { flag: 'wx' });
     await fs.writeFile(path.join(work, 'source.json'), `${JSON.stringify(prepared.source, null, 2)}\n`, { flag: 'wx' });
     await fs.writeFile(path.join(work, 'style.json'), JSON.stringify(prepared.style), { flag: 'wx' });
+    let runtime = {}, result, processState, validation;
+    if (kind === 'diagram') {
+      const request = { spec: prepared.source.spec, style: prepared.style, sourceSha256: prepared.sourceSha256 };
+      result = await nativeRender(projectId, request, { signal, beforeRequest: () => admission(projectId) });
+      signal?.throwIfAborted();
+      if (!result.process?.stopConfirmed || !Number.isInteger(result.process.pid) || result.process.pid < 1) fail('FIGURE_NATIVE_PROCESS_UNCONFIRMED', '原生导出进程必须确认停止后发布。');
+      const verified = await validateNativeOutput(result.payload, request); validation = verified.validation; processState = result.process;
+      await fs.writeFile(path.join(work, 'figure.svg'), verified.svg, { flag: 'wx' });
+      await fs.writeFile(path.join(work, 'figure.pptx'), verified.pptx, { flag: 'wx' });
+      runtime = { backend: result.payload.backend, version: result.payload.version, font: validation.fonts };
+      if (createHash('sha256').update(await readNativeRendererSource()).digest('hex') !== rendererSha256) fail('FIGURE_RENDERER_CHANGED', '固定renderer来源在生成期间发生变化。');
+    } else {
     const configured = process.env.SCIENCEPRISM_FIGURE_PYTHON;
     if (!configured || !path.isAbsolute(configured)) fail('FIGURE_PYTHON_UNAVAILABLE', '请配置可信绝对SCIENCEPRISM_FIGURE_PYTHON及Matplotlib。', 503);
     const interpreter = await fs.realpath(configured).catch(() => null);
     if (!interpreter || !(await fs.stat(interpreter)).isFile()) fail('FIGURE_PYTHON_UNAVAILABLE', '固定Python绘图解释器不可用。', 503);
     const manifest = { id, command: { adapter: 'python', entrypoint: 'renderer.py', args: ['source.json', 'style.json'] },
       code: { preparation: { files: ['renderer.py', 'source.json', 'style.json'].map(path => ({ path })) } }, resources: { timeoutMs: 30000, maxOutputBytes: 512 * 1024 } };
-    let processState;
-    const result = await render(manifest, { workspaceRoot: work, inputPath: path.join(work, 'source.json'), signal, pythonEnvironment: { interpreter: configured }, onProcess: state => { processState = state; } });
+    result = await render(manifest, { workspaceRoot: work, inputPath: path.join(work, 'source.json'), signal, pythonEnvironment: { interpreter: configured }, onProcess: state => { processState = state; } });
     if (result.exitCode !== 0) fail('CAMPAIGN_FIGURE_RENDER_FAILED', `固定Matplotlib渲染失败：${String(result.stderr || result.stdout || result.exitCode).slice(0, 1000)}`, 422);
-    const runtime = JSON.parse((await digest(path.join(work, 'runtime.json'))).content.toString('utf8')), files = {};
-    for (const [kind, name] of Object.entries(fileNames)) {
-      const actual = await digest(path.join(work, name));
-      if (kind === 'svg' && (!actual.content.toString('utf8').includes('<svg') || /<image\b/i.test(actual.content.toString('utf8')))) fail('CAMPAIGN_FIGURE_VECTOR_INVALID', 'SVG须为真实矢量点线及文字，不接受图片占位。');
-      files[kind] = { path: `${prefix}/${id}/${name}`, sha256: actual.sha256, bytes: actual.bytes };
+    runtime = JSON.parse((await digest(path.join(work, 'runtime.json'))).content.toString('utf8'));
     }
+    const files = {};
+    for (const [fileKind, name] of Object.entries(profile(kind))) {
+      const actual = await digest(path.join(work, name));
+      if (fileKind === 'svg' && (!actual.content.toString('utf8').includes('<svg') || /<image\b/i.test(actual.content.toString('utf8')))) fail('CAMPAIGN_FIGURE_VECTOR_INVALID', 'SVG须为真实矢量点线及文字，不接受图片占位。');
+      files[fileKind] = { path: `${prefix}/${id}/${name}`, sha256: actual.sha256, bytes: actual.bytes };
+    }
+    await admission(projectId); signal?.throwIfAborted();
     const fresh = await checkSource();
     if (fresh.sourceSha256 !== prepared.sourceSha256) fail('CAMPAIGN_FIGURE_SOURCE_CHANGED', '渲染期间真实来源变化，旧图不会覆盖。');
     const figure = { id, projectId, kind, ...identity, ...(parentFigureId ? { parentFigureId } : {}),
       createdAt: new Date().toISOString(), sourceSha256: prepared.sourceSha256, styleSha256: prepared.styleSha256, style: prepared.style, statistics: prepared.statistics,
-      renderer: { name: kind === 'campaign' ? 'matplotlib-paired-v1' : 'matplotlib-table-v1', sha256: rendererSha256, pythonVersion: runtime.pythonVersion, matplotlibVersion: runtime.matplotlibVersion, font: runtime.font, isolation: result.isolation, process: processState }, files };
+      ...(kind === 'diagram' ? { familyId: identity.familyId || id, ...(identity.familyId ? { identityVersion: 2 } : {}), validation } : {}),
+      renderer: { name: kind === 'diagram' ? 'native-diagram-mcp-v1' : kind === 'campaign' ? 'matplotlib-paired-v1' : 'matplotlib-table-v1', ...(kind === 'diagram' ? { backend: runtime.backend, version: runtime.version } : {}), sha256: rendererSha256, pythonVersion: runtime.pythonVersion, matplotlibVersion: runtime.matplotlibVersion, font: runtime.font, isolation: result.isolation, process: processState }, files };
     await fs.writeFile(path.join(work, 'metadata.json'), JSON.stringify(figure, null, 2), { flag: 'wx' });
     for (const name of ['.experiment-home', '.experiment-tmp', 'style.json', 'runtime.json']) await fs.rm(path.join(work, name), { recursive: true, force: true });
     safeJoin(root, `${prefix}/${id}`); // Recheck parent symlinks immediately before the atomic directory publication.
@@ -148,7 +171,7 @@ async function storeFigure(projectId, kind, identity, prepared, { actor = 'human
 }
 
 export async function getFigureArtifact(projectId, figureId) {
-  if (typeof figureId !== 'string' || !/^(?:campaign|table)-figure-[a-f0-9]{64}$/.test(figureId)) fail('FIGURE_NOT_FOUND', '本项目没有该固定图版本。', 404);
+  if (typeof figureId !== 'string' || !/^(?:campaign|table|diagram)-figure-[a-f0-9]{64}$/.test(figureId)) fail('FIGURE_NOT_FOUND', '本项目没有该固定图版本。', 404);
   return verifyFigure(await resolveProjectRoot(projectId), projectId, undefined, figureId);
 }
 export async function getFigureSource(projectId, figureId) {
@@ -159,7 +182,7 @@ export async function listProjectFigures(projectId) {
   const root = await resolveProjectRoot(projectId), directory = safeJoin(root, prefix);
   let entries; try { entries = await fs.readdir(directory, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   const figures = [];
-  for (const entry of entries.filter(item => item.isDirectory() && /^(?:campaign|table)-figure-[a-f0-9]{64}$/.test(item.name))) figures.push(await getFigureArtifact(projectId, entry.name));
+  for (const entry of entries.filter(item => item.isDirectory() && /^(?:campaign|table|diagram)-figure-[a-f0-9]{64}$/.test(item.name))) figures.push(await getFigureArtifact(projectId, entry.name));
   return figures.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 export function validateTableFigureInput(input) {
@@ -204,6 +227,22 @@ export async function reviseFigureArtifact(projectId, figureId, input, options =
   const style = validateFigureStyle(input.style), parent = await getFigureArtifact(projectId, figureId), source = await getFigureSource(projectId, figureId);
   const prepared = { source, style: { ...parent.style, ...style }, statistics: parent.statistics, sourceSha256: parent.sourceSha256 };
   prepared.styleSha256 = sourceHash(prepared.style);
+  if (parent.kind === 'diagram') return createNativeFigure(projectId, { spec: source.spec, style: { ...parent.style, ...style }, parentFigureId: parent.id }, options);
   const identity = parent.kind === 'campaign' ? Object.fromEntries(['campaignId', 'metricName', 'candidateVariantId', 'comparisonVariantId'].map(key => [key, parent[key]])) : { chartType: parent.chartType, layout: parent.layout };
   return storeFigure(projectId, parent.kind, identity, prepared, { ...options, parentFigureId: parent.id });
+}
+
+export async function createNativeFigure(projectId, input, options = {}) {
+  if (!plain(input) || Object.keys(input).some(key => !['spec', 'style', 'parentFigureId'].includes(key))) fail('FIGURE_NATIVE_INPUT_INVALID', '原生导出只接受固定结构、样式及同项目父版本。', 400);
+  const style = { title: '', xLabel: '', yLabel: '', palette: 'blue-orange', ...validateFigureStyle(input.style) };
+  let spec; try { spec = validateNativeSpec(input.spec, style); } catch (error) { throw new ResearchWorkflowError(error.statusCode || 400, error.code, error.message); }
+  let parent;
+  if (input.parentFigureId !== undefined) {
+    parent = await getFigureArtifact(projectId, input.parentFigureId);
+    if (parent.kind !== 'diagram') fail('FIGURE_NATIVE_PARENT_INVALID', '原生图版本只能继承同项目原生示意图。', 400);
+  }
+  const caption = '用户编写的原生方法示意图，不是实验结果或已验证科学证据；连线为可编辑原生线形，非随节点自动附着的连接器。字体引用Arial Unicode MS，不嵌入字体。';
+  const source = { schemaVersion: 1, kind: 'diagram', projectId, spec, caption };
+  const prepared = { source, style, sourceSha256: sourceHash(source), styleSha256: sourceHash(style), statistics: { nodes: spec.nodes.length, edges: spec.edges.length, caption } };
+  return storeFigure(projectId, 'diagram', parent ? { familyId: parent.familyId || parent.id } : {}, prepared, { ...options, parentFigureId: parent?.id });
 }

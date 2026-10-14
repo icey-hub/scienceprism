@@ -1,4 +1,4 @@
-import { createTableFigure, getFigureSource, listProjectFigures, reviseFigureArtifact } from '../services/figureArtifacts/index.js';
+import { createNativeFigure, createTableFigure, getFigureSource, listProjectFigures, reviseFigureArtifact } from '../services/figureArtifacts/index.js';
 import { ResearchWorkflowError } from '../services/researchWorkflow/errors.js';
 const base = '/api/projects/:id/figures';
 function actor(req) {
@@ -15,12 +15,13 @@ function route(handler) {
     }
   };
 }
-export function registerFigureRoutes(fastify, { render } = {}) {
+export function registerFigureRoutes(fastify, { render, nativeRender } = {}) {
   fastify.get(base, route(async req => ({ figures: await listProjectFigures(req.params.id) })));
+  fastify.post(`${base}/native`, route(async req => ({ figure: await createNativeFigure(req.params.id, req.body, { actor: actor(req), ...(nativeRender ? { nativeRender } : {}) }) })));
   fastify.post(`${base}/from-table`, route(async req => {
     const figure = await createTableFigure(req.params.id, req.body, { actor: actor(req), ...(render ? { render } : {}) });
     return { figure, assetPath: figure.files.png.path };
   }));
-  fastify.post(`${base}/:figureId/revisions`, route(async req => ({ figure: await reviseFigureArtifact(req.params.id, req.params.figureId, req.body, { actor: actor(req), ...(render ? { render } : {}) }) })));
+  fastify.post(`${base}/:figureId/revisions`, route(async req => ({ figure: await reviseFigureArtifact(req.params.id, req.params.figureId, req.body, { actor: actor(req), ...(render ? { render } : {}), ...(nativeRender ? { nativeRender } : {}) }) })));
   fastify.get(`${base}/:figureId/source`, route(async req => ({ source: await getFigureSource(req.params.id, req.params.figureId) })));
 }
