@@ -80,7 +80,7 @@ export function toFrontendWorkflow(workflow) {
     },
     papers,
     replication: replicationForUi(replication),
-    ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', evidence: textList(idea.evidence || idea.relatedPaperIds), hypothesis: idea.hypothesis || '', novelty: idea.novelty || '', validationPlan: textList(idea.validationPlan), risks: textList(idea.risks), humanReview: idea.humanReview || null, selected: Boolean(idea.selected) })),
+    ideas: ideas.map((idea, index) => ({ id: idea.id || `idea-${index + 1}`, title: idea.title || idea.name || `候选创新点 ${index + 1}`, summary: idea.summary || idea.problem || idea.description || '', problem: idea.problem || '', relatedPaperIds: textList(idea.relatedPaperIds), evidence: textList(idea.evidence || idea.relatedPaperIds), hypothesis: idea.hypothesis || '', novelty: idea.novelty || '', validationPlan: textList(idea.validationPlan), risks: textList(idea.risks), humanReview: idea.humanReview || null, selected: Boolean(idea.selected) })),
     ideaComparison: ideation.comparison || [],
     ideaHumanDirection: ideation.humanDirection || '',
     ideaCaveats: ideation.caveats || [],

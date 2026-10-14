@@ -19,6 +19,7 @@ import {
 } from '../services/researchWorkflow/application.js';
 import { getAutomation, startAutomation, resumeAutomation, stopAutomation, automaticallyApplyPatches } from '../services/researchAutomation/index.js';
 import { saveAutomationPolicy } from '../services/researchAutomation/policy.js';
+import { getIdeaPlan, saveIdeaPlan } from '../services/researchWorkflow/ideaPlans.js';
 
 const BASE_PATH = '/api/projects/:id/research-workflow';
 
@@ -100,6 +101,9 @@ export function registerResearchWorkflowRoutes(fastify) {
   }
   fastify.post(`${BASE_PATH}/automation/patches/:runId/apply`, valueRoute(async req => ({ run: await automaticallyApplyPatches(req.params.id, req.params.runId) })));
   fastify.get(BASE_PATH, workflowRoute((req) => getResearchWorkflow(req.params.id)));
+  fastify.get(`${BASE_PATH}/ideas/:ideaId/plan`, valueRoute(req => getIdeaPlan(req.params.id, req.params.ideaId)));
+  fastify.put(`${BASE_PATH}/ideas/:ideaId/plan`, valueRoute(req => saveIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req),
+    { actor: requireActor(actorFromRequest(req)) })));
 
   fastify.get(`${BASE_PATH}/stages/:stageId`, valueRoute(async (req) => ({ stage: await getResearchStageDetails(req.params.id, uiStageId(req.params.stageId)) })));
   fastify.get(`${BASE_PATH}/pending-approvals`, valueRoute(async (req) => ({ approvals: await getPendingResearchApprovals(req.params.id) })));

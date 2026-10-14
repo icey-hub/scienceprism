@@ -318,6 +318,18 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
     }] : [])
   }, '人工筛选决定与理由已保存，请审阅后确认阶段。'), [runAction, selectedIds, workflow.papers]);
   const generateIdeas = useCallback(() => runAction('generate-ideas', { paperIds: selectedIds, direction: workflow.direction || {}, ...(replicationRun ? { replicationRunId: replicationRun.id } : {}) }, '创新点候选已生成，请人工比较并选择。'), [runAction, selectedIds, workflow.direction, replicationRun]);
+  const refreshIdeaPlans = useCallback(async () => {
+    const epoch = projectEpoch.current;
+    const next = mergeWorkflow(await workflowSession.load<WorkflowEnvelope>(projectId));
+    if (projectEpoch.current !== epoch) return;
+    setWorkflow(current => ({
+      ...next,
+      ideas: (next.ideas || []).map(idea => {
+        const draft = current.ideas?.find(item => item.id === idea.id);
+        return draft && next.activeStage === current.activeStage ? { ...idea, selected: draft.selected } : idea;
+      })
+    }));
+  }, [projectId]);
   const saveIdeaSelection = useCallback(async () => {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -327,7 +339,7 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
         reviews: (workflow.ideas || []).flatMap(idea => idea.humanReview ? [{ ideaId: idea.id, falsificationCondition: idea.humanReview.falsificationCondition }] : [])
       }, { expectedVersion, idempotencyKey: newIdempotencyKey() });
       commitWorkflow(payload);
-      setNotice(selectedIdeas.length ? '已保存创新点选择与人工条件，请审阅后确认阶段。' : '已保存创新点人工条件，当前未选择候选，请选择后再确认阶段。');
+      setNotice(selectedIdeas.length ? '已保存创新点选择。假设与验证方案在候选卡片中单独保存版本。' : '当前未选择候选，请先选择要进入方法设计的创新点。');
     } catch (requestError) { setError(`保存创新点失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
   }, [commitWorkflow, persistHumanInstructions, projectId, selectedIdeas, workflow.ideas]);
@@ -432,5 +444,5 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
     if (writingAgentMode === 'single-agent' && next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
   }, [experimentRun, navigate, projectId, replicationRun, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method, writingAgentMode]);
 
-  return { workflow, skills, skillBindings, policy, setPolicy, paperFilter, setPaperFilter, projectName, loading, busy, harnessState, error, notice, instructionDrafts, setInstructionDrafts, claimMatrix, refreshCitations, citationRefreshError, stageRoles, experimentRun, replicationRun, evidenceEntries, evidenceLedgerError, writingAgentMode, setWritingAgentMode, loadWorkflow, saveHumanInstructions, patchStage, saveDirection, handleSkillBinding, handleSkillFiles, selectedIds, selectedIdeas, visiblePapers, approveStage, rejectStage, resetWorkflow, updateWorkflow, runSearch, savePaperSelection, generateIdeas, saveIdeaSelection, generateMethod, saveMethod, saveExperiment, runExperiment, createControlledExperimentRun, approveControlledExperimentRun, startControlledExperimentRun, cancelControlledExperimentRun, saveReplication, createControlledReplicationRun, approveControlledReplicationRun, startControlledReplicationRun, cancelControlledReplicationRun, skipReplication, prepareWriting };
+  return { workflow, skills, skillBindings, policy, setPolicy, paperFilter, setPaperFilter, projectName, loading, busy, harnessState, error, notice, instructionDrafts, setInstructionDrafts, claimMatrix, refreshCitations, citationRefreshError, stageRoles, experimentRun, replicationRun, evidenceEntries, evidenceLedgerError, writingAgentMode, setWritingAgentMode, loadWorkflow, saveHumanInstructions, patchStage, saveDirection, handleSkillBinding, handleSkillFiles, selectedIds, selectedIdeas, visiblePapers, refreshIdeaPlans, approveStage, rejectStage, resetWorkflow, updateWorkflow, runSearch, savePaperSelection, generateIdeas, saveIdeaSelection, generateMethod, saveMethod, saveExperiment, runExperiment, createControlledExperimentRun, approveControlledExperimentRun, startControlledExperimentRun, cancelControlledExperimentRun, saveReplication, createControlledReplicationRun, approveControlledReplicationRun, startControlledReplicationRun, cancelControlledReplicationRun, skipReplication, prepareWriting };
 }

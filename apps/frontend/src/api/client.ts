@@ -747,6 +747,26 @@ export function savePaperComparison(projectId: string, runId: string, input: {ex
   return request<{ok:boolean;comparison:PaperComparison}>(`/api/projects/${encodeURIComponent(projectId)}/experiment-runs/${encodeURIComponent(runId)}/paper-comparison`, {method:'PUT',body:JSON.stringify(input)});
 }
 
+export interface IdeaHypothesis {
+  problem:string;prediction:string;priorWork:string;conditions:string;falsificationCondition:string;
+}
+export interface IdeaEvaluation {
+  researchType:'empirical'|'computational'|'theoretical';dataset:string;datasetVersion:string;split:string;seed:string;baselines:string[];
+  metrics:{name:string;direction:'increase'|'decrease'|'target';threshold:number|null}[];
+  repetitions:number|null;ablations:string[];budget:{maxRuns:number|null;maxSeconds:number|null};
+}
+export interface IdeaPlan {
+  ideaId:string;revision:number;createdAt:string;actor:'human';hypothesis:IdeaHypothesis;evaluation:IdeaEvaluation;
+  readiness:{ready:boolean;issues:string[]};
+  evidence:null|{runId:string;comparisonRevision:number;paper:{id:string;title:string;doi?:string|null;url?:string|null};rows:PaperComparisonRow[]};
+}
+export function getIdeaPlan(projectId:string,ideaId:string) {
+  return request<{ok:boolean;plan:IdeaPlan|null;history:IdeaPlan[]}>(`/api/projects/${encodeURIComponent(projectId)}/research-workflow/ideas/${encodeURIComponent(ideaId)}/plan`);
+}
+export function saveIdeaPlan(projectId:string,ideaId:string,input:{expectedRevision:number;hypothesis:IdeaHypothesis;evaluation:IdeaEvaluation;replicationRunId?:string}) {
+  return request<{ok:boolean;plan:IdeaPlan;history:IdeaPlan[]}>(`/api/projects/${encodeURIComponent(projectId)}/research-workflow/ideas/${encodeURIComponent(ideaId)}/plan`,{method:'PUT',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
+}
+
 export interface ProjectTask {
   id: string;
   kind: string;

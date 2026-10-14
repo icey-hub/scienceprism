@@ -208,12 +208,17 @@ export async function runUiAction(projectId, body, actor, { signal, search = sea
     return selectResearchIdeas(projectId, { ...workflowOptions(body, actor), ideaIds: body.ideaIds, reviews: body.reviews });
   }
   if (action === 'generate-method') {
-    const ideas = stageData(workflow, 'ideation').ideas || [];
+    const ideation = stageData(workflow, 'ideation');
+    const ideas = ideation.ideas || [];
     const selected = ideas.filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
-    const harness = await runStage({ stage: 'method_proposals', projectId, input: { ideas: selected }, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const ideaPlans = selected.flatMap(idea => {
+      const plan = ideation.ideaPlans?.[idea.id]?.at(-1);
+      return plan ? [plan] : [];
+    });
+    const harness = await runStage({ stage: 'method_proposals', projectId, input: { ideas: selected, ...(ideaPlans.length ? { ideaPlans } : {}) }, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     const proposals = harness.ok && harness.output?.proposals?.length ? harness.output.proposals : [];
     const method = proposals[0] ? { ...proposals[0], title: proposals[0].name } : {};
-    const task = createStageTask({ stage: 'method', input: { selectedIdeaIds: selected.map((idea) => idea.id) }, output: { stage: harness.output, proposals }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'human-decision'] });
+    const task = createStageTask({ stage: 'method', input: { selectedIdeaIds: selected.map((idea) => idea.id), ...(ideaPlans.length ? { ideaPlans } : {}) }, output: { stage: harness.output, proposals }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'human-decision'] });
     return updateStage(projectId, 'method', { method, methodPlan: method, methodProposals: proposals, harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
   }
   if (action === 'save-method') return updateStage(projectId, 'method', { method: body.method || {}, task: createStageTask({ stage: 'method', input: { method: body.method || {} }, output: { method: body.method || {} }, validation: { ok: true, errors: [], warnings: [] }, adapters: ['human-decision'] }) }, body, actor);
