@@ -1,42 +1,14 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { getClaimEvidenceMatrix } from '../evidenceLedger/index.js';
 import { getResearchWorkflow } from '../researchWorkflow/index.js';
 import { listHarnessRuns } from '../harnessRuntime/index.js';
 import { listPapers } from './paperLibrary.js';
 import { readHubJson, writeHubJson } from './repository.js';
-import { getProjectRoot } from '../projectService.js';
-import { listFilesRecursive } from '../../utils/fsUtils.js';
+import { auditCitations, readCitationManuscript } from './citationAudit.js';
 
 const FILE = 'writing-quality.json';
 
 function now() { return new Date().toISOString(); }
 function normalizeTerm(value) { return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, ' '); }
-
-async function manuscriptSnapshot(projectId) {
-  const root = await getProjectRoot(projectId);
-  const items = await listFilesRecursive(root);
-  const texFiles = items.filter((item) => item.type === 'file' && /\.(?:tex|bib|md)$/i.test(item.path));
-  const files = [];
-  for (const item of texFiles) {
-    try { files.push({ path: item.path, content: await fs.readFile(path.join(root, item.path), 'utf8') }); } catch {}
-  }
-  return files;
-}
-
-function citationCheck(files, papers) {
-  const source = files.filter((file) => file.path.toLowerCase().endsWith('.tex')).map((file) => file.content).join('\n');
-  const cited = [...source.matchAll(/\\cite[a-zA-Z*]*\s*\{([^}]+)\}/g)].flatMap((match) => match[1].split(',').map((key) => key.trim())).filter(Boolean);
-  const bibKeys = new Set();
-  for (const paper of papers) {
-    const match = String(paper.bibtex || '').match(/@\w+\s*\{\s*([^,\s]+)/i);
-    if (match) bibKeys.add(match[1]);
-  }
-  const bibFiles = files.filter((file) => file.path.toLowerCase().endsWith('.bib')).map((file) => file.content).join('\n');
-  for (const match of bibFiles.matchAll(/@\w+\s*\{\s*([^,\s]+)/g)) bibKeys.add(match[1]);
-  const missing = cited.filter((key) => !bibKeys.has(key));
-  return { citedKeys: [...new Set(cited)], knownKeys: [...bibKeys], missingKeys: [...new Set(missing)], ok: missing.length === 0 };
-}
 
 function terminologyCheck(files, workflow) {
   const text = files.filter((file) => file.path.toLowerCase().endsWith('.tex')).map((file) => file.content).join('\n');
@@ -52,15 +24,16 @@ function terminologyCheck(files, workflow) {
 }
 
 export async function getWritingQuality(projectId) {
-  const [matrix, workflow, papers, files, runs, stored] = await Promise.all([
+  const [matrix, workflow, papers, manuscript, runs, stored] = await Promise.all([
     getClaimEvidenceMatrix(projectId),
     getResearchWorkflow(projectId).catch((error) => error?.code === 'WORKFLOW_NOT_FOUND' ? null : Promise.reject(error)),
     listPapers(projectId, { limit: 5000 }),
-    manuscriptSnapshot(projectId),
+    readCitationManuscript(projectId),
     listHarnessRuns(projectId, { stage: 'writing', limit: 20 }).catch(() => []),
     readHubJson(projectId, FILE, () => ({ aiChecks: [] }))
   ]);
-  const citations = citationCheck(files, papers);
+  const { files, issues } = manuscript;
+  const citations = auditCitations(files, papers, { issues });
   const terminology = terminologyCheck(files, workflow);
   const compileTasks = (await readHubJson(projectId, 'tasks.json', () => ({ tasks: [] }))).tasks || [];
   const compileIssues = compileTasks.filter((task) => task.kind === 'compile' && task.status === 'failed').map((task) => ({ id: task.id, title: task.title, error: task.error, log: task.log }));

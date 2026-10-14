@@ -49,6 +49,8 @@ Completed validation campaigns also offer **Real results → Paper figure** on t
 
 ## Workflow
 
+Writing checks now trace citation keys to actual project TeX/Bib entries, flag missing/conflicting/unlinked references, and link back to source lines and matching library papers. Library-only records do not count as manuscript references. This is a read-only, project-wide static audit; it does not replace compilation or externally verify a source.
+
 The research stages are Direction, Search, Selection, optional Replication, Ideation, Method, Experiment, and Writing. The implemented paper source is arXiv. You review search results and AI suggestions. An experiment plan and an experiment run are separate; a run needs its own approval and project execution capability.
 
 The Direction page lists twelve built-in research Skills, including CCF-A idea review, manuscript storyline, paper review, and figure style. Bind them to compatible stages there. The default Legacy agent can read enabled Skill instructions; see [Research Skills](docs/research-skills.md) and the [generated catalog snapshot](aidoc/research-skill-catalog.md).

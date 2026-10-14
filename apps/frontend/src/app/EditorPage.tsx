@@ -295,6 +295,7 @@ function ProjectEditorSession() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [projectName, setProjectName] = useState('');
   const [tree, setTree] = useState<{ path: string; type: string }[]>([]);
+  const [treeLoaded, setTreeLoaded] = useState(false);
   const [fileOrder, setFileOrder] = useState<Record<string, string[]>>({});
   const [activePath, setActivePath] = useState<string>('');
   const [files, setFiles] = useState<Record<string, string>>({});
@@ -426,11 +427,14 @@ function ProjectEditorSession() {
     const res = await getProjectTree(projectId);
     const visibleItems = res.items.filter((item) => !isInternalProjectPath(item.path));
     setTree(visibleItems);
+    setTreeLoaded(true);
     setFileOrder(res.fileOrder || {});
     if (!keepActive || !activePath || !visibleItems.find((item) => item.path === activePath)) {
       const requested = searchParams.get('file') || searchParams.get('open');
       const filePaths = visibleItems.filter((item) => item.type === 'file').map((item) => item.path);
       const requestedPath = requested && filePaths.includes(requested) ? requested : '';
+      // The source-link effect opens explicit targets and positions the cursor together.
+      if (requestedPath && !treeLoaded) return;
       const restoredPath = restoredEditorFile(projectId, filePaths);
       const main = visibleItems.find((item) => item.path.endsWith('main.tex'))?.path;
       const firstTex = visibleItems.find((item) => item.type === 'file' && item.path.toLowerCase().endsWith('.tex'))?.path;
@@ -580,6 +584,41 @@ function ProjectEditorSession() {
     if (!collabTextFile) setEditorDoc(content);
     return content;
   };
+
+  const sourcePath = searchParams.get('file') || searchParams.get('open') || '';
+  const sourceLine = searchParams.get('line') || '';
+  const sourceNavigationRef = useRef({ openFile, tree, collabEnabled });
+  sourceNavigationRef.current = { openFile, tree, collabEnabled };
+  useEffect(() => {
+    if (!treeLoaded || !sourcePath) return;
+    const current = sourceNavigationRef.current;
+    if (!current.tree.some(item => item.type === 'file' && item.path === sourcePath)) {
+      setStatus(t('来源文件不存在或不可访问：{{path}}', { path: sourcePath }));
+      return;
+    }
+    let cancelled = false;
+    const request = openFileSequenceRef.current + 1;
+    current.openFile(sourcePath).then(() => {
+      if (cancelled || request !== openFileSequenceRef.current || activePathRef.current !== sourcePath) return;
+      if (!sourceLine) return;
+      const line = Number(sourceLine);
+      const view = cmViewRef.current;
+      if (!/^\d+$/.test(sourceLine) || !Number.isSafeInteger(line) || line < 1) {
+        setStatus(t('来源行号无效。'));
+      } else if (current.collabEnabled && isTextPath(sourcePath)) {
+        setStatus(t('已打开来源文件；协同编辑中的行号可能变化，请按引用键查找。'));
+      } else if (!view || line > view.state.doc.lines) {
+        setStatus(t('来源行号已超出当前文稿，请刷新写作检查。'));
+      } else {
+        const target = view.state.doc.line(line);
+        view.dispatch({ selection: { anchor: target.from, head: target.to }, scrollIntoView: true });
+        view.focus();
+      }
+    }).catch(error => {
+      if (!cancelled && request === openFileSequenceRef.current) setStatus(t('打开来源失败：{{error}}', { error: String(error) }));
+    });
+    return () => { cancelled = true; ++openFileSequenceRef.current; };
+  }, [sourcePath, sourceLine, treeLoaded, t]);
 
   const clearInlineSuggestion = useCallback(() => {
     inlineSuggestionRef.current = '';
