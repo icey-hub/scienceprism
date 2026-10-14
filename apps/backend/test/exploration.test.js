@@ -10,6 +10,7 @@ const {registerExplorationRoutes}=await import('../src/routes/exploration.js');
 const {createWorkflowDocument}=await import('../src/services/researchWorkflow/stateMachine.js');
 const {getEvidenceGraph}=await import('../src/services/evidenceLedger/index.js');
 const {RESEARCH_WORKFLOW_STAGES}=await import('../src/services/researchWorkflow/stageContracts.js');
+const {sourceHash}=await import('../src/services/researchAutomation/handoff.js');
 test.after(()=>rm(dataDir,{recursive:true,force:true}));
 async function snapshot(root) {
  const result={};
@@ -100,4 +101,35 @@ test('workflow context exposes eight ordered stages while execution edges stay s
  await rm(path.join(root,'.openprism/research-workflow.json'));
  const missing=await getProjectExploration(id);
  assert.equal(missing.workflow,null);assert.equal(missing.nodes.some(node=>node.kind==='stage'),false);
+});
+
+test('campaign graph connects frozen plan, all actual trials and evaluator without inventing reserved executions', async () => {
+ const id='campaign-graph',root=await fixture(id),dir=path.join(root,'.scienceprism');
+ const trials=[{id:'trial-1',runId:'candidate'},{id:'trial-2',runId:'failed-baseline'},{id:'trial-3',runId:'reserved'}];
+ await writeFile(path.join(dir,'validation-campaigns.json'),JSON.stringify({schemaVersion:1,projectId:id,campaigns:[{
+  id:'batch',status:'failed',baseRunId:'exp',planRevision:2,planSha256:'frozen-sha',plan:{hypothesis:{problem:'Bounded hypothesis'}},researchContext:{sourceStage:'experiment'},trials
+ }]}));
+ const experimentFile=path.join(dir,'experiment-runs.json'),experiments=JSON.parse(await readFile(experimentFile,'utf8'));
+ for(const [index,trial] of trials.slice(0,2).entries()) experiments.runs.push({id:trial.runId,status:index?'failed':'completed',manifest:{campaign:{campaignId:'batch',trialId:trial.id}}});
+ experiments.runs.push({id:'unrelated',status:'completed',manifest:{}});
+ await writeFile(experimentFile,JSON.stringify(experiments));
+ const harnessFile=path.join(dir,'harness-runs.json'),harness=JSON.parse(await readFile(harnessFile,'utf8'));
+ const saved={projectId:id,campaignId:'batch',planRevision:2,planSha256:'frozen-sha',trialRunIds:['candidate','failed-baseline','reserved','unrelated']};
+ const review={id:'review',projectId:id,task:'campaign_evaluation',status:'completed',request:{source:'campaign-evaluation',evaluationSource:{campaignId:'batch',planRevision:2,planSha256:'frozen-sha',trialRunIds:saved.trialRunIds,snapshot:saved,sourceSha256:sourceHash(saved)}},events:[]};
+ harness.runs.push(review,{...review,id:'corrupt',request:{...review.request,evaluationSource:{...review.request.evaluationSource,sourceSha256:'invalid'}}},{...review,id:'other-project',projectId:'foreign'});
+ await writeFile(harnessFile,JSON.stringify(harness));
+ const before=await snapshot(root),graph=await getProjectExploration(id);
+ assert.equal(graph.nodes.find(node=>node.id==='campaign-plan:batch').version,'frozen-sha');
+ assert.match(graph.nodes.find(node=>node.id==='campaign:batch').href,/campaign=batch#validation-campaign-results$/);
+ assert.ok(graph.edges.some(edge=>edge.from==='campaign-plan:batch'&&edge.to==='campaign:batch'&&edge.sourceRef.field==='planSha256'));
+ assert.ok(graph.edges.some(edge=>edge.from==='stage:experiment'&&edge.to==='campaign:batch'));
+ assert.ok(graph.edges.some(edge=>edge.from==='experiment:exp'&&edge.to==='campaign:batch'));
+ assert.deepEqual(graph.edges.filter(edge=>edge.from==='campaign:batch'&&edge.type==='runs').map(edge=>edge.to).sort(),['experiment:candidate','experiment:failed-baseline']);
+ assert.deepEqual(graph.edges.filter(edge=>edge.to==='harness:review'&&edge.type==='provides').map(edge=>edge.from).sort(),['experiment:candidate','experiment:failed-baseline']);
+ assert.ok(graph.edges.some(edge=>edge.from==='campaign:batch'&&edge.to==='harness:review'&&edge.type==='evaluates'));
+ assert.ok(graph.nodes.some(node=>node.id==='harness:corrupt'));
+ assert.equal(graph.edges.some(edge=>['harness:corrupt','harness:other-project'].includes(edge.to)),false);
+ assert.equal(graph.nodes.some(node=>node.id==='experiment:reserved'),false);
+ assert.equal((await getProjectExploration(id,{lens:'evidence'})).nodes.some(node=>node.kind==='campaign'),false);
+ assert.deepEqual(await snapshot(root),before);
 });

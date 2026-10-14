@@ -22,6 +22,7 @@ import { saveAutomationPolicy } from '../services/researchAutomation/policy.js';
 import { getIdeaPlan, saveIdeaPlan } from '../services/researchWorkflow/ideaPlans.js';
 
 import { generateIdeaPlan } from '../services/researchWorkflow/ideaPlanGeneration.js';
+import { campaignEvaluationService } from '../services/validationCampaign/agentEvaluation.js';
 import { listValidationCampaigns } from '../services/validationCampaign/index.js';
 import { listCampaignFigures, createCampaignFigure } from '../services/validationCampaign/figures.js';
 
@@ -92,8 +93,10 @@ function valueRoute(handler) {
   };
 }
 
-export function registerResearchWorkflowRoutes(fastify) {
+export function registerResearchWorkflowRoutes(fastify, { evaluationService = campaignEvaluationService } = {}) {
   const campaignsPath = '/api/projects/:id/validation-campaigns';
+  fastify.get(`${campaignsPath}/:campaignId/evaluation-agent`, valueRoute(req => evaluationService.list(req.params.id, req.params.campaignId)));
+  fastify.post(`${campaignsPath}/:campaignId/evaluation-agent`, { bodyLimit: 1024 }, valueRoute(req => evaluationService.evaluate(req.params.id, req.params.campaignId, bodyOf(req), { actor: actorFromRequest(req) })));
   fastify.get(campaignsPath, valueRoute(async req => {
     let candidates = [];
     try {

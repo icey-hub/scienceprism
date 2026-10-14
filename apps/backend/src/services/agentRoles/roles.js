@@ -76,6 +76,15 @@ export const AGENT_ROLES = Object.freeze([
     entrypoints: [{ module: 'services/agentRuntime.js', symbol: 'runAgentRuntime' }]
   },
   {
+    id: 'campaign-evaluator',
+    purpose: 'Independently explain the complete frozen campaign result snapshot, including failed and negative outcomes, without changing deterministic metrics or verdicts.',
+    stageScope: ['experiment'], authority: 'suggest-only', allowedCapabilities: [], allowedSkills: [],
+    outputContract: 'json:campaign-evaluation',
+    handoff: 'Return bounded source-linked observations and suggestions; humans choose any new plan or experiment.',
+    forbiddenActions: ['using tools or reading other files', 'changing metrics or artifacts', 'running experiments', 'overriding the deterministic verdict', 'granting Evidence verification or Approval'],
+    entrypoints: [{ module: 'services/validationCampaign/agentEvaluation.js', symbol: 'createCampaignEvaluationService' }]
+  },
+  {
     id: 'paper-reviewer',
     purpose: 'Read-only critique: peer review, consistency, missing citations, compile-log summary.',
     stageScope: ['writing'],

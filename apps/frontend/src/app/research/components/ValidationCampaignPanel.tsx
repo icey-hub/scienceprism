@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getValidationCampaigns, startValidationCampaign, startAutomaticValidationCampaign, getValidationCampaignFigures, generateValidationCampaignFigure, type ValidationCampaign, type ValidationVariant, type IdeaPlan, type ValidationCampaignEvaluation, type ValidationCampaignFigure, type ValidationCampaignFigureStyle } from '../../../api/client';
 import { automationApi, type AutomationState } from '../../../api/automationAdapter';
 import { workspaceModel } from '../../workspace/workspaceModel';
+import { CampaignAgentEvaluation } from './CampaignAgentEvaluation';
 import './ValidationCampaignPanel.css';
 
 type VariantDraft = Omit<ValidationVariant,'parameters'> & {key:string;parameters:string};
@@ -110,8 +111,11 @@ export function ValidationCampaignPanel({projectId}:{projectId:string}) {
   return <CampaignWorkspace key={projectId} projectId={projectId}/>;
 }
 function CampaignWorkspace({projectId}:{projectId:string}) {
+  const [searchParams,setSearchParams]=useSearchParams();
+  const requestedCampaign=searchParams.get('campaign')||'';
+  const resultsRef=useRef<HTMLDivElement>(null);
   const [campaigns,setCampaigns]=useState<ValidationCampaign[]>([]),[candidates,setCandidates]=useState<Candidate[]>([]),[automation,setAutomation]=useState<AutomationState|null>(null);
-  const [ideaId,setIdeaId]=useState(''),[seeds,setSeeds]=useState(''),[variants,setVariants]=useState<VariantDraft[]>(defaultVariants),[selectedId,setSelectedId]=useState('');
+  const [ideaId,setIdeaId]=useState(''),[seeds,setSeeds]=useState(''),[variants,setVariants]=useState<VariantDraft[]>(defaultVariants),[selectedId,setSelectedId]=useState(requestedCampaign);
   const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
   const alive=useRef(true),lock=useRef(false);
   const awaitingCampaign=useRef<string|null>(null);
@@ -148,7 +152,9 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
   const activeSession=automation?.session&&['queued','running','stopping'].includes(automation.session.status);
   const canStart=ready&&!!plan?.readiness.ready&&!activeSession&&!exceedsBudget&&!invalidSeedCount&&!invalidFirstSeed&&!invalidVariants&&!variantIssues.length&&trialCount>0;
   const canStartAutomatic=ready&&!!plan?.readiness.ready&&plan.evaluation.researchType!=='theoretical'&&!activeSession;
-  const campaign=campaigns.find(item=>item.id===selectedId)||campaigns[0];
+  const campaign=selectedId?campaigns.find(item=>item.id===selectedId):campaigns[0];
+  useEffect(()=>{setSelectedId(requestedCampaign);},[requestedCampaign]);
+  useEffect(()=>{if(requestedCampaign&&campaign?.id===requestedCampaign)resultsRef.current?.scrollIntoView({block:'start',behavior:'smooth'});},[requestedCampaign,campaign?.id]);
   const owned=!!campaign&&automation?.session?.id===campaign.sessionId;
   const experimentStep=automation?.session?.steps.find(step=>step.stage==='experiment');
   const design=experimentStep?.validationDesign;
@@ -220,11 +226,13 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
       {!!experimentStep?.codePreparations?.length&&<p className="research-panel-copy">已保留代码准备任务；固定代码准备与工程检查均不代表实际批次已完成。</p>}
       {preparingSession&&<div className="research-panel-footer"><button className="research-button research-button-quiet" type="button" disabled={busy||['completed','stopped','stopping'].includes(preparingSession.status)} onClick={()=>void control('stop',preparingSession.id)}>停止原准备会话</button><button className="research-button research-button-secondary" type="button" disabled={busy||!!activeSession||preparingSession.status==='completed'} onClick={()=>void control('resume',preparingSession.id)}>核对并继续原准备会话</button><Link to={`/project/${encodeURIComponent(projectId)}/tasks`}>查看原任务与会话</Link></div>}
     </div>}
-    {campaign&&<div className="validation-campaign-results"><div className="validation-campaign-variant-heading"><label className="research-field"><span>批次记录</span><select value={campaign.id} onChange={event=>setSelectedId(event.target.value)}>{campaigns.map(item=><option key={item.id} value={item.id}>{item.plan.hypothesis.problem||item.ideaId} · v{item.planRevision} · {statusLabels[item.status]||item.status}</option>)}</select></label><span>{statusLabels[campaign.status]||campaign.status}</span></div>
+    {!loading&&selectedId&&!campaign&&<p role="status" className="validation-campaign-error">未找到链接指定的批次。<button className="research-button research-button-quiet" type="button" onClick={()=>{setSelectedId('');setSearchParams(current=>{const next=new URLSearchParams(current);next.delete('campaign');return next;},{replace:true});}}>返回现有批次</button></p>}
+    {campaign&&<div id="validation-campaign-results" ref={resultsRef} className="validation-campaign-results"><div className="validation-campaign-variant-heading"><label className="research-field"><span>批次记录</span><select value={campaign.id} onChange={event=>{setSelectedId(event.target.value);setSearchParams(current=>{const next=new URLSearchParams(current);next.set('campaign',event.target.value);return next;},{replace:true});}}>{campaigns.map(item=><option key={item.id} value={item.id}>{item.plan.hypothesis.problem||item.ideaId} · v{item.planRevision} · {statusLabels[item.status]||item.status}</option>)}</select></label><span>{statusLabels[campaign.status]||campaign.status}</span></div>
       <p className="research-panel-copy">已记录 {campaign.trials.filter(actualTrial).length} 个实际 Run · 已用 {metricText(campaign.elapsedSeconds)} 秒 / {campaign.budget.maxSeconds} 秒 · 总预算 {campaign.budget.maxRuns} 次。预留 Run ID 不代表已创建；批次完成仅表示执行结束。</p>
       <div className="validation-campaign-links"><Link to={taskLink(projectId,`experiment-run:${campaign.baseRunId}`)}>固定原实验模板</Link>{owned&&automation?.session?.coordinatorRunId&&<Link to={taskLink(projectId,`harness:${automation.session.coordinatorRunId}`)}>原研究父任务</Link>}<small title={campaign.planSha256}>方案摘要 {campaign.planSha256.slice(0,16)}</small></div>
       {campaign.error?.message&&<p role="alert" className="validation-campaign-error">{campaign.error.message}</p>}
       {campaign.evaluation?<CampaignEvaluation projectId={projectId} value={campaign.evaluation}/>:<p className="research-panel-copy">固定条件评价尚未生成；保留实际执行记录，不提前判断假设得到支持。</p>}
+      <CampaignAgentEvaluation projectId={projectId} campaignId={campaign.id} campaignStatus={campaign.status}/>
       <CampaignFigures key={campaign.id} projectId={projectId} campaign={campaign}/>
       <details className="validation-evaluation-details"><summary>查看全部实际试验记录（{campaign.trials.filter(actualTrial).length} 个 Run）</summary><div className="validation-campaign-scroll"><table><caption>实际试验记录；指标取自各 Run</caption><thead><tr><th scope="col">参数组 / 种子</th><th scope="col">状态</th><th scope="col">数据 / 代码摘要</th><th scope="col">实际指标</th><th scope="col">Run</th></tr></thead><tbody>{campaign.trials.map(trial=><tr key={trial.id}><th scope="row">{campaign.variants.find(item=>item.id===trial.variantId)?.label||trial.variantId}<small>种子 {trial.seed}</small></th><td>{trial.status==='completed'?'运行完成':statusLabels[trial.status]||trial.status}{trial.result?.errorMessage&&<small className="validation-campaign-error">{trial.result.errorMessage}</small>}</td><td>{trial.result?.dataset?<><span title={trial.result.dataset.id}>{trial.result.dataset.id.length>24?`${trial.result.dataset.id.slice(0,24)}…`:trial.result.dataset.id}</span><small title={trial.result.dataset.version}>数据 {trial.result.dataset.version.slice(0,16)}</small></>:'数据摘要未记录'}<small title={trial.result?.codeSnapshotHash||trial.result?.codeVersion}>代码 {(trial.result?.codeSnapshotHash||trial.result?.codeVersion||'未记录').slice(0,16)}</small></td><td>{trial.result?.metrics?.length?trial.result.metrics.map((metric,index)=><span key={`${metric.name}:${index}`} title={metric.value==null?undefined:String(metric.value)}>{metric.name}：{metric.value==null?'未报告':metricText(metric.value)}{metric.unit?` ${metric.unit}`:''}</span>):'指标未报告'}</td><td>{actualTrial(trial)&&trial.runId?<Link to={taskLink(projectId,`experiment-run:${trial.runId}`)}>查看实际 Run</Link>:'待执行，尚未创建'}</td></tr>)}</tbody></table></div></details>
       {!owned&&<p className="research-panel-copy">当前自动链路已变化；该批次只读，不会控制另一条链路。</p>}

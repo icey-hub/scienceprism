@@ -128,7 +128,7 @@ async function getRunDocument(projectId) {
     let recovered = false;
     for (const run of stored.runs) {
       if ((run.status === 'running' && !activeRuns.has(run.id)) ||
-          (run.status === 'created' && ['editor', 'paper-reading'].includes(run.request?.source) && run.runtimeInstanceId !== runtimeInstanceId)) {
+          (run.status === 'created' && ['editor', 'paper-reading', 'campaign-evaluation'].includes(run.request?.source) && run.runtimeInstanceId !== runtimeInstanceId)) {
         run.status = 'failed';
         run.finishedAt = now();
         run.updatedAt = run.finishedAt;
@@ -268,7 +268,15 @@ export function recordAutomationCoordinator(projectId, runId, { sessionId, statu
   });
 }
 
-export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId } = {}) {
+function isCampaignEvaluationRequest(request) {
+  return request?.source === 'campaign-evaluation' || request?.role === 'campaign-evaluator' || Object.hasOwn(request || {}, 'evaluationSource');
+}
+function assertEvaluationOverrides(run, request) {
+  if (isCampaignEvaluationRequest(request) || isCampaignEvaluationRequest(run.request) && Object.keys(request || {}).length) throw new HarnessRuntimeError(403, 'CAMPAIGN_EVALUATION_OWNS_REQUEST', 'Use the campaign evaluation owner; its frozen request cannot be replaced by generic Harness controls.');
+}
+
+export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId, campaignEvaluationAdmission = false } = {}) {
+  if (isCampaignEvaluationRequest(request) && campaignEvaluationAdmission !== true) throw new HarnessRuntimeError(403, 'CAMPAIGN_EVALUATION_ADMISSION_REQUIRED', 'Only the campaign evaluation owner may admit a frozen evaluation Run.');
   if (request.role === 'research-code-coordinator' && !coordinatorSessionId) throw new HarnessRuntimeError(403, 'AUTOMATION_OWNS_COORDINATOR', 'The internal code coordinator cannot be started as an ordinary model Run.');
   const projectRoot = await resolveHarnessProjectRoot(projectId);
   assertLocalAutomationWriter(projectRoot);
@@ -345,6 +353,7 @@ export async function createHarnessRun(projectId, request = {}, { coordinatorSes
     policy: effectiveCapabilities,
     constraints
   });
+  if (request.source === 'campaign-evaluation' && (contextPack.instructions?.prompt !== request.prompt || contextPack.instructions?.promptTruncated)) throw new HarnessRuntimeError(413, 'EVALUATION_CONTEXT_INCOMPLETE', 'The approved context budget cannot retain the entire evaluation source. No model Run was created.');
   for (const expected of documentVersions) {
     const packed = contextPack.files.find((file) => file.path === expected.path);
     if (packed && packed.sha256 !== expected.sha256) {
@@ -402,7 +411,7 @@ export async function createHarnessRun(projectId, request = {}, { coordinatorSes
     // Conversation and composed execution history must retain proposals,
     // worker identity, sessions and the exact Skill evidence they used.
     const composedParents = new Set(allRuns.filter(old => old.kind === 'codex-worker').map(old => old.parentRunId));
-    const archivable = olderRuns.filter((old) => !['editor', 'paper-reading', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
+    const archivable = olderRuns.filter((old) => !['editor', 'paper-reading', 'campaign-evaluation', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
       !composedParents.has(old.id) && !old.cleanup?.modelSlotRetained && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
     const archivedIds = new Set(archivable.map((old) => old.id));
     document.runs = allRuns.filter((old) => !archivedIds.has(old.id));
@@ -456,6 +465,7 @@ export async function startHarnessRun(projectId, runId, { wait = false, request 
   assertCoordinatorControl(await getHarnessRun(projectId, runId), automationSessionId);
   if (activeRuns.get(runId)?.recovering) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run is reconciling retained results.');
   const run = await getHarnessRun(projectId, runId);
+  assertEvaluationOverrides(run, request);
   if (run.adapter === 'deepseek' && run.retainedWorkspace && run.recovery?.status !== 'ready' && ['paused','failed','cancelled'].includes(run.status)) {
     throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_REQUIRED', 'Reconcile retained results before continuing this Run, or explicitly create a new replay.');
   }
@@ -540,6 +550,7 @@ export async function pauseHarnessRun(projectId, runId) {
 
 export async function resumeHarnessRun(projectId, runId, options = {}) {
   const run = await getHarnessRun(projectId, runId);
+  assertEvaluationOverrides(run, options.request);
   if (run.adapter === 'deepseek' && run.kind !== 'codex-worker' && run.retainedWorkspace && run.recovery?.status !== 'ready') {
     await recoverHarnessRun(projectId, runId, options);
   }
@@ -549,7 +560,9 @@ export async function resumeHarnessRun(projectId, runId, options = {}) {
 export async function recoverHarnessRun(projectId, runId, { request = {}, signal, automationSessionId } = {}) {
   signal?.throwIfAborted();
   assertLocalAutomationWriter(await resolveHarnessProjectRoot(projectId));
-  assertCoordinatorControl(await getHarnessRun(projectId, runId), automationSessionId);
+  const run = await getHarnessRun(projectId, runId);
+  assertCoordinatorControl(run, automationSessionId);
+  assertEvaluationOverrides(run, request);
   const retained = activeRuns.get(runId);
   if (retained) {
     if (!retained.control.stopUnconfirmed || !retained.promise) throw new HarnessRuntimeError(409, 'HARNESS_RECOVERY_IN_PROGRESS', 'This Run still has an active execution or recovery.');
@@ -608,6 +621,7 @@ export async function cancelHarnessRun(projectId, runId) {
 export async function replayHarnessRun(projectId, runId, { request = {}, start = true } = {}) {
   const original = await getHarnessRun(projectId, runId);
   assertCoordinatorControl(original);
+  if (isCampaignEvaluationRequest(original.request)) throw new HarnessRuntimeError(403, 'CAMPAIGN_EVALUATION_OWNS_REQUEST', 'Request a new evaluation through its campaign owner; generic replay cannot retain or replace its provenance.');
   if (original.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_RUN_CONTROL', 'Retry the owning DSH task.');
   const run = await createHarnessRun(projectId, { ...original.request, ...request, stage: original.stage, task: original.task, replayOf: original.id });
   return start ? startHarnessRun(projectId, run.id, { wait: true, request }) : run;

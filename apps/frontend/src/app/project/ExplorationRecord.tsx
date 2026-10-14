@@ -7,6 +7,8 @@ export const NODE_META = {
   harness: { label: '任务', color: '#2563eb', icon: GitBranch },
   call: { label: '工具调用', color: '#0e7490', icon: Wrench },
   experiment: { label: '实验', color: '#7c3aed', icon: FlaskConical },
+  campaign: { label: '试验批次', color: '#7c3aed', icon: FlaskConical },
+  plan: { label: '冻结方案', color: '#6366a4', icon: FileText },
   artifact: { label: '产物', color: '#b45309', icon: Terminal },
   evidence: { label: '证据材料', color: '#15803d', icon: FileText },
   claim: { label: '主张', color: '#be123c', icon: Lightbulb },
@@ -17,10 +19,12 @@ export const RELATION_META: Record<string, { label: string; color: string }> = {
   references: { label: '引用', color: '#0e7490' }, reports: { label: '报告', color: '#b45309' },
   produces: { label: '产出', color: '#b45309' }, contradicts: { label: '反例', color: '#be123c' },
   supports: { label: '支持', color: '#15803d' },
+  defines: { label: '固定条件', color: '#6366a4' }, provides: { label: '输入材料', color: '#0e7490' },
+  evaluates: { label: '独立评价', color: '#7c3aed' },
   'stage-order': { label: '阶段顺序', color: '#64748b' },
 };
 const STATUS_LABELS: Record<string, string> = {
-  pending: '待处理', created:'待运行', queued: '排队中', running: '运行中', completed: '已完成', failed: '失败',
+  pending: '待处理', created:'待运行', queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', frozen: '已冻结',
   cancelled: '已取消', paused: '已暂停', approved: '已批准', rejected: '已拒绝', draft: '草稿',
   unverified: '未核验', unsupported: '缺少支持', 'stale-reference': '旧版本引用',
   'human-confirmed': '人工确认', 'missing-source': '来源缺失', archived: '已归档',

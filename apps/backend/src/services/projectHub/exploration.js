@@ -5,6 +5,8 @@ import { readEvidenceLedger } from '../evidenceLedger/repository.js';
 import { evidenceVersion, sourceForEvidence } from '../evidenceLedger/schema.js';
 import { claimRows, checkClaimEvidence, collectEvidenceReferences } from '../evidenceLedger/index.js';
 import { RESEARCH_WORKFLOW_STAGES } from '../researchWorkflow/stageContracts.js';
+import { readCampaigns } from '../validationCampaign/repository.js';
+import { addCampaignExploration } from './campaignExploration.js';
 
 const taskHref = (projectId, taskId) => `/project/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`;
 const stageHref = (projectId, stage) => `/editor/${encodeURIComponent(projectId)}/research/${stage === 'ideation' ? 'innovation' : stage}`;
@@ -14,9 +16,10 @@ const bounded = (value, fallback, max) => Math.min(max, Math.max(1, Math.floor(N
 export async function getProjectExploration(projectId, { lens = 'execution', rootId, limit = 400 } = {}) {
   if (!['execution','evidence'].includes(lens)) { const error = new Error('Invalid graph lens.'); error.statusCode = 400; throw error; }
   const root = await resolveProjectRoot(projectId);
-  const [harness, experiments, ledger, workflow] = await Promise.all([
+  const [harness, experiments, ledger, workflow, campaigns] = await Promise.all([
     readHarnessRuns(root, projectId), readExperimentRuns(root, projectId), readEvidenceLedger(root, projectId, { readOnly: true }),
-    readWorkflowFile(root, projectId, { readOnly: true }).catch(error => { if (error.code === 'WORKFLOW_NOT_FOUND') return null; throw error; })
+    readWorkflowFile(root, projectId, { readOnly: true }).catch(error => { if (error.code === 'WORKFLOW_NOT_FOUND') return null; throw error; }),
+    lens === 'execution' ? readCampaigns(projectId) : { campaigns: [] }
   ]);
   const nodes = new Map(), edges = new Map();
   const warnings = [];
@@ -91,6 +94,8 @@ export async function getProjectExploration(projectId, { lens = 'execution', roo
       addEdge(id,artifactId,'produces',source('experiment',run.id,`artifacts.${artifact.id}`));
     }
   }
+  if (lens === 'execution') addCampaignExploration({ projectId, campaigns: campaigns.campaigns.slice(0, 500),
+    harnessRuns: [...harness.runs, ...(harness.archivedRuns || [])].slice(0, 500), experimentRuns: experiments.runs.slice(0, 500), nodes, addNode, addEdge });
   const totalNodes = nodes.size, totalEdges = edges.size;
   let selected = [...nodes.values()];
   if (rootId) {

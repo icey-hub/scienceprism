@@ -36,7 +36,7 @@ export async function previewAssistantSkill(projectId, name) {
 
 /** The editor owns task intent; the server owns capabilities and execution. */
 export async function startAssistantRun(projectId, input = {}, overrides = {}) {
-  const source = overrides.source === 'paper-reading' ? 'paper-reading' : 'editor';
+  const source = ['paper-reading', 'campaign-evaluation'].includes(overrides.source) ? overrides.source : 'editor';
   const requestId = text(input.requestId, 100);
   if (!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)) {
     throw new HarnessRuntimeError(400, 'INVALID_REQUEST_ID', 'A task request id is required.');
@@ -46,13 +46,15 @@ export async function startAssistantRun(projectId, input = {}, overrides = {}) {
     || new Set(input.skillNames).size !== input.skillNames.length)) {
     throw new HarnessRuntimeError(400, 'INVALID_SKILL_SELECTION', 'Select up to 20 distinct Skill names.');
   }
+  if (source === 'campaign-evaluation' && (typeof input.prompt !== 'string' || !input.prompt.isWellFormed() || Buffer.byteLength(input.prompt) > 1024 * 1024)) throw new HarnessRuntimeError(413, 'EVALUATION_SNAPSHOT_TOO_LARGE', 'The full evaluation snapshot exceeds its bound; no source will be silently truncated.');
   const permission = input.permission === 'read' ? 'read' : 'edit';
   const request = {
     source, requestId, permission,
     ...(source === 'paper-reading' ? { readingSource: overrides.readingSource } : {}),
+    ...(source === 'campaign-evaluation' ? { evaluationSource: overrides.evaluationSource } : {}),
     ...(input.skillNames === undefined ? {} : { skillNames: [...input.skillNames].sort() }),
     task: text(input.task, 80) || 'custom',
-    prompt: text(input.prompt, 16000),
+    prompt: source === 'campaign-evaluation' ? input.prompt : text(input.prompt, 16000),
     activePath: text(input.activePath, 500),
     selection: text(input.selection, 40000),
     compileLog: text(input.compileLog, 24000),
@@ -104,7 +106,7 @@ export async function startAssistantRun(projectId, input = {}, overrides = {}) {
       capabilities: request.task === 'skill_recommendation' ? [] : permission === 'read' ? ['project.read'] : ['project.read', 'patch.propose'],
       fallback: true,
       ...overrides
-    });
+    }, { campaignEvaluationAdmission: source === 'campaign-evaluation' });
     return startHarnessRun(projectId, run.id, { wait: false });
   });
   starts.set(projectId, pending);
