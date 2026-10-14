@@ -41,6 +41,8 @@ npm run dev
 
 编辑器「绘图」侧栏现可用 GPT Image 2 根据文字描述生成 PNG 示意图，保存到当前项目的 `assets/images/`，并插入 LaTeX figure。默认使用编辑器中的模型端点与密钥；如需单独设置后端，可用 `SCIENCEPRISM_IMAGE_ENDPOINT` 和 `SCIENCEPRISM_IMAGE_API_KEY`。端点可填写 `https://example.com/v1` 形式的 OpenAI 兼容地址；后端向 `/v1/images/generations` 发送 `gpt-image-2` 请求。生成的插图是位图；定量科研结果仍应使用可复现的数据绘图。
 
+实验阶段的已完成验证批次提供「真实结果 → 论文图」：选择候选与基线指标，调整标题、坐标名或配色，即可导出 SVG、PDF、PNG、来源 JSON 与固定绘图源码。全部预定种子均须有可核对的配对结果；`n` 指配对种子数，不推测误差条。修改样式会在 `assets/plots/` 保留独立版本。当前渲染器需要 macOS 实验沙箱，以及指向已安装 Matplotlib 的可信 Python 环境的绝对路径 `SCIENCEPRISM_FIGURE_PYTHON`；项目须启用实验执行。出图复用实际结果，不重跑实验或调用模型。
+
 ## 实际工作流程
 
 研究流程依次包含方向、检索、筛选、可选复现、创新点、方法、实验和写作。当前论文检索实现了 arXiv 来源；检索结果和 AI 建议需要你确认。实验计划与实验运行分开，运行前还需要单独批准并授予项目执行能力。

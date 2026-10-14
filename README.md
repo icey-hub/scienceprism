@@ -41,6 +41,8 @@ The backend's `npm run dev` does not automatically load the repository's `.env` 
 
 In the editor's **Plotting** sidebar, GPT Image 2 can create PNG diagrams from a text prompt, save them in the current project's `assets/images/`, and insert a LaTeX figure. It uses the editor's model endpoint and key by default; you can configure the backend separately with `SCIENCEPRISM_IMAGE_ENDPOINT` and `SCIENCEPRISM_IMAGE_API_KEY`. The endpoint can be an OpenAI-compatible base URL such as `https://example.com/v1`; the backend calls `/v1/images/generations` with model `gpt-image-2`. Generated illustrations are raster images; use reproducible plotting for quantitative research figures.
 
+Completed validation campaigns also offer **Real results → Paper figure** on the Experiment stage. Select a candidate/baseline metric, adjust the title, axis labels or palette, and export SVG, PDF, PNG, source JSON and the fixed renderer. Every planned seed must have a verified paired result; `n` counts seed pairs, and no error bars are inferred. Style changes retain previous figure versions under `assets/plots/`. This renderer currently requires the macOS experiment sandbox and an absolute `SCIENCEPRISM_FIGURE_PYTHON` path to a trusted Python environment with Matplotlib. Project experiment execution must be enabled; generating a figure does not rerun the experiment or call a model.
+
 ## Workflow
 
 The research stages are Direction, Search, Selection, optional Replication, Ideation, Method, Experiment, and Writing. The implemented paper source is arXiv. You review search results and AI suggestions. An experiment plan and an experiment run are separate; a run needs its own approval and project execution capability.

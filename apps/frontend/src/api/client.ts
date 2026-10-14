@@ -796,6 +796,22 @@ export interface ValidationCampaign {
     result?:{id:string;status:string;codeVersion?:string;codeSnapshotHash?:string;dataset?:{id:string;version:string};
       metrics?:{name:string;value?:unknown;unit?:string|null}[];errorMessage?:string|null;exitCode?:number|null}|null}[];
 }
+export interface ValidationCampaignFigureStyle {
+  title:string;xLabel:string;yLabel:string;palette:'blue-orange'|'purple-green'|'grayscale';
+}
+export interface ValidationCampaignFigure {
+  id:string;campaignId:string;metricName:string;candidateVariantId:string;comparisonVariantId:string;createdAt:string;
+  sourceSha256:string;styleSha256:string;renderer:{name:string;sha256:string;pythonVersion:string;matplotlibVersion:string};
+  style:ValidationCampaignFigureStyle;
+  statistics:{n:number;unit:string|null;seeds:string[];errorBars:'none';threshold:number;direction:'increase'|'decrease'|'target';caption:string};
+  files:Record<'svg'|'pdf'|'png'|'source'|'rendererSource',{path:string;sha256:string;bytes:number;url:string}>;
+}
+export function getValidationCampaignFigures(projectId:string,campaignId:string) {
+  return request<{ok:boolean;figures:ValidationCampaignFigure[]}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns/${encodeURIComponent(campaignId)}/figures`);
+}
+export function generateValidationCampaignFigure(projectId:string,campaignId:string,input:{candidateVariantId:string;comparisonVariantId:string;metricName:string;style?:Partial<ValidationCampaignFigureStyle>}) {
+  return request<{ok:boolean;figure:ValidationCampaignFigure}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns/${encodeURIComponent(campaignId)}/figures`,{method:'POST',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
+}
 export function getValidationCampaigns(projectId:string) {
   return request<{ok:boolean;campaigns:ValidationCampaign[];candidates?:{ideaId:string;title:string;plan:IdeaPlan|null}[]}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns`);
 }

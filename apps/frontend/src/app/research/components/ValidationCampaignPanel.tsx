@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { getValidationCampaigns, startValidationCampaign, startAutomaticValidationCampaign, type ValidationCampaign, type ValidationVariant, type IdeaPlan, type ValidationCampaignEvaluation } from '../../../api/client';
+import { getValidationCampaigns, startValidationCampaign, startAutomaticValidationCampaign, getValidationCampaignFigures, generateValidationCampaignFigure, type ValidationCampaign, type ValidationVariant, type IdeaPlan, type ValidationCampaignEvaluation, type ValidationCampaignFigure, type ValidationCampaignFigureStyle } from '../../../api/client';
 import { automationApi, type AutomationState } from '../../../api/automationAdapter';
 import { workspaceModel } from '../../workspace/workspaceModel';
 import './ValidationCampaignPanel.css';
@@ -15,6 +15,51 @@ const taskLink=(projectId:string,id:string)=>`/project/${encodeURIComponent(proj
 const verdictLabels={supported:'固定条件下支持',refuted:'固定条件下反证',insufficient:'证据不足'};
 const evaluationNumber=(value:number|null)=>value===null?'未报告':metricText(value);
 const knownRun=(id:string|null,status:string)=>!!id&&['awaiting_approval','approved','running','completed','failed','cancelled','rejected'].includes(status);
+const figureUrl=(url:string)=>url.startsWith('/api/')?url:undefined;
+function CampaignFigures({projectId,campaign}:{projectId:string;campaign:ValidationCampaign}) {
+  const comparisons=campaign.evaluation?.summaries.filter(item=>item.comparisonKind==='baseline')||[];
+  const comparisonKey=(item:typeof comparisons[number])=>JSON.stringify([item.candidateVariantId,item.comparisonVariantId,item.metricName]);
+  const [selection,setSelection]=useState(''),[style,setStyle]=useState<ValidationCampaignFigureStyle>({title:'',xLabel:'',yLabel:'',palette:'blue-orange'});
+  const [figures,setFigures]=useState<ValidationCampaignFigure[]>([]),[figureId,setFigureId]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[imageFailed,setImageFailed]=useState(false);
+  const mounted=useRef(true),inFlight=useRef(false);
+  useEffect(()=>{mounted.current=true;let disposed=false;
+    void getValidationCampaignFigures(projectId,campaign.id).then(result=>{if(!disposed){setFigures(result.figures);setError('');}}).catch(reason=>{if(!disposed)setError(`读取图版本失败：${String(reason)}`);}).finally(()=>{if(!disposed)setLoading(false);});
+    return()=>{disposed=true;mounted.current=false;};
+  },[projectId,campaign.id]);
+  const selected=comparisons.find(item=>comparisonKey(item)===selection);
+  const figure=figures.find(item=>item.id===figureId)||figures[0];
+  useEffect(()=>setImageFailed(false),[figure?.id]);
+  const complete=!!selected&&selected.completeSeeds===selected.expectedSeeds.length&&selected.expectedSeeds.length>0&&selected.candidateMean!==null&&selected.comparisonMean!==null&&!selected.issues.length;
+  const choose=(key:string)=>{setSelection(key);const item=comparisons.find(value=>comparisonKey(value)===key);if(item)setStyle(current=>({...current,title:`${item.metricName}: ${item.candidateLabel} vs ${item.comparisonLabel}`.slice(0,120),xLabel:'Method',yLabel:item.metricName.slice(0,120)}));};
+  const generate=async(event:FormEvent)=>{event.preventDefault();if(inFlight.current||loading||!selected||!complete)return;inFlight.current=true;setBusy(true);setError('');setNotice('');
+    try{const result=await generateValidationCampaignFigure(projectId,campaign.id,{candidateVariantId:selected.candidateVariantId,comparisonVariantId:selected.comparisonVariantId,metricName:selected.metricName,style});if(mounted.current){setFigures(current=>[result.figure,...current.filter(item=>item.id!==result.figure.id)]);setFigureId(result.figure.id);setNotice('论文图已就绪，下方预览与下载对应保存的真实产物。');}}
+    catch(reason){if(mounted.current)setError(`生成论文图失败：${String(reason)}`);}
+    finally{inFlight.current=false;if(mounted.current)setBusy(false);}
+  };
+  return <section className="validation-figures" aria-label="真实结果论文图">
+    <div className="validation-evaluation-heading"><h4>真实结果 → 论文图</h4><span className="research-status-note">矢量导出 · 固定数据来源</span></div>
+    <p className="research-panel-copy">选择实测指标生成配对图，可调整标题、坐标名和配色，并导出矢量文件。</p>
+    <form onSubmit={event=>void generate(event)}><fieldset className="validation-figure-controls" disabled={busy}>
+      <label className="research-field validation-figure-selection"><span>实测对比 / 指标</span><select value={selection} onChange={event=>choose(event.target.value)}><option value="">请选择实际基线比较</option>{comparisons.map(item=><option key={comparisonKey(item)} value={comparisonKey(item)}>{item.metricName} · {item.candidateLabel} / {item.comparisonLabel} · {item.completeSeeds}/{item.expectedSeeds.length} 配对</option>)}</select></label>
+      <label className="research-field"><span>图标题</span><input value={style.title} maxLength={120} onChange={event=>setStyle(current=>({...current,title:event.target.value}))}/></label>
+      <label className="research-field"><span>横轴标签</span><input value={style.xLabel} maxLength={120} onChange={event=>setStyle(current=>({...current,xLabel:event.target.value}))}/></label>
+      <label className="research-field"><span>纵轴标签</span><input value={style.yLabel} maxLength={120} onChange={event=>setStyle(current=>({...current,yLabel:event.target.value}))}/></label>
+      <label className="research-field"><span>固定配色</span><select value={style.palette} onChange={event=>setStyle(current=>({...current,palette:event.target.value as ValidationCampaignFigureStyle['palette']}))}><option value="blue-orange">蓝 / 橙</option><option value="purple-green">紫 / 绿</option><option value="grayscale">灰阶</option></select></label>
+    </fieldset><div className="validation-figure-action"><span>{selected&&!complete?'该比较仍有失败、缺失或未完成数据，不能删减种子后生成。':'调整样式会保存新版本，原图仍可下载。'}</span><button className="research-button research-button-secondary" type="submit" disabled={busy||loading||!complete}>{busy?'正在生成真实图…':'生成论文图'}</button></div></form>
+    {error&&<p role="alert" className="validation-campaign-error">{error} {figures.length>0&&'已有图版本保留。'}</p>}{notice&&<p role="status" className="research-panel-copy">{notice}</p>}{loading&&<p role="status" className="research-panel-copy">正在读取已生成图版本…</p>}
+    {figure&&<div className="validation-figure-output"><div className="validation-figure-preview">{figureUrl(figure.files.png.url)&&!imageFailed?<img src={figureUrl(figure.files.png.url)} alt={figure.style.title||`${figure.metricName} 候选与基线逐种子实测配对图`} onError={()=>setImageFailed(true)}/>:<p role="alert">真实 PNG 预览无法读取，请尝试下载或刷新页面。</p>}</div><div className="validation-figure-metadata">
+      <label className="research-field"><span>已生成版本（{figures.length}）</span><select value={figure.id} onChange={event=>setFigureId(event.target.value)}>{figures.map(item=><option key={item.id} value={item.id}>{item.style.title||item.metricName} · {new Date(item.createdAt).toLocaleString('zh-CN')}</option>)}</select></label>
+      <p><strong>n = {figure.statistics.n} 个配对种子</strong><br/>单位：{figure.statistics.unit||'未声明单位'} · 不绘制误差条</p>
+      <div className="validation-figure-downloads">{(['svg','pdf','png','source'] as const).map(format=>figureUrl(figure.files[format].url)&&<a key={format} href={figureUrl(figure.files[format].url)} download>{format==='source'?'数据 JSON':format.toUpperCase()}</a>)}</div>
+      <p className="research-panel-copy">图对应生成时冻结的 Run 指标与方案条件；配对连线不表示统计显著性。</p>
+      <details className="validation-evaluation-details"><summary>查看种子与可复核来源</summary><p className="validation-figure-caption">{figure.statistics.caption}</p><p>种子：{figure.statistics.seeds.join('、')}</p><p>渲染：{figure.renderer.name} · Python {figure.renderer.pythonVersion} · Matplotlib {figure.renderer.matplotlibVersion}</p>
+        <div className="validation-campaign-links">{campaign.evaluation?.rows.filter(row=>row.candidateVariantId===figure.candidateVariantId&&row.comparisonVariantId===figure.comparisonVariantId&&row.metricName===figure.metricName).map(row=><span key={row.seed}>种子 {row.seed}：{knownRun(row.candidateRunId,row.candidateStatus)&&<Link to={taskLink(projectId,`experiment-run:${row.candidateRunId}`)}>候选 Run</Link>} / {knownRun(row.comparisonRunId,row.comparisonStatus)&&<Link to={taskLink(projectId,`experiment-run:${row.comparisonRunId}`)}>基线 Run</Link>}</span>)}</div>
+        {figureUrl(figure.files.rendererSource.url)&&<a href={figureUrl(figure.files.rendererSource.url)} download>下载固定绘图源码</a>}
+      </details>
+    </div></div>}
+    {!loading&&!figure&&!error&&<p className="research-empty-inline">尚未生成论文图；选择完整的实际比较即可导出。</p>}
+  </section>;
+}
 function CampaignEvaluation({projectId,value}:{projectId:string;value:ValidationCampaignEvaluation}) {
   return <section className="validation-evaluation" aria-label="创新固定条件评价">
     <div className="validation-evaluation-heading"><h4>固定条件下的验证结果</h4><strong className={`validation-verdict is-${value.verdict}`}>{verdictLabels[value.verdict]}</strong></div>
@@ -180,6 +225,7 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
       <div className="validation-campaign-links"><Link to={taskLink(projectId,`experiment-run:${campaign.baseRunId}`)}>固定原实验模板</Link>{owned&&automation?.session?.coordinatorRunId&&<Link to={taskLink(projectId,`harness:${automation.session.coordinatorRunId}`)}>原研究父任务</Link>}<small title={campaign.planSha256}>方案摘要 {campaign.planSha256.slice(0,16)}</small></div>
       {campaign.error?.message&&<p role="alert" className="validation-campaign-error">{campaign.error.message}</p>}
       {campaign.evaluation?<CampaignEvaluation projectId={projectId} value={campaign.evaluation}/>:<p className="research-panel-copy">固定条件评价尚未生成；保留实际执行记录，不提前判断假设得到支持。</p>}
+      <CampaignFigures key={campaign.id} projectId={projectId} campaign={campaign}/>
       <details className="validation-evaluation-details"><summary>查看全部实际试验记录（{campaign.trials.filter(actualTrial).length} 个 Run）</summary><div className="validation-campaign-scroll"><table><caption>实际试验记录；指标取自各 Run</caption><thead><tr><th scope="col">参数组 / 种子</th><th scope="col">状态</th><th scope="col">数据 / 代码摘要</th><th scope="col">实际指标</th><th scope="col">Run</th></tr></thead><tbody>{campaign.trials.map(trial=><tr key={trial.id}><th scope="row">{campaign.variants.find(item=>item.id===trial.variantId)?.label||trial.variantId}<small>种子 {trial.seed}</small></th><td>{trial.status==='completed'?'运行完成':statusLabels[trial.status]||trial.status}{trial.result?.errorMessage&&<small className="validation-campaign-error">{trial.result.errorMessage}</small>}</td><td>{trial.result?.dataset?<><span title={trial.result.dataset.id}>{trial.result.dataset.id.length>24?`${trial.result.dataset.id.slice(0,24)}…`:trial.result.dataset.id}</span><small title={trial.result.dataset.version}>数据 {trial.result.dataset.version.slice(0,16)}</small></>:'数据摘要未记录'}<small title={trial.result?.codeSnapshotHash||trial.result?.codeVersion}>代码 {(trial.result?.codeSnapshotHash||trial.result?.codeVersion||'未记录').slice(0,16)}</small></td><td>{trial.result?.metrics?.length?trial.result.metrics.map((metric,index)=><span key={`${metric.name}:${index}`} title={metric.value==null?undefined:String(metric.value)}>{metric.name}：{metric.value==null?'未报告':metricText(metric.value)}{metric.unit?` ${metric.unit}`:''}</span>):'指标未报告'}</td><td>{actualTrial(trial)&&trial.runId?<Link to={taskLink(projectId,`experiment-run:${trial.runId}`)}>查看实际 Run</Link>:'待执行，尚未创建'}</td></tr>)}</tbody></table></div></details>
       {!owned&&<p className="research-panel-copy">当前自动链路已变化；该批次只读，不会控制另一条链路。</p>}
       {terminalCampaign(campaign.status)&&campaign.status!=='completed'&&<p className="research-panel-copy">该批次已终止，失败或预算记录会保留；请检查材料并另开批次，不能继续派发。</p>}

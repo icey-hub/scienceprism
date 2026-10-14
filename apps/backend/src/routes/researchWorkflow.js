@@ -23,6 +23,7 @@ import { getIdeaPlan, saveIdeaPlan } from '../services/researchWorkflow/ideaPlan
 
 import { generateIdeaPlan } from '../services/researchWorkflow/ideaPlanGeneration.js';
 import { listValidationCampaigns } from '../services/validationCampaign/index.js';
+import { listCampaignFigures, createCampaignFigure } from '../services/validationCampaign/figures.js';
 
 const BASE_PATH = '/api/projects/:id/research-workflow';
 
@@ -105,6 +106,8 @@ export function registerResearchWorkflowRoutes(fastify) {
   fastify.post(campaignsPath, valueRoute(req => startAutomation(req.params.id, {
     actor: actorFromRequest(req), targetStage: 'experiment', validationCampaign: bodyOf(req)
   })));
+  fastify.get(`${campaignsPath}/:campaignId/figures`, valueRoute(async req => ({ figures: await listCampaignFigures(req.params.id, req.params.campaignId) })));
+  fastify.post(`${campaignsPath}/:campaignId/figures`, valueRoute(async req => ({ figure: await createCampaignFigure(req.params.id, req.params.campaignId, bodyOf(req), { actor: requireActor(actorFromRequest(req)) }) })));
   fastify.post(`${campaignsPath}/auto`, valueRoute(req => startAutomation(req.params.id, {
     actor: actorFromRequest(req), targetStage: 'experiment', validationCampaignDesign: bodyOf(req)
   })));
