@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, List, RotateCw, Search, ZoomIn, ZoomOut } from 'lucide-react';
 import { PdfPage } from '../pdf/PdfPage';
 import { usePdfDocument } from '../pdf/usePdfDocument';
@@ -9,12 +10,18 @@ import { usePaperAnnotations } from './usePaperAnnotations';
 import { ReadingNotes } from './ReadingNotes';
 import { ReadingGlossaryPanel } from './ReadingGlossaryPanel';
 import { ReadingExplanationPanel } from './ReadingExplanationPanel';
+import { ReadingOcrPanel } from './ReadingOcrPanel';
+import type { OcrSource, OcrRotation } from '../../api/readingOcrAdapter';
+import type { PdfNormalizedRegion } from '../pdf/pdfSelection';
 
 const noVisible = () => {};
 export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projectId: string; paperId: string; attachment: PaperAttachment }) {
   const { pdf, outline, error } = usePdfDocument(attachmentUrl(projectId, paperId, attachment.id));
   const annotations = usePaperAnnotations(projectId, paperId);
-  const [panel, setPanel] = useState<'translation' | 'notes' | 'glossary' | 'explanation'>('translation');
+  const [params]=useSearchParams(),linkedOcrTask=params.get('ocrTask')||undefined;
+  const [panel, setPanel] = useState<'translation' | 'notes' | 'glossary' | 'explanation' | 'ocr'>(linkedOcrTask?'ocr':'translation');
+  const [ocrMode,setOcrMode]=useState(false),[ocrSource,setOcrSource]=useState<OcrSource|null>(null);
+  const regionVersion=useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const indexRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
@@ -33,6 +40,12 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
   const scale = zoom || Math.min(2, Math.max(.25, (width - 48) / pageWidth));
   const goToPage = useCallback((value: number) => { const root = scrollRef.current; const target = root?.querySelector(`[data-page-number="${value}"]`); if (root && target) root.scrollTo({ top: root.scrollTop + target.getBoundingClientRect().top - root.getBoundingClientRect().top - 24, behavior: 'instant' }); setPage(value); }, []);
   const onVisible = useCallback((value: number) => setPage(value), []);
+  const exitRegion=useCallback(()=>{regionVersion.current++;setOcrMode(false);},[]);
+  const enableRegion=()=>{window.getSelection()?.removeAllRanges();setOcrMode(true);setPanel('ocr');setNotice('');};
+  const selectRegion=(number:number,region:PdfNormalizedRegion,totalRotation:number)=>{regionVersion.current++;setOcrSource({attachmentId:attachment.id,fileSha256:attachment.sha256,page:number,region,rotation:totalRotation as OcrRotation});setOcrMode(false);setPanel('ocr');setNotice('');};
+  const selectCurrentPage=async()=>{if(!pdf)return;const current=++regionVersion.current;try{const item=await pdf.getPage(page);if(current===regionVersion.current)selectRegion(page,{x:0,y:0,width:1,height:1},(item.rotate+rotation)%360);}catch{if(current===regionVersion.current)setNotice('当前页无法读取，请稍后重新打开附件。');}};
+  useEffect(()=>{if(linkedOcrTask)setPanel('ocr');},[linkedOcrTask]);
+  useEffect(()=>{if(!ocrMode)return;const escape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();exitRegion();}};window.addEventListener('keydown',escape);return()=>window.removeEventListener('keydown',escape);},[ocrMode,exitRegion]);
   useEffect(() => {
     const node = scrollRef.current; if (!node) return;
     const observer = new ResizeObserver(() => setWidth(node.clientWidth)); observer.observe(node);
@@ -53,6 +66,7 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
   }, [pdf, storageKey, goToPage]);
   useEffect(() => { if (!pdf) return; const timer = setTimeout(() => { try { localStorage.setItem(storageKey, String(page)); } catch { /* Reading works without storage. */ } }, 400); return () => clearTimeout(timer); }, [page, pdf, storageKey]);
   const select = () => {
+    if(ocrMode)return;
     if (!scrollRef.current) return;
     const captured = capturePdfSelection(scrollRef.current, attachment.id, attachment.sha256);
     if (captured.selection) { setSelection(previous => previous?.text === captured.selection!.text && previous.page === captured.selection!.page && previous.fileSha256 === captured.selection!.fileSha256 && JSON.stringify(previous.rects) === JSON.stringify(captured.selection!.rects) ? previous : captured.selection!); setPanel(value=>value==='notes'?'translation':value); setNotice(''); }
@@ -84,10 +98,11 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
         <button aria-label="目录与缩略图" aria-expanded={indexMode !== 'none'} onClick={() => setIndexMode(value => value === 'none' ? 'outline' : 'none')}><List size={17} /></button>
         <button aria-label="上一页" disabled={page <= 1} onClick={() => goToPage(page - 1)}><ChevronLeft size={17} /></button><label className="reader-page-control"><input aria-label="页码" type="number" min={1} max={pdf?.numPages || 1} value={page} onChange={event => { const value = Number(event.target.value); if (pdf && value >= 1 && value <= pdf.numPages) goToPage(value); }} /> / {pdf?.numPages || '—'}</label><button aria-label="下一页" disabled={!pdf || page >= pdf.numPages} onClick={() => goToPage(page + 1)}><ChevronRight size={17} /></button>
         <span className="reader-toolbar-divider" />
-        <button aria-label="缩小" disabled={scale <= .3} onClick={() => setZoom(Math.max(.25, scale - .15))}><ZoomOut size={17} /></button><button aria-label="适合页宽" onClick={() => setZoom(0)}>{Math.round(scale * 100)}%</button><button aria-label="放大" disabled={scale >= 3} onClick={() => setZoom(Math.min(3, scale + .15))}><ZoomIn size={17} /></button><button aria-label="顺时针旋转" onClick={() => { setRotation(value => (value + 90) % 360); setSelection(null); }}><RotateCw size={17} /></button>
+        <button aria-label="缩小" disabled={scale <= .3} onClick={() => setZoom(Math.max(.25, scale - .15))}><ZoomOut size={17} /></button><button aria-label="适合页宽" onClick={() => setZoom(0)}>{Math.round(scale * 100)}%</button><button aria-label="放大" disabled={scale >= 3} onClick={() => setZoom(Math.min(3, scale + .15))}><ZoomIn size={17} /></button><button aria-label="顺时针旋转" onClick={() => { setRotation(value => (value + 90) % 360); setSelection(null);setOcrSource(null);exitRegion(); }}><RotateCw size={17} /></button><button disabled={!pdf} aria-pressed={ocrMode} onClick={()=>ocrMode?exitRegion():enableRegion()}>框选识别</button>
         <form className="reader-find" onSubmit={event => { event.preventDefault(); void find(); }}><input aria-label="在 PDF 中查找" placeholder="查找文字" value={query} onChange={event => setQuery(event.target.value)} /><button aria-label="查找" disabled={!pdf || !query.trim()}><Search size={16} /></button></form>
       </div>
       {notice && <p role="status" className="reader-inline-notice">{notice}</p>}
+      {ocrMode&&<div className="reader-ocr-mode-note"><span>拖框选择区域，或用键盘选择当前整页。Esc退出。</span><div><button disabled={!pdf} onClick={()=>void selectCurrentPage()}>选择当前整页</button><button onClick={exitRegion}>退出框选</button></div></div>}
       <div className="reader-document-body">
         {indexMode !== 'none' && <aside className="reader-document-index" ref={indexRef} aria-label="文档导航"><div className="reader-index-tabs"><button aria-pressed={indexMode === 'outline'} onClick={() => setIndexMode('outline')}>目录</button><button aria-pressed={indexMode === 'thumbnails'} onClick={() => setIndexMode('thumbnails')}>缩略图</button><button aria-pressed={indexMode === 'search'} onClick={() => setIndexMode('search')}>查找</button></div>
           {indexMode === 'outline' && (outline.length ? outline.map((item, index) => <button className="reader-outline-item" key={index} disabled={!item.page} style={{ paddingLeft: 12 + Math.min(item.level, 4) * 10 }} onClick={() => item.page && goToPage(item.page)}>{item.title}</button>) : <p className="reader-muted">此 PDF 没有目录，可使用页码或缩略图。</p>)}
@@ -96,10 +111,10 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
         </aside>}
         <div className="reader-pages" ref={scrollRef} onPointerUp={select} onKeyUp={select} tabIndex={0} aria-label="PDF 原文">
           {error && <p role="alert" className="reader-error">PDF 无法打开：{error}</p>}{!pdf && !error && <p role="status">正在打开本地 PDF…</p>}
-          {pdf && Array.from({ length: pdf.numPages }, (_, index) => <PdfPage key={index + 1} pdf={pdf} number={index + 1} scale={scale} rotation={rotation} scrollRoot={scrollRef} onVisible={onVisible} highlights={(annotations.data?.annotations || []).filter(note => note.locationStatus === 'anchored' && note.anchor?.fileSha256 === attachment.sha256 && note.anchor.page === index + 1).flatMap(note => note.anchor!.rects)} />)}
+          {pdf && Array.from({ length: pdf.numPages }, (_, index) => <PdfPage key={index + 1} pdf={pdf} number={index + 1} scale={scale} rotation={rotation} scrollRoot={scrollRef} onVisible={onVisible} regionMode={ocrMode} region={ocrSource?.page===index+1?ocrSource.region:undefined} onRegionSelect={selectRegion} onRegionExit={exitRegion} onEnableRegion={()=>{goToPage(index+1);enableRegion();}} highlights={(annotations.data?.annotations || []).filter(note => note.locationStatus === 'anchored' && note.anchor?.fileSha256 === attachment.sha256 && note.anchor.page === index + 1).flatMap(note => note.anchor!.rects)} />)}
         </div>
       </div>
     </div>
-    <aside className="reader-right-panel"><nav className="reader-panel-tabs" aria-label="阅读面板"><button aria-pressed={panel === 'translation'} onClick={() => setPanel('translation')}>翻译</button><button aria-pressed={panel === 'notes'} onClick={() => setPanel('notes')}>批注与笔记</button><button aria-pressed={panel === 'glossary'} onClick={()=>setPanel('glossary')}>术语</button><button aria-pressed={panel === 'explanation'} onClick={()=>setPanel('explanation')}>解释</button></nav><div hidden={panel !== 'translation'}><TranslationPanel projectId={projectId} paperId={paperId} selection={selection} onLocate={goToPage} onSave={annotations.save} /></div><div hidden={panel !== 'notes'}><ReadingNotes controller={annotations} hash={attachment.sha256} onLocate={goToPage} /></div><div hidden={panel !== 'glossary'}><ReadingGlossaryPanel projectId={projectId} paperId={paperId} attachmentId={attachment.id} fileSha256={attachment.sha256} selection={selection} onLocate={goToPage}/></div><div hidden={panel !== 'explanation'}><ReadingExplanationPanel projectId={projectId} paperId={paperId} attachmentId={attachment.id} fileSha256={attachment.sha256} selection={selection} onLocate={goToPage} active={panel==='explanation'}/></div></aside>
+    <aside className="reader-right-panel"><nav className="reader-panel-tabs" aria-label="阅读面板"><button aria-pressed={panel === 'translation'} onClick={() => setPanel('translation')}>翻译</button><button aria-pressed={panel === 'notes'} onClick={() => setPanel('notes')}>批注与笔记</button><button aria-pressed={panel === 'glossary'} onClick={()=>setPanel('glossary')}>术语</button><button aria-pressed={panel === 'explanation'} onClick={()=>setPanel('explanation')}>解释</button><button aria-pressed={panel==='ocr'} onClick={()=>setPanel('ocr')}>OCR</button></nav><div hidden={panel !== 'translation'}><TranslationPanel projectId={projectId} paperId={paperId} selection={selection} onLocate={goToPage} onSave={annotations.save} /></div><div hidden={panel !== 'notes'}><ReadingNotes controller={annotations} hash={attachment.sha256} onLocate={goToPage} /></div><div hidden={panel !== 'glossary'}><ReadingGlossaryPanel projectId={projectId} paperId={paperId} attachmentId={attachment.id} fileSha256={attachment.sha256} selection={selection} onLocate={goToPage}/></div><div hidden={panel !== 'explanation'}><ReadingExplanationPanel projectId={projectId} paperId={paperId} attachmentId={attachment.id} fileSha256={attachment.sha256} selection={selection} onLocate={goToPage} active={panel==='explanation'}/></div><div hidden={panel!=='ocr'}><ReadingOcrPanel projectId={projectId} paperId={paperId} attachment={attachment} pdf={pdf} source={ocrSource} onLocate={goToPage} active={panel==='ocr'} linkedTaskId={linkedOcrTask}/></div></aside>
   </div>;
 }

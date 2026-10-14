@@ -137,3 +137,55 @@ restart; different input under that ID is rejected. Existing Run APIs provide
 status and cancellation. `GET` on the explanation URL returns the latest 100
 Runs for that paper. Refreshing history or switching selections does not launch
 a model request. Results remain attached to their original selection.
+
+## Scanned PDF regions
+
+The reader's **Region OCR** action lets a user drag over a page or choose the
+current full page with the keyboard. A page without selectable text offers the
+same action. The side panel shows the original crop, immutable recognition text,
+an editable correction, and translations as separate records. Save corrections
+before translating; each translation identifies the exact saved revision.
+OCR text is not treated as a verified quote or automatically inserted into notes.
+
+The local engine currently supports macOS Apple Vision, with the Xcode Command
+Line Tools and macOS SDK available. A fixed Swift worker is compiled into the
+repository's `.cache/reading-ocr`; no global package is installed. The worker
+reads the owned PDF and runs without network access. Unsupported hosts or a
+missing compiler keep reading and manual notes available, and show an OCR
+unavailable message. There is no cloud or language-model fallback.
+
+`GET /api/projects/:id/papers/:paperId/ocr` returns capabilities and retained
+`paper-ocr` tasks from the existing Task Center. `POST` accepts
+`{operationId, source, language}`. The source contains `attachmentId`, SHA-256
+`fileSha256`, one-based `page`, normalized `region: {x,y,width,height}`, and total
+viewer `rotation` (0, 90, 180, 270). Region coordinates use the unrotated visible
+PDF page box, with a top-left origin. The backend independently validates the
+attachment's bytes, ownership and page. Recognition line rectangles use the
+cropped image's coordinates and are not page text anchors.
+
+Use `GET /:taskId`, `POST /:taskId/cancel`, and
+`POST /:taskId/retry {operationId}` for status, confirmed cancellation and an
+explicit new attempt. A retry links to the old task. Cancellation waits for the
+worker to stop; uncertain termination remains paused and cannot be retried.
+Restart reconciles interrupted tasks without relaunching work. The same request
+ID returns its original task; conflicting input is rejected. Completed regions
+with identical source, language and engine version reuse raw OCR, without copying
+another task's human corrections. The Task Center also links back to the source
+attachment and region.
+
+`PATCH /:taskId/correction {expectedRevision, text}` preserves raw recognition
+and increments the correction revision. Stale revisions return a conflict.
+`POST /:taskId/translate` accepts `{expectedRevision, operationId, providerId,
+targetLanguage}` and uses the existing project translation service, limits and
+request receipts. Saved translations survive reload and retain their correction
+revision. Neither opening history nor selecting a region automatically sends a
+translation. These reader mutations require `x-scienceprism-actor: human`.
+
+Limits include 32 MiB PDFs, 12 megapixel crops, 30 seconds per recognition worker,
+10,000 characters per corrected region, and 20 saved translations per task.
+Provider-specific text limits still apply. Each project permits one active OCR
+task, and one service permits two active workers across projects. Results share
+Task Center retention; active OCR tasks are protected from its normal 500-task
+eviction. Request receipts remain after result eviction, so a lost result cannot
+silently trigger another recognition. As with other project owners, run only one
+backend process per data directory.

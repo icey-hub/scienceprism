@@ -43,12 +43,23 @@ async function readTasks(projectId) {
   return readHubJson(projectId, FILE, () => emptyTasks(projectId));
 }
 
+export async function listStoredTasks(projectId) { return clone((await readTasks(projectId)).tasks); }
+export async function getStoredTask(projectId, taskId) {
+  const task = (await readTasks(projectId)).tasks.find(item => item.id === taskId);
+  if (!task) throw new Error('Task not found.');
+  return clone(task);
+}
+
 export async function createTask(projectId, input) {
   return withHubLock(projectId, async () => {
     const document = await readTasks(projectId);
     const task = normalizeTask(input);
     document.tasks.unshift(task);
-    document.tasks = document.tasks.slice(0, MAX_TASKS);
+    while (document.tasks.length > MAX_TASKS) {
+      const index = document.tasks.findLastIndex(item => item.kind !== 'paper-ocr' || !['queued', 'running', 'paused'].includes(item.status));
+      if (index <= 0) throw Object.assign(new Error('Task retention is full of active OCR tasks.'), { statusCode: 409 });
+      document.tasks.splice(index, 1);
+    }
     document.version += 1;
     document.updatedAt = now();
     await writeHubJson(projectId, FILE, document);
@@ -177,6 +188,10 @@ function environmentTask(job) {
 
 export async function listTasks(projectId, { status, kind, limit = 100 } = {}) {
   const stored = await readTasks(projectId);
+  const { readingOcrService } = await import('../readingOcr/index.js');
+  for (let i = 0; i < stored.tasks.length; i++) {
+    if (stored.tasks[i].kind === 'paper-ocr') stored.tasks[i] = await readingOcrService.reconcile(projectId, stored.tasks[i]);
+  }
   const taskMap = new Map(stored.tasks.map((task) => [task.id, task]));
   try {
     const runs = await listHarnessRuns(projectId, { limit: 100 });
@@ -217,6 +232,7 @@ export async function getTask(projectId, taskId) {
 
 export async function retryTask(projectId, taskId) {
   const task = await getTask(projectId, taskId);
+  if (task.kind === 'paper-ocr') { const { readingOcrService } = await import('../readingOcr/index.js'); return readingOcrService.retry(projectId, task.metadata.ocr.source.paperId, task.id); }
   if(task.kind==='environment-preparation'){const {environmentService}=await import('../experimentRunner/environments.js');return {task:environmentTask(await environmentService.retry(projectId,task.metadata.jobId))};}
   if(task.kind==='dataset-acquisition'){
     const {datasetService}=await import('../datasets/index.js');
@@ -244,6 +260,7 @@ export async function retryTask(projectId, taskId) {
 
 export async function cancelTask(projectId, taskId) {
   const task = await getTask(projectId, taskId);
+  if (task.kind === 'paper-ocr') { const { readingOcrService } = await import('../readingOcr/index.js'); return readingOcrService.cancel(projectId, task.metadata.ocr.source.paperId, task.id); }
   if(task.kind==='environment-preparation'){const {environmentService}=await import('../experimentRunner/environments.js');return {task:environmentTask(await environmentService.cancel(projectId,task.metadata.jobId))};}
   if(task.kind==='dataset-acquisition'){
     const {datasetService}=await import('../datasets/index.js');

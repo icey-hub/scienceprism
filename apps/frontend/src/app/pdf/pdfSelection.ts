@@ -1,5 +1,16 @@
 import type { ReadingSelection } from '../../api/paperReaderAdapter';
 
+export interface PdfNormalizedRegion {x:number;y:number;width:number;height:number;}
+export function pdfRegionToDisplay(rect:PdfNormalizedRegion,rotation:number):PdfNormalizedRegion {
+  return rotation===90?{x:1-rect.y-rect.height,y:rect.x,width:rect.height,height:rect.width}:rotation===180?{...rect,x:1-rect.x-rect.width,y:1-rect.y-rect.height}:rotation===270?{x:rect.y,y:1-rect.x-rect.width,width:rect.height,height:rect.width}:rect;
+}
+export function pdfRegionFromDisplay(rect:PdfNormalizedRegion,rotation:number):PdfNormalizedRegion {
+  const raw=rotation===90?{x:rect.y,y:1-rect.x-rect.width,width:rect.height,height:rect.width}:rotation===180?{...rect,x:1-rect.x-rect.width,y:1-rect.y-rect.height}:rotation===270?{x:1-rect.y-rect.height,y:rect.x,width:rect.height,height:rect.width}:rect;
+  const point=(value:number)=>Math.round(Math.max(0,Math.min(1,value))*1000000)/1000000;
+  const x=point(raw.x),y=point(raw.y),right=point(raw.x+raw.width),bottom=point(raw.y+raw.height);
+  return {x,y,width:point(right-x),height:point(bottom-y)};
+}
+
 export function capturePdfSelection(root: HTMLElement, attachmentId: string, fileSha256: string): { selection?: ReadingSelection; message?: string } {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || !selection.rangeCount) return {};
