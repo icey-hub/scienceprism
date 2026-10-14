@@ -136,7 +136,7 @@ function experimentRunTask(run) {
     stage,
     log,
     error: run.error || null,
-    retryable: !isTrial && run.status === 'failed',
+    retryable: !isTrial && !run.manifest?.campaign && run.status === 'failed',
     metadata: { runId: run.id, planId: run.planId, approval: run.approval, phase: run.phase, codeVersion: run.manifest?.code?.version || null, dataset: run.manifest?.dataset || null, evidence: run.evidence || null,
       ...(isTrial ? { purpose: 'engineering-trial', sourceStage: stage } : {}) },
     createdAt: run.createdAt,

@@ -22,6 +22,7 @@ import { saveAutomationPolicy } from '../services/researchAutomation/policy.js';
 import { getIdeaPlan, saveIdeaPlan } from '../services/researchWorkflow/ideaPlans.js';
 
 import { generateIdeaPlan } from '../services/researchWorkflow/ideaPlanGeneration.js';
+import { listValidationCampaigns } from '../services/validationCampaign/index.js';
 
 const BASE_PATH = '/api/projects/:id/research-workflow';
 
@@ -91,6 +92,19 @@ function valueRoute(handler) {
 }
 
 export function registerResearchWorkflowRoutes(fastify) {
+  const campaignsPath = '/api/projects/:id/validation-campaigns';
+  fastify.get(campaignsPath, valueRoute(async req => {
+    let candidates = [];
+    try {
+      const workflow = await getResearchWorkflow(req.params.id);
+      const ideas = workflow.stages.find(stage => stage.id === 'ideation')?.data?.ideas || [];
+      candidates = await Promise.all(ideas.map(async idea => ({ ideaId: idea.id, title: idea.title, plan: (await getIdeaPlan(req.params.id, idea.id)).plan })));
+    } catch (error) { if (error.code !== 'WORKFLOW_NOT_FOUND') throw error; }
+    return { campaigns: await listValidationCampaigns(req.params.id), candidates };
+  }));
+  fastify.post(campaignsPath, valueRoute(req => startAutomation(req.params.id, {
+    actor: actorFromRequest(req), targetStage: 'experiment', validationCampaign: bodyOf(req)
+  })));
   fastify.get(`${BASE_PATH}/automation`, valueRoute((req) => getAutomation(req.params.id)));
   fastify.patch(`${BASE_PATH}/automation`, valueRoute((req) => saveAutomationPolicy(req.params.id, bodyOf(req))));
   for (const [action, handler] of Object.entries({ start: startAutomation, resume: resumeAutomation, stop: stopAutomation })) {

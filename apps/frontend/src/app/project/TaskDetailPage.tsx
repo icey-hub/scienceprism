@@ -78,7 +78,7 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
         </> : !run && <>{task.retryable && <button className="hub-small-button" disabled={busy} onClick={() => void action(() => retryProjectTask(projectId, task.id))}>重试</button>}{['queued','running','paused'].includes(task.status) && <button className="hub-small-button" disabled={busy} onClick={() => void action(() => cancelProjectTask(projectId, task.id))}>取消</button>}</>}
         <button className="hub-small-button is-quiet" disabled={busy} onClick={() => void action(load)}>刷新</button>
       </div>
-      {run && <RunDelegation run={run} />}{experiment?.executionBinding && <p>编排任务：<Link to={taskHref(projectId,`harness:${experiment.executionBinding.parentRunId}`)}>{experiment.executionBinding.parentRunId}</Link></p>}
+      {run && <RunDelegation run={run} />}{experiment?.manifest?.campaign ? <p>创新试验批次：<Link to={`/editor/${encodeURIComponent(projectId)}/research/experiment`}>{experiment.manifest.campaign.campaignId}</Link></p> : experiment?.executionBinding && <p>编排任务：<Link to={taskHref(projectId,`harness:${experiment.executionBinding.parentRunId}`)}>{experiment.executionBinding.parentRunId}</Link></p>}
       {run?.recovery?.status === 'ready' && <p className="hub-muted" role="status">已恢复 {run.recovery.children.length} 个子任务结果和已有提案。对账没有重新调用模型；继续工作会使用这些结果，已完成的同一编码任务不会重新启动。</p>}
       {sourceError && <p className="hub-error" role="alert">{sourceError}</p>}
       {run?.archived && <p className="hub-muted">此 Run 仅保留归档摘要；会话正文、事件、上下文和 Patch 未留存。</p>}

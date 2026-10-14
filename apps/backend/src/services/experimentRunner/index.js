@@ -24,6 +24,8 @@ import { safeJoin } from '../../utils/pathUtils.js';
 import { assertTrialAuthorization, assertTrialExperiment, trialRunId } from './trialContext.js';
 import { validatePaperComparison, resolvePaperComparisonSource, buildPaperComparison, projectPaperComparison } from './paperComparison.js';
 
+import { assertCampaignTrial } from '../validationCampaign/index.js';
+
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
 const activeRuns = new Map();
@@ -113,6 +115,7 @@ export function experimentRunSummary(run, evidenceEntries = []) {
     evidenceConfirmed,
     supportsSuccessfulFinding,
     ...(engineeringTrial ? { purpose: 'engineering-trial' } : {}),
+    ...(run.manifest.campaign ? { campaign: clone(run.manifest.campaign) } : {}),
     verificationNote: engineeringTrial ? 'Engineering trial only; it cannot support a scientific finding even when its Evidence is confirmed.' : supportsSuccessfulFinding
       ? 'Run and all archived artifact Evidence are confirmed.'
       : run.status === 'completed'
@@ -254,6 +257,7 @@ async function persistNewRun(projectId, root, run) {
 }
 
 export async function createExperimentRun(projectId, input = {}, { actor = 'human' } = {}) {
+  if ([input, input?.plan, input?.experiment].some(value => value && typeof value === 'object' && Object.hasOwn(value, 'campaign'))) throw new ExperimentRunnerError(403, 'EXPERIMENT_CAMPAIGN_INTERNAL_ONLY', 'Validation campaign provenance is server-owned.');
   if ([input, input?.plan, input?.experiment].some(value => value && typeof value === 'object'
     && ['purpose', 'trial', 'authorization'].some(key => Object.hasOwn(value, key)))) {
     throw new ExperimentRunnerError(403, 'EXPERIMENT_TRIAL_INTERNAL_ONLY', 'Engineering trial provenance is owned by the original research automation.');
@@ -297,6 +301,26 @@ export async function createExperimentRun(projectId, input = {}, { actor = 'huma
   }
   const manifest = await buildExperimentManifest(projectId, runId, input, root);
   return persistNewRun(projectId, root, makeRun(projectId, manifest, actor));
+}
+
+/** Frozen campaign variants use the sole existing Runner and its archive/lifecycle. */
+export async function createCampaignExperimentRun(projectId, { campaignId, trialId } = {}) {
+  return withWorkflowLock(projectId, async () => {
+    const grant = await assertCampaignTrial(projectId, campaignId, trialId), root = await resolveExperimentProjectRoot(projectId);
+    const existing = (await readExperimentRuns(root, projectId)).runs.find(run => run.id === grant.trial.runId);
+    if (existing) { await assertCampaignTrial(projectId, campaignId, trialId, { manifest: existing.manifest }); return clone(existing); }
+    const manifest = await buildExperimentManifest(projectId, grant.trial.runId, { plan: grant.plan }, root);
+    manifest.researchPlan = clone(grant.campaign.researchContext);
+    manifest.campaign = { campaignId, trialId, sessionId: grant.campaign.sessionId, baseRunId: grant.campaign.baseRunId, planSha256: grant.campaign.planSha256, variantId: grant.trial.variantId };
+    await assertCampaignTrial(projectId, campaignId, trialId, { manifest });
+    return withExperimentRunLock(projectId, async () => {
+      await assertCampaignTrial(projectId, campaignId, trialId, { manifest });
+      const document = await readExperimentRuns(root, projectId), previous = document.runs.find(run => run.id === manifest.id);
+      if (previous) { await assertCampaignTrial(projectId, campaignId, trialId, { manifest: previous.manifest }); return clone(previous); }
+      const run = makeRun(projectId, manifest, 'system'); document.runs.unshift(run); document.runs = document.runs.slice(0, MAX_RUNS);
+      document.version++; document.updatedAt = now(); await writeExperimentRuns(root, document); return clone(run);
+    });
+  });
 }
 
 /** The original automation persists a grant before this sole draft Runner
@@ -354,6 +378,10 @@ export function automaticallyApproveExperiment(projectId, runId, sessionId) {
         const grant = await assertTrialExperiment(projectId, run.manifest);
         if (grant.sessionId !== sessionId) throw new ExperimentRunnerError(409, 'EXPERIMENT_TRIAL_EXECUTION_OWNER_CHANGED', 'The original research session must approve this trial.');
         Object.assign(authorization, grant.executionAuthorization);
+      }
+      if (run.manifest.campaign) {
+        const grant = await assertCampaignTrial(projectId, run.manifest.campaign.campaignId, run.manifest.campaign.trialId, { manifest: run.manifest });
+        if (grant.campaign.sessionId !== sessionId) throw new ExperimentRunnerError(409, 'EXPERIMENT_CAMPAIGN_OWNER_CHANGED', 'The original session must approve its campaign trial.');
       }
       if (run.status !== 'awaiting_approval') throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_NOT_REVIEWABLE', '实验已被处理。');
       run.status = 'approved';
@@ -741,6 +769,10 @@ async function transitionRunToRunning(projectId, runId, root, control, constrain
       if (!control.executionBinding || typeof control.beforeLaunch !== 'function') throw new ExperimentRunnerError(403, 'EXPERIMENT_TRIAL_INTERNAL_ONLY', 'The original coordinator must start its engineering trial.');
       await assertTrialExperiment(projectId, next.manifest, { workflow, executionBinding: control.executionBinding });
     }
+    if (next.manifest.campaign) {
+      if (!control.executionBinding || typeof control.beforeLaunch !== 'function') throw new ExperimentRunnerError(403, 'EXPERIMENT_CAMPAIGN_INTERNAL_ONLY', 'The original campaign must start its fixed trial.');
+      await assertCampaignTrial(projectId, next.manifest.campaign.campaignId, next.manifest.campaign.trialId, { manifest: next.manifest, executionBinding: control.executionBinding });
+    }
     if (next.status !== 'approved') throw new ExperimentRunnerError(409, 'EXPERIMENT_APPROVAL_REQUIRED', 'An Experiment Run must be explicitly approved before execution.');
     if (control.executionBinding) {
       if (experimentManifestHash(next.manifest) !== control.executionBinding.manifestSha256) throw new ExperimentRunnerError(409, 'EXPERIMENT_MANIFEST_CHANGED', 'The approved manifest changed before execution.');
@@ -801,11 +833,16 @@ export async function startExperimentRun(projectId, runId, { wait = false, signa
   const forwardAbort = () => controller.abort(signal.reason || new Error('Parent execution stopped.'));
   signal?.addEventListener('abort', forwardAbort, { once: true });
   if (signal?.aborted) forwardAbort();
+  if (current.manifest.campaign && (!executionBinding || typeof beforeLaunch !== 'function')) throw new ExperimentRunnerError(403, 'EXPERIMENT_CAMPAIGN_INTERNAL_ONLY', 'The original campaign must start its fixed trial.');
   const trialBeforeEffect = current.manifest.purpose === 'engineering-trial' ? async () => {
     controller.signal.throwIfAborted();
     await assertTrialExperiment(projectId, current.manifest, { executionBinding });
     await beforeLaunch?.();
     controller.signal.throwIfAborted();
+  } : current.manifest.campaign ? async () => {
+    controller.signal.throwIfAborted();
+    await assertCampaignTrial(projectId, current.manifest.campaign.campaignId, current.manifest.campaign.trialId, { manifest: current.manifest, executionBinding });
+    await beforeLaunch(); controller.signal.throwIfAborted();
   } : beforeLaunch;
   const control = { projectId, controller, cancelRequested: false, timedOut: false, beforeLaunch: trialBeforeEffect, executionBinding, allowedPaths: [...fileScope] };
   let settle;
@@ -862,6 +899,7 @@ export async function cancelExperimentRun(projectId, runId) {
 
 export async function retryExperimentRun(projectId, runId, { actor = 'human' } = {}) {
   const current = await getExperimentRun(projectId, runId);
+  if (current.manifest.campaign) throw new ExperimentRunnerError(403, 'EXPERIMENT_CAMPAIGN_INTERNAL_ONLY', 'Campaign failures remain fixed and cannot be retried as unrelated public runs.');
   if (isTrialRun(current)) throw new ExperimentRunnerError(403, 'EXPERIMENT_TRIAL_INTERNAL_ONLY', 'A failed engineering trial remains fixed; only the original bounded code repair may create its next version.');
   if (current.status !== 'failed') throw new ExperimentRunnerError(409, 'EXPERIMENT_RUN_NOT_RETRYABLE', 'Only failed Experiment Runs can be retried.');
   const root = await resolveExperimentProjectRoot(projectId);

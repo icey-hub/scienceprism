@@ -20,6 +20,12 @@ const { registerResearchSourceAdapter } = await import('../src/services/research
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
 let sourceWait;
 let sourceCalls = 0;
+test('a stale campaign panel cannot stop a replacement automation session', async () => {
+  await project('stop-session-cas');
+  await mutateAutomation('stop-session-cas', state => { state.session = { id: 'replacement', status: 'blocked', steps: [], stopRequested: false }; });
+  await assert.rejects(stopAutomation('stop-session-cas', { actor: 'human', expectedSessionId: 'original' }), { code: 'AUTOMATION_SESSION_CHANGED' });
+  assert.equal((await readAutomation('stop-session-cas')).session.stopRequested, false);
+});
 registerResearchSourceAdapter({ id: 'arxiv', label: 'Controlled source', async search({ beforeRequest }) {
   await beforeRequest?.({ source: 'arxiv', url: 'https://export.arxiv.org/api/query' });
   sourceCalls++; if (sourceWait) await sourceWait;

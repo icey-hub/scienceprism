@@ -3,6 +3,7 @@ import type { ExperimentRun } from '../../../api/client';
 import { PythonEnvironmentPanel } from './PythonEnvironmentPanel';
 import { DatasetVersionPicker } from './DatasetVersionPicker';
 import { CodePreparationPanel } from './CodePreparationPanel';
+import { ValidationCampaignPanel } from '../components/ValidationCampaignPanel';
 
 export interface ExperimentStageProps {
   projectId?: string;
@@ -24,6 +25,7 @@ export function ExperimentStage({ projectId, value, busy = false, onChange, onSa
   const metrics = run?.metrics?.length ? run.metrics : value.metrics;
   return (
     <div className="research-page-stack">
+      {projectId && <ValidationCampaignPanel projectId={projectId}/>}
       {projectId && <CodePreparationPanel key={`code:${projectId}`} projectId={projectId} value={execution.codePreparationId} entrypoint={execution.entrypoint} disabled={busy} onChange={(codePreparationId, entrypoint, adapter) => onChange({ ...value, execution: { ...execution, codePreparationId, ...(entrypoint ? { entrypoint } : {}), ...(adapter ? { adapter, environmentId: adapter === 'python' ? execution.environmentId : undefined } : {}) } })} />}
       {projectId && execution.adapter === 'python' && <PythonEnvironmentPanel key={projectId} projectId={projectId} value={execution.environmentId} disabled={busy} onChange={environmentId => onChange({ ...value, execution: { ...execution, environmentId: environmentId || undefined } })} />}
       <section className="research-panel">

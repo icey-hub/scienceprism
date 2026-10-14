@@ -6,6 +6,8 @@ import { claimAutomationOwner, inspectAutomationOwner } from './owner.js';
 import { prepareAutomationStage } from './stages.js';
 import { analyzeAutomationReplication } from './paperComparison.js';
 import { prepareAutomationIdeaPlans } from './ideaPlans.js';
+import { ensureValidationCampaign, executeValidationCampaign, cancelValidationCampaign, validateCampaignRequest } from '../validationCampaign/index.js';
+import { getIdeaPlan } from '../researchWorkflow/ideaPlans.js';
 import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked, prepareAutomationExecutionMaterials } from './executionPlan.js';
 import { getResearchWorkflow } from '../researchWorkflow/queries.js';
 import { initializeResearchWorkflow, updateResearchWorkflow, mutateWorkflow } from '../researchWorkflow/commands.js';
@@ -32,6 +34,7 @@ const waiting = part => new ResearchWorkflowError(409, 'AUTOMATION_CONFIRMATION_
 
 async function experimentProcessesStopped(projectId, session, control) {
   const ids = new Set((session?.steps || []).flatMap(step => [step.experimentRunId,
+    ...(step.campaignRunIds || []),
     ...(step.codeTrials || []).map(trial => trial.runId || `experiment-trial-${sourceHash(trial.authorization)}`)]).filter(Boolean));
   if (control?.experimentRunId) ids.add(control.experimentRunId);
   for (const id of ids) {
@@ -224,6 +227,22 @@ async function executeStep(projectId, control, stage) {
     await changeStep(projectId, control.id, stage, { experimentRunId: run.id, status: 'awaiting_execution' });
     step = { ...step, experimentRunId: run.id };
   }
+  if (stage === 'experiment' && state.session.validationCampaign) {
+    const campaign = await ensureValidationCampaign(projectId, { ...state.session.validationCampaign, sessionId: control.id, baseRunId: step.experimentRunId });
+    await changeStep(projectId, control.id, stage, { campaignId: campaign.id, campaignRunIds: campaign.trials.map(trial => trial.runId), status: 'executing' });
+    const result = await executeValidationCampaign(projectId, campaign.id, {
+      signal: control.controller.signal,
+      onRun: runId => { control.experimentRunId = runId; },
+      beforeEffect: async () => { await checkpoint(projectId, control); await requireAutomatic(projectId, 'execution', control.id); }
+    });
+    const trial = result.trials.find(item => result.variants.find(variant => variant.id === item.variantId)?.kind === 'candidate' && item.status === 'completed');
+    if (!trial) throw new ResearchWorkflowError(409, 'CAMPAIGN_RESULT_MISSING', '试验批次缺少已完成的候选运行。');
+    const run = await getExperimentRun(projectId, trial.runId);
+    const summary = { ...experimentRunSummary(run, (await getEvidenceLedger(projectId)).entries), validationCampaign: { id: result.id, status: result.status, runIds: result.trials.map(item => item.runId) } };
+    await changeStep(projectId, control.id, stage, { result: summary, status: 'completed' });
+    await recordAutomationRun(projectId, stage, summary);
+    return;
+  }
   let run = await getExperimentRun(projectId, step.experimentRunId);
   if (['running', 'created'].includes(run.status)) throw new ResearchWorkflowError(409, 'AUTOMATION_RUN_UNRESOLVED', '实验仍在执行或尚未确定状态；不会重复启动。');
   if (run.status === 'awaiting_approval') {
@@ -350,6 +369,7 @@ async function walk(projectId, control, runtime) {
 export async function startAutomation(projectId, input = {}, runtime = {}) {
   requireHuman(input.actor);
   const executionPlan = validateAutomationExecution(input.executionPlan);
+  const validationCampaign = input.validationCampaign === undefined ? null : validateCampaignRequest(input.validationCampaign);
   if (workers.has(projectId)) throw new ResearchWorkflowError(409, 'AUTOMATION_ACTIVE', '该项目已有执行链路。');
   const control = { id: randomUUID(), stop: false, experimentRunId: null, controller: new AbortController() };
   workers.set(projectId, control);
@@ -360,14 +380,22 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     catch (error) { if (error.code !== 'WORKFLOW_NOT_FOUND') throw error; workflow = await initializeResearchWorkflow(projectId, { actor: 'human', data: { researchQuestion: String(input.question || '').trim() } }); }
     if (workflow.status === 'completed') throw new ResearchWorkflowError(409, 'WORKFLOW_COMPLETED', '当前研究流程已完成，请保留记录或另建研究流程。');
     const targetStage = input.targetStage || 'ideation';
-    if (!stageIds.includes(targetStage) || stageIds.indexOf(targetStage) < stageIds.indexOf(workflow.currentStage)) throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_TARGET', '结束阶段不能早于当前阶段。');
+    const approvedExperiment = workflow.currentStage === 'writing' && workflow.stages.find(item => item.id === 'experiment')?.status === 'approved';
+    if (validationCampaign) {
+      if (targetStage !== 'experiment' || !(workflow.currentStage === 'experiment' || approvedExperiment)) throw new ResearchWorkflowError(409, 'CAMPAIGN_STAGE_REQUIRED', '请在实验阶段保存计划，再开始创新试验批次。');
+      if (!approvedExperiment && !getStageReadiness(workflow, 'experiment').ready) throw new ResearchWorkflowError(409, 'CAMPAIGN_MATERIALS_REQUIRED', '请先保存完整实验计划与可执行材料，再配置批次参数。');
+      const { plan } = await getIdeaPlan(projectId, validationCampaign.ideaId);
+      if (!plan?.readiness.ready || plan.revision !== validationCampaign.expectedPlanRevision) throw new ResearchWorkflowError(409, 'CAMPAIGN_PLAN_NOT_READY', '请选择当前已补齐的验证方案版本。');
+    }
+    if (!stageIds.includes(targetStage) || stageIds.indexOf(targetStage) < stageIds.indexOf(workflow.currentStage) && !(validationCampaign && approvedExperiment)) throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_TARGET', '结束阶段不能早于当前阶段。');
     if (workflow.currentStage === 'direction' && input.question) workflow = await updateResearchWorkflow(projectId, { actor: 'human', stageId: 'direction', expectedVersion: workflow.version, data: { researchQuestion: String(input.question).slice(0, 4000).trim() } });
     const state = await mutateAutomation(projectId, state => {
       if (state.session && !['completed', 'stopped'].includes(state.session.status)) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_EXISTS', '请继续或停止已有链路，避免重复执行。');
       state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true, paperComparisonVersion: 1, ideaPlanVersion: 1,
         executionPlan, ownerPid: control.owner.pid, createdAt: now(), updatedAt: now(), stopRequested: false,
+        ...(validationCampaign ? { validationCampaign } : {}),
         ...(executionPlan ? { executionPlanOrigin: 'human' } : {}),
-        steps: stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1).map(stage => ({ stage, status: 'pending', runIds: [] })) });
+        steps: (validationCampaign ? ['experiment'] : stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1)).map(stage => ({ stage, status: 'pending', runIds: [] })) });
     });
     const prepared = await ensureCoordinator(projectId, state);
     queue = queue.catch(() => {}).then(() => walk(projectId, control, runtime));
@@ -418,10 +446,11 @@ export async function resumeAutomation(projectId, input = {}, runtime = {}) {
   }
 }
 
-export async function stopAutomation(projectId, { actor } = {}) {
+export async function stopAutomation(projectId, { actor, expectedSessionId } = {}) {
   requireHuman(actor);
   const control = workers.get(projectId);
   const snapshot = await readAutomation(projectId);
+  if (expectedSessionId !== undefined && snapshot.session?.id !== expectedSessionId) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_CHANGED', '原研究会话已变化，不会停止其它链路。');
   let stoppedControl;
   if (!control && snapshot.session && snapshot.session.status !== 'completed') {
     stoppedControl = { id: snapshot.session.id, owner: await claimOwner(projectId, snapshot.session.id) };
@@ -431,6 +460,7 @@ export async function stopAutomation(projectId, { actor } = {}) {
   if (control) control.stop = true;
   let state;
   try { state = await mutateAutomation(projectId, state => {
+    if (expectedSessionId !== undefined && state.session?.id !== expectedSessionId) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_CHANGED', '原研究会话已变化，不会停止其它链路。');
     if (state.session && state.session.status !== 'completed') {
       const stopping = control && ['queued', 'running', 'stopping'].includes(state.session.status);
       const retained = unresolved || state.session.error?.code === 'HARNESS_STOP_UNCONFIRMED';
@@ -441,7 +471,9 @@ export async function stopAutomation(projectId, { actor } = {}) {
     control?.controller.abort(new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止研究链路。'));
     const trialIds = (snapshot.session?.steps || []).flatMap(step => (step.codeTrials || [])
       .map(trial => trial.runId || `experiment-trial-${sourceHash(trial.authorization)}`));
-    for (const id of new Set([control?.experimentRunId, ...trialIds].filter(Boolean))) {
+    for (const step of snapshot.session?.steps || []) if (step.campaignId) await cancelValidationCampaign(projectId, step.campaignId, { sessionId: snapshot.session.id });
+    const campaignRunIds = (snapshot.session?.steps || []).flatMap(step => step.campaignRunIds || []);
+    for (const id of new Set([control?.experimentRunId, ...trialIds, ...campaignRunIds].filter(Boolean))) {
       try { await cancelExperimentRun(projectId, id); }
       catch (error) { if (error.code !== 'EXPERIMENT_RUN_NOT_FOUND') throw error; }
     }

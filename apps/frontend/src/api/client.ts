@@ -773,6 +773,22 @@ export function generateIdeaPlan(projectId:string,ideaId:string,input:{expectedR
   return request<{ok:boolean;plan:IdeaPlan;history:IdeaPlan[]}>(`/api/projects/${encodeURIComponent(projectId)}/research-workflow/ideas/${encodeURIComponent(ideaId)}/plan/generate`,{method:'POST',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
 }
 
+export interface ValidationVariant {id:string;label:string;kind:'candidate'|'baseline'|'ablation';parameters:Record<string,unknown>;}
+export interface ValidationCampaign {
+  id:string;projectId:string;sessionId:string;ideaId:string;planRevision:number;planSha256:string;plan:IdeaPlan;
+  baseRunId:string;baseManifestSha256:string;seeds:string[];variants:ValidationVariant[];
+  budget:{maxRuns:number;maxSeconds:number};status:string;elapsedSeconds:number;error?:{code?:string;message?:string}|null;
+  trials:{id:string;runId:string|null;seed:string;variantId:string;status:string;manifestSha256?:string|null;
+    result?:{id:string;status:string;codeVersion?:string;codeSnapshotHash?:string;dataset?:{id:string;version:string};
+      metrics?:{name:string;value?:unknown;unit?:string|null}[];errorMessage?:string|null;exitCode?:number|null}|null}[];
+}
+export function getValidationCampaigns(projectId:string) {
+  return request<{ok:boolean;campaigns:ValidationCampaign[];candidates?:{ideaId:string;title:string;plan:IdeaPlan|null}[]}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns`);
+}
+export function startValidationCampaign(projectId:string,input:{ideaId:string;expectedPlanRevision:number;seeds:string[];variants:ValidationVariant[]}) {
+  return request<import('./automationAdapter').AutomationState & {ok:boolean}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns`,{method:'POST',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
+}
+
 export interface ProjectTask {
   id: string;
   kind: string;
@@ -851,6 +867,7 @@ export interface ExperimentRun {
   // Older persisted Runs may omit manifest sections or result arrays. Consumers
   // must keep those records readable and show an explicit "not recorded" value.
   manifest?: {
+    campaign?: {campaignId:string;trialId:string;sessionId:string;baseRunId:string;planSha256:string;variantId:string};
     code?: { version?: string; snapshotHash?: string; preparation?: { id:string; sha256:string; source:{runId:string; childRunIds:string[]} } };
     dataset?: { id?: string; version?: string; input?: { path: string; sha256: string; byteLength: number; filename: string; source: {kind: string; url: string | null; revision: string | null}; license: {label: string; verified: boolean}; split: string } };
     environment?: { node?: string; platform?: string; arch?: string; runner?: string; recorded?: string; preparation?: {id: string; sha256: string; lockSha256: string}; python?: {version: string; implementation: string} };
