@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { getValidationCampaigns, startValidationCampaign, type ValidationCampaign, type ValidationVariant, type IdeaPlan } from '../../../api/client';
+import { getValidationCampaigns, startValidationCampaign, startAutomaticValidationCampaign, type ValidationCampaign, type ValidationVariant, type IdeaPlan } from '../../../api/client';
 import { automationApi, type AutomationState } from '../../../api/automationAdapter';
 import { workspaceModel } from '../../workspace/workspaceModel';
 import './ValidationCampaignPanel.css';
@@ -41,10 +41,11 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
   const [ideaId,setIdeaId]=useState(''),[seeds,setSeeds]=useState(''),[variants,setVariants]=useState<VariantDraft[]>(defaultVariants),[selectedId,setSelectedId]=useState('');
   const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
   const alive=useRef(true),lock=useRef(false);
+  const awaitingCampaign=useRef<string|null>(null);
   const refresh=async(preferredSessionId?:string)=>{
     const [listed,state]=await Promise.all([getValidationCampaigns(projectId),automationApi.load(projectId)]);
     if(alive.current){setCampaigns(listed.campaigns);setCandidates((listed.candidates||[]).filter(item=>item.plan));setAutomation(state);setReady(true);
-      if(preferredSessionId){const match=listed.campaigns.find(item=>item.sessionId===preferredSessionId);if(match)setSelectedId(match.id);}}
+      const preferred=preferredSessionId||awaitingCampaign.current;if(preferred){const match=listed.campaigns.find(item=>item.sessionId===preferred);if(match){setSelectedId(match.id);awaitingCampaign.current=null;}}}
   };
   useEffect(()=>{
     alive.current=true;let disposed=false,timer:ReturnType<typeof setTimeout>;
@@ -73,39 +74,46 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
   }
   const activeSession=automation?.session&&['queued','running','stopping'].includes(automation.session.status);
   const canStart=ready&&!!plan?.readiness.ready&&!activeSession&&!exceedsBudget&&!invalidSeedCount&&!invalidFirstSeed&&!invalidVariants&&!variantIssues.length&&trialCount>0;
+  const canStartAutomatic=ready&&!!plan?.readiness.ready&&plan.evaluation.researchType!=='theoretical'&&!activeSession;
   const campaign=campaigns.find(item=>item.id===selectedId)||campaigns[0];
   const owned=!!campaign&&automation?.session?.id===campaign.sessionId;
+  const experimentStep=automation?.session?.steps.find(step=>step.stage==='experiment');
+  const design=experimentStep?.validationDesign;
+  const featureSession=automation?.session&&(automation.session.validationCampaignDesign||automation.session.validationCampaign||design)?automation.session:null;
+  const preparingSession=featureSession&&!campaigns.some(item=>item.sessionId===featureSession.id)?featureSession:null;
   const start=async(event:FormEvent<HTMLFormElement>)=>{
     event.preventDefault();if(lock.current||!plan||!canStart)return;
     let inputVariants:ValidationVariant[];
     try{inputVariants=parametersFor(variants);}catch(reason){setError(String(reason));return;}
     lock.current=true;setBusy(true);setError('');setMessage('');
     let accepted=false;
-    try{const result=await startValidationCampaign(projectId,{ideaId,expectedPlanRevision:plan.revision,seeds:parsedSeeds,variants:inputVariants});accepted=true;if(alive.current)setAutomation(result);await refresh(result.session?.id);if(alive.current)setMessage('已启动原自动研究链路中的试验批次；结果以实际 Run 记录为准。');}
+    try{const result=await startValidationCampaign(projectId,{ideaId,expectedPlanRevision:plan.revision,seeds:parsedSeeds,variants:inputVariants});accepted=true;awaitingCampaign.current=result.session?.id||null;if(alive.current)setAutomation(result);await refresh(result.session?.id);if(alive.current)setMessage('已启动原自动研究链路中的手动配置批次；结果以实际 Run 记录为准。');}
     catch(reason){if(alive.current){setReady(false);setError(`${accepted?'启动请求已保存，状态刷新失败；请等候原链路状态刷新':'启动失败，种子和参数草稿已保留'}：${String(reason)}`);}}
     finally{lock.current=false;if(alive.current)setBusy(false);}
   };
-  const control=async(action:'stop'|'resume')=>{
-    if(lock.current||!campaign||action==='resume'&&terminalCampaign(campaign.status))return;lock.current=true;setBusy(true);setError('');setMessage('');
-    try{const current=await automationApi.load(projectId);if(current.session?.id!==campaign.sessionId)throw new Error('当前自动链路已变化，请刷新；不会控制另一条链路。');
-      await automationApi.action(projectId,action,{expectedSessionId:campaign.sessionId,...(action==='resume'?{recoverExisting:true}:{})},action==='resume'?workspaceModel():undefined);
-      await refresh(campaign.sessionId);if(alive.current)setMessage(action==='stop'?'已向原链路请求停止；进程状态以实际记录为准。':'已请求核对并继续原链路。');}
+  const startAutomatic=async()=>{
+    if(lock.current||!plan||!canStartAutomatic)return;lock.current=true;setBusy(true);setError('');setMessage('');let accepted=false;
+    try{const result=await startAutomaticValidationCampaign(projectId,{ideaId,expectedPlanRevision:plan.revision});accepted=true;awaitingCampaign.current=result.session?.id||null;if(alive.current)setAutomation(result);await refresh(result.session?.id);if(alive.current)setMessage('原研究链路已接收 AI 设计请求；条件设计、代码与环境准备完成后才会运行实际批次。手动参数草稿已保留。');}
+    catch(reason){if(alive.current){setReady(false);setError(`${accepted?'AI 请求已保存，状态刷新失败；等待原会话状态刷新':'AI 设计请求失败，手动配置草稿已保留'}：${String(reason)}`);}}
+    finally{lock.current=false;if(alive.current)setBusy(false);}
+  };
+  const control=async(action:'stop'|'resume',sessionId=campaign?.sessionId)=>{
+    if(lock.current||!sessionId||action==='resume'&&campaign?.sessionId===sessionId&&terminalCampaign(campaign.status))return;lock.current=true;setBusy(true);setError('');setMessage('');
+    try{const current=await automationApi.load(projectId);if(current.session?.id!==sessionId)throw new Error('当前自动链路已变化，请刷新；不会控制另一条链路。');
+      const currentStep=current.session.steps.find(step=>step.stage==='experiment');
+      if(!current.session.validationCampaignDesign&&!current.session.validationCampaign&&!currentStep?.validationDesign)throw new Error('当前会话不属于创新试验批次，不能控制。');
+      await automationApi.action(projectId,action,{expectedSessionId:sessionId,...(action==='resume'?{recoverExisting:true}:{})},action==='resume'?workspaceModel():undefined);
+      await refresh(sessionId);if(alive.current)setMessage(action==='stop'?'已向原链路请求停止；进程状态以实际记录为准。':'已请求核对并继续原链路。');}
     catch(reason){if(alive.current)setError(`${action==='stop'?'停止':'继续'}失败：${String(reason)}`);}
     finally{lock.current=false;if(alive.current)setBusy(false);}
   };
   const editVariant=(key:string,patch:Partial<VariantDraft>)=>setVariants(current=>current.map(item=>item.key===key?{...item,...patch}:item));
-  return <section className="research-panel validation-campaign" aria-label="创新试验批次">
-    <div className="research-panel-heading"><div><span className="research-overline">VALIDATION CAMPAIGN</span><h3>创新试验批次</h3></div><span className="research-status-note">沿用自动研究执行策略</span></div>
-    <p className="research-panel-copy">冻结已保存的假设与评价方案，用固定种子运行候选方法、基线和消融。参数需由已有入口读取；分类标签不代表代码已实现这些对照，也不代表创新得到验证。</p>
-    {error&&<p role="alert" className="validation-campaign-error">{error}</p>}{message&&<p role="status">{message}</p>}{automation?.session?.message&&['blocked','waiting_confirmation','interrupted'].includes(automation.session.status)&&<p role="alert" className="validation-campaign-error">原自动研究：{automation.session.message}</p>}{loading&&<p role="status">正在读取已保存方案与原执行链路…</p>}
-    {!loading&&!candidates.length&&<p className="research-empty-inline">尚无已保存的创新验证方案；请先在创新页编辑并保存。</p>}
+  const manualConfiguration=<details className="validation-campaign-manual"><summary>手动配置种子与参数（可选）</summary>
     <form onSubmit={event=>void start(event)}><fieldset className="validation-campaign-fields" disabled={busy||!ready}>
-      <label className="research-field"><span>已保存的验证方案</span><select aria-label="试验批次方案" value={ideaId} onChange={event=>{const selected=candidates.find(item=>item.ideaId===event.target.value)?.plan;setIdeaId(event.target.value);setSeeds(selected?.evaluation.seed||'');setVariants(selected?variantsFor(selected):defaultVariants());}}><option value="">请选择方案</option>{candidates.map(item=><option key={item.ideaId} value={item.ideaId}>{item.title} · v{item.plan?.revision}{item.plan?.readiness.ready?'':' · 尚有缺口'}</option>)}</select></label>
       <label className="research-field"><span>固定种子（每行或逗号分隔）</span><textarea aria-label="批次固定种子" rows={2} value={seeds} onChange={event=>setSeeds(event.target.value)} placeholder="第一项保留方案种子"/></label>
-      {plan&&<div className="validation-campaign-preview"><span>方案 v{plan.revision} · {plan.readiness.ready?'字段已齐备，尚未科学验证':'方案仍有缺口'}</span><span>{parsedSeeds.length} 个种子 × {variants.length} 组参数 = {trialCount} 次试验（最多 20 次）</span><span>预算：最多 {plan.evaluation.budget.maxRuns??'未填写'} 次 / {plan.evaluation.budget.maxSeconds??'未填写'} 秒</span></div>}
-      {plan&&!plan.readiness.ready&&<ul className="validation-campaign-error">{plan.readiness.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul>}
+      {plan&&<div className="validation-campaign-preview"><span>手动预览：{parsedSeeds.length} 个种子 × {variants.length} 组参数 = {trialCount} 次试验（最多 20 次）</span></div>}
       {plan&&(invalidSeedCount||invalidFirstSeed||exceedsBudget)&&<p className="validation-campaign-error">种子数需等于方案重复次数 {plan.evaluation.repetitions??'未填写'}，第一项须为 {plan.evaluation.seed||'未填写'}；组合次数不能超过方案预算或 20 次。</p>}
-      {variantIssues.length>0&&<div className="validation-campaign-error" role="status"><strong>参数组尚未配置完成</strong><ul>{variantIssues.map((issue,index)=><li key={index}>{issue}</li>)}</ul></div>}
+      {variantIssues.length>0&&<div className="validation-campaign-error" role="status"><strong>手动参数组尚未配置完成</strong><ul>{variantIssues.map((issue,index)=><li key={index}>{issue}</li>)}</ul></div>}
       <div className="validation-campaign-variants"><div className="validation-campaign-variant-heading"><strong>候选 / 基线 / 消融参数</strong><button className="research-button research-button-quiet" type="button" disabled={variants.length>=20} onClick={()=>setVariants(current=>[...current,{key:crypto.randomUUID(),id:`ablation-${current.length+1}`,label:'消融条件',kind:'ablation',parameters:'{}'}])}>添加参数组</button></div>
         {variants.map(item=><div className="validation-campaign-variant" key={item.key}>
           <label className="research-field"><span>参数组 ID</span><input value={item.id} maxLength={100} onChange={event=>editVariant(item.key,{id:event.target.value})}/></label>
@@ -115,7 +123,30 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
           <button className="research-button research-button-quiet" type="button" onClick={()=>setVariants(current=>current.filter(row=>row.key!==item.key))}>删除</button>
         </div>)}
       </div>
-    </fieldset><div className="research-panel-footer"><Link to={`/editor/${encodeURIComponent(projectId)}/research/innovation`}>编辑假设与评价方案</Link><span>{activeSession?'原自动链路仍在运行，请先查看或停止。':'总开关与执行环节策略在原自动研究区设置。'}</span><button className="research-button research-button-primary" type="submit" disabled={busy||!canStart}>启动试验批次</button></div></form>
+    </fieldset><div className="research-panel-footer"><span>手动启动仅运行填写的种子和参数；授权仍取自原自动研究区。</span><button className="research-button research-button-secondary" type="submit" disabled={busy||!canStart}>按手动配置运行</button></div></form>
+  </details>;
+  return <section className="research-panel validation-campaign" aria-label="创新试验批次">
+    <div className="research-panel-heading"><div><span className="research-overline">VALIDATION CAMPAIGN</span><h3>创新试验批次</h3></div><span className="research-status-note">沿用自动研究执行策略</span></div>
+    <p className="research-panel-copy">冻结已保存的假设与评价方案，用固定种子运行候选方法、基线和消融。参数需由已有入口读取；分类标签不代表代码已实现这些对照，也不代表创新得到验证。</p>
+    {error&&<p role="alert" className="validation-campaign-error">{error}</p>}{message&&<p role="status">{message}</p>}{featureSession?.message&&['blocked','waiting_confirmation','interrupted'].includes(featureSession.status)&&<p role="alert" className="validation-campaign-error">原自动研究：{featureSession.message}</p>}{loading&&<p role="status">正在读取已保存方案与原执行链路…</p>}
+    {!loading&&!candidates.length&&<p className="research-empty-inline">尚无已保存的创新验证方案；请先在创新页编辑并保存。</p>}
+    <fieldset className="validation-campaign-fields" disabled={busy||!ready}>
+      <label className="research-field"><span>已保存的验证方案</span><select aria-label="试验批次方案" value={ideaId} onChange={event=>{const selected=candidates.find(item=>item.ideaId===event.target.value)?.plan;setIdeaId(event.target.value);setSeeds(selected?.evaluation.seed||'');setVariants(selected?variantsFor(selected):defaultVariants());}}><option value="">请选择方案</option>{candidates.map(item=><option key={item.ideaId} value={item.ideaId}>{item.title} · v{item.plan?.revision}{item.plan?.readiness.ready?'':' · 尚有缺口'}</option>)}</select></label>
+      <div className="validation-campaign-ai"><p>AI 从已保存方案设计种子与对照参数，沿原代码、环境和执行授权准备材料；下方手动参数不会被覆盖。理论研究暂不启动受控实验。</p><button className="research-button research-button-primary" type="button" disabled={busy||!canStartAutomatic} onClick={()=>void startAutomatic()}>AI 设计并运行</button></div>
+      {plan&&<div className="validation-campaign-preview"><span>方案 v{plan.revision} · {plan.readiness.ready?'字段已齐备，尚未科学验证':'方案仍有缺口'}</span><span>固定预算：最多 {plan.evaluation.budget.maxRuns??'未填写'} 次 / {plan.evaluation.budget.maxSeconds??'未填写'} 秒</span></div>}
+      {plan&&!plan.readiness.ready&&<ul className="validation-campaign-error">{plan.readiness.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul>}
+    </fieldset><div className="research-panel-footer"><Link to={`/editor/${encodeURIComponent(projectId)}/research/innovation`}>编辑假设与评价方案</Link><span>{activeSession?'原自动链路仍在运行，请查看下方准备状态或实际结果。':'AI 入口沿用原自动研究区的授权。'}</span></div>
+    {(preparingSession||design)&&<div className="validation-campaign-design"><div className="validation-campaign-variant-heading"><strong>{preparingSession?'原会话正在准备创新试验':'已记录的 AI 条件设计'}</strong><span>{preparingSession?statusLabels[preparingSession.status]||preparingSession.status:'设计材料记录，非实验结果'}</span></div>
+      <div className="validation-campaign-links">{featureSession?.coordinatorRunId&&<Link to={taskLink(projectId,`harness:${featureSession.coordinatorRunId}`)}>原研究父任务</Link>}{design?.sourceRunId&&<Link to={taskLink(projectId,`harness:${design.sourceRunId}`)}>真实条件设计 Run</Link>}<Link to={`/project/${encodeURIComponent(projectId)}/explore#research-automation`}>查看原策略与横向链路</Link></div>
+      {!design&&<p className="research-panel-copy">条件设计或材料准备尚未完成。当前还没有实际试验批次，不能视为实验已完成。</p>}
+      {design&&<><p className="research-panel-copy">方案 v{design.expectedPlanRevision} · 种子 {design.seeds.join('、')||'尚未给出'} · 材料摘要 {design.planSha256.slice(0,16)}</p>
+        <ul className="validation-campaign-design-conditions">{design.variants.map(variant=><li key={variant.id}><strong>{variant.label}</strong> · {variant.kind}<code>{JSON.stringify(variant.parameters)}</code></li>)}</ul>
+        <details className="validation-campaign-implementation"><summary>查看实现说明</summary>{Array.isArray(design.implementationNotes)?<ol>{design.implementationNotes.map((note,index)=><li key={index}>{note}</li>)}</ol>:<p className="research-panel-copy">{design.implementationNotes||'尚未记录实现说明'}</p>}</details>
+        {design.blockers.length>0&&<div className="validation-campaign-error"><strong>材料缺口</strong><ul>{design.blockers.map((blocker,index)=><li key={index}>{typeof blocker==='string'?blocker:blocker.detail||blocker.message||'缺口尚未说明'}</li>)}</ul></div>}
+      </>}
+      {!!experimentStep?.codePreparations?.length&&<p className="research-panel-copy">已保留代码准备任务；固定代码准备与工程检查均不代表实际批次已完成。</p>}
+      {preparingSession&&<div className="research-panel-footer"><button className="research-button research-button-quiet" type="button" disabled={busy||['completed','stopped','stopping'].includes(preparingSession.status)} onClick={()=>void control('stop',preparingSession.id)}>停止原准备会话</button><button className="research-button research-button-secondary" type="button" disabled={busy||!!activeSession||preparingSession.status==='completed'} onClick={()=>void control('resume',preparingSession.id)}>核对并继续原准备会话</button><Link to={`/project/${encodeURIComponent(projectId)}/tasks`}>查看原任务与会话</Link></div>}
+    </div>}
     {campaign&&<div className="validation-campaign-results"><div className="validation-campaign-variant-heading"><label className="research-field"><span>批次记录</span><select value={campaign.id} onChange={event=>setSelectedId(event.target.value)}>{campaigns.map(item=><option key={item.id} value={item.id}>{item.plan.hypothesis.problem||item.ideaId} · v{item.planRevision} · {statusLabels[item.status]||item.status}</option>)}</select></label><span>{statusLabels[campaign.status]||campaign.status}</span></div>
       <p className="research-panel-copy">已记录 {campaign.trials.filter(actualTrial).length} 个实际 Run · 已用 {campaign.elapsedSeconds} 秒 / {campaign.budget.maxSeconds} 秒 · 总预算 {campaign.budget.maxRuns} 次。预留 Run ID 不代表已创建；批次完成仅表示执行结束。</p>
       <div className="validation-campaign-links"><Link to={taskLink(projectId,`experiment-run:${campaign.baseRunId}`)}>固定原实验模板</Link>{owned&&automation?.session?.coordinatorRunId&&<Link to={taskLink(projectId,`harness:${automation.session.coordinatorRunId}`)}>原研究父任务</Link>}<small title={campaign.planSha256}>方案摘要 {campaign.planSha256.slice(0,16)}</small></div>
@@ -125,5 +156,6 @@ function CampaignWorkspace({projectId}:{projectId:string}) {
       {terminalCampaign(campaign.status)&&campaign.status!=='completed'&&<p className="research-panel-copy">该批次已终止，失败或预算记录会保留；请检查材料并另开批次，不能继续派发。</p>}
       <div className="research-panel-footer"><button type="button" className="research-button research-button-quiet" disabled={busy||!owned||automation?.session?.status==='completed'||automation?.session?.status==='stopped'} onClick={()=>void control('stop')}>停止原链路</button><button type="button" className="research-button research-button-secondary" disabled={busy||!owned||!!activeSession||terminalCampaign(campaign.status)||automation?.session?.status==='completed'} onClick={()=>void control('resume')}>核对并继续原链路</button><Link to={`/project/${encodeURIComponent(projectId)}/explore`}>查看原横向执行链路</Link></div>
     </div>}
+    {manualConfiguration}
   </section>;
 }

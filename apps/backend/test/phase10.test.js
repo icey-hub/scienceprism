@@ -351,6 +351,7 @@ test('the research stage contract vocabulary is locked', () => {
     'replication_analysis',
     'reproduction_plan',
     'search_strategy',
+    'validation_design',
     'writing_brief'
   ]);
 

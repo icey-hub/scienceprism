@@ -1,4 +1,4 @@
-import type { LLMConfig, HarnessRun } from './client';
+import type { LLMConfig, HarnessRun, ValidationVariant } from './client';
 type AutomationModel = Omit<LLMConfig,'apiKey'> & {apiKey?: string};
 export type ConfirmationMode = 'inherit' | 'auto' | 'manual';
 export interface DatasetScope {allowedHosts:string[];maxBytes:number;maxDatasets:number;}
@@ -20,6 +20,11 @@ export interface AutomationCodeTrial {
   result?:{id:string;status:string;purpose:'engineering-trial';supportsSuccessfulFinding:false;codeVersion?:string}|null;
   error?:{code:string;message:string}|null;
 }
+export interface AutomationValidationDesign {
+  ideaId:string;expectedPlanRevision:number;planSha256:string;sourceRunId:string|null;
+  seeds:string[];variants:ValidationVariant[];implementationNotes:string|string[];
+  blockers:(string|{detail?:string;message?:string})[];
+}
 export interface AutomationStep { stage: string; status: string; runIds: string[]; experimentRunId?: string; result?: { status: string; metrics: {name: string; value: number}[] };
   executionPlanBinding?: { version: number; sha256: string };
   materialPreparation?:{sourcePlan:AutomationExecutionPlan;sourceVersion:number;sourceSha256:string;preparedSha256:string;preparedVersion:number};
@@ -28,11 +33,14 @@ export interface AutomationStep { stage: string; status: string; runIds: string[
   environmentPreparations?: {jobId:string|null;status:string;environmentId:string|null;sha256?:string}[];
   codePreparations?:AutomationCodePreparation[];
   codeTrials?:AutomationCodeTrial[];
+  validationDesign?:AutomationValidationDesign;
   handoff?: { parentRunId: string; workflowVersion: number; role: string; inputArtifacts: {stage: string; dataSha256: string; producerRunIds: string[]; searchSessionIds: string[]; experimentRunId: string | null}[] }; }
 export interface AutomationState {
   version: number; policy: AutomationPolicy; agents: {stage: string; id: string; label: string; purpose: string}[];
   session: null | { id: string; coordinatorRunId?: string; ownerPid?: number; status: string; currentStage?: string; targetStage: string; message?: string; steps: AutomationStep[]; error?: {code: string; details?: {part?: string}};
-    executionPlan?: AutomationExecutionPlan | null; executionPlanVersion?: number; executionPlanSha256?: string | null; executionPlanLocked?: boolean };
+    executionPlan?: AutomationExecutionPlan | null; executionPlanVersion?: number; executionPlanSha256?: string | null; executionPlanLocked?: boolean;
+    validationCampaignDesign?:{ideaId:string;expectedPlanRevision:number;planSha256?:string};
+    validationCampaign?:{ideaId:string;expectedPlanRevision:number;seeds:string[];variants:ValidationVariant[]} };
 }
 async function request<T>(projectId: string, suffix = '', method = 'GET', body?: object): Promise<T> {
   const token = sessionStorage.getItem('scienceprism-collab-token') || sessionStorage.getItem('openprism-collab-token');

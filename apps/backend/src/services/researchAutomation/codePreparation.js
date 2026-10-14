@@ -62,6 +62,7 @@ export async function prepareAutomationCode({ projectId, session, stage, input, 
     context: { automationHandoff: handoff, codeAuthorization: authorization },
     prompt: [
       'Prepare source code for the supplied research materials by delegating the coding work to the controlled Codex worker.',
+      ...(input.validationDesign ? ['The frozen validationDesign specifies every candidate, baseline and ablation and all repeated seeds. Implement their actual parameter-controlled algorithms in the SAME entrypoint, using the fixed idea plan and implementationNotes. Read each run\'s parameters and seed from SCIENCEPRISM_EXPERIMENT_INPUT. Preserve the supplied split, data version, metrics and thresholds; never hardcode predicted metric values or silently use one algorithm for differently labelled groups. If a condition is not scientifically implementable from the supplied material, report the missing requirement rather than pretending to implement it. Forward the complete validationDesign to the Codex worker. Read only relevant source/protocol paths present in availableFiles; do not guess data files or look for result files that have not been generated. The Runner provides the fixed dataset input at execution time.'] : []),
       ...(repairOf ? ['This is the single permitted engineering repair. Diagnose the retained actual stderr/stdout and previous frozen source in engineeringRepair. Change only code needed to resolve that runtime error. The failed source is an overlay, not applied to the project: propose against the ORIGINAL project baseVersion. Never change data, protocol, seed, expected results, metrics, thresholds or outputs to make the check pass. Preserve negative scientific findings.'] : []),
       ...(legacy ? [] : [`Delegate exactly once with research_delegate_codex, maxTokens ${Math.max(128, Math.floor(scope.maxTokens * 0.8))} and timeoutMs ${Math.max(100, Math.floor(scope.timeoutMs * 0.9))}. These limits include input and output tokens. Do not choose a smaller arbitrary budget. If that child fails, retain the failure and stop; never claim a proposal exists.`]),
       `Only propose these source files: ${selectedPaths.join(', ')}. Read existing protocol and input files through project_read_file.`,
@@ -150,6 +151,9 @@ export async function prepareAutomationCode({ projectId, session, stage, input, 
         await guard({ producerRequired: true });
       } });
       if (!entry.producerRunId || result?.runId !== entry.producerRunId) fail('AUTOMATION_CODE_PRODUCER_CHANGED', '代码执行没有保留原任务的持久身份。');
+      if (!result.ok && result.error) throw new ResearchWorkflowError(409, 'AUTOMATION_CODE_PRODUCER_FAILED',
+        `代码准备失败：${result.error.code || 'HARNESS_FAILED'} — ${result.error.message || '请查看原任务记录。'}`,
+        { sourceRunId: entry.producerRunId, sourceCode: result.error.code || 'HARNESS_FAILED' });
       run = await producer(entry.producerRunId);
     }
     if (run.status !== 'completed') fail('AUTOMATION_CODE_RUN_UNRESOLVED', '原代码任务未完成，不能准备实验版本。');

@@ -14,6 +14,9 @@ const { writeWorkflowFile, readWorkflowFile } = await import('../src/services/re
 const { saveIdeaPlan } = await import('../src/services/researchWorkflow/ideaPlans.js');
 const { datasetService } = await import('../src/services/datasets/index.js');
 const { createExperimentRun, getExperimentRun, retryExperimentRun, listExperimentRuns } = await import('../src/services/experimentRunner/index.js');
+const { startAutomation, getAutomation } = await import('../src/services/researchAutomation/index.js');
+const { listHarnessRuns } = await import('../src/services/harnessRuntime/index.js');
+const { listValidationCampaigns } = await import('../src/services/validationCampaign/index.js');
 after(async () => { await datasetService.shutdown(); await fs.rm(data, { recursive: true, force: true }); });
 async function fixture(id, fail = false) {
   const root = path.join(data, id); await fs.mkdir(path.join(root, '.scienceprism'), { recursive: true });
@@ -90,4 +93,29 @@ test('campaign request and frozen plan reject missing controls, invalid paramete
   const campaign = await ensureValidationCampaign(f.id, f.input); f.automation.policy.enabled = false; await fs.writeFile(f.automationFile, JSON.stringify(f.automation));
   await assert.rejects(executeValidationCampaign(f.id, campaign.id), { code: 'AUTOMATION_CONFIRMATION_REQUIRED' });
   assert.equal((await listExperimentRuns(f.id)).length, 1);
+});
+
+test('AI condition design enters the original automation ledger and runs every fixed-data comparison', async () => {
+  const f = await fixture('automatic-campaign');
+  f.automation.session = null; await fs.writeFile(f.automationFile, JSON.stringify(f.automation));
+  const input = { ideaId: f.input.ideaId, expectedPlanRevision: 1 };
+  const output = { stage: 'validation_design', ideaId: input.ideaId, seeds: ['0'], variants: f.input.variants,
+    implementationNotes: ['Existing code multiplies the measured input mean by the supplied scale, not a hardcoded result.'], blockers: [] };
+  await startAutomation(f.id, { actor: 'human', targetStage: 'experiment', validationCampaignDesign: input },
+    { adapter: 'fake', testInput: { validation_design: { fakeResponse: JSON.stringify(output) } } });
+  let state;
+  for (let i = 0; i < 300; i++) {
+    state = await getAutomation(f.id);
+    if (!['queued', 'running', 'stopping'].includes(state.session.status)) break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.equal(state.session.status, 'completed', JSON.stringify(state.session.error));
+  const design = state.session.steps[0].validationDesign;
+  const producer = (await listHarnessRuns(f.id)).find(run => run.id === design.sourceRunId);
+  assert.equal(producer.request.task, 'research:validation_design');
+  assert.equal(producer.automationSessionId, state.session.id);
+  const [campaign] = await listValidationCampaigns(f.id);
+  assert.equal(campaign.sessionId, state.session.id); assert.equal(campaign.status, 'completed');
+  assert.deepEqual(campaign.trials.map(row => row.result.metrics[0].value), [4, 2]);
+  assert.equal(state.session.steps[0].result.validationCampaign.runIds.length, 2);
 });

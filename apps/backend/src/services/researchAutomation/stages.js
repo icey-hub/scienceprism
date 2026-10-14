@@ -13,17 +13,21 @@ import { acquireAutomationDataset } from './datasetAcquisition.js';
 import { prepareAutomationEnvironment } from './environmentPreparation.js';
 import { environmentService } from '../experimentRunner/environments.js';
 import { resolveExperimentDataset } from '../experimentRunner/datasetInput.js';
-import { allowsAutomatic, readAutomation } from './policy.js';
+import { allowsAutomatic, readAutomation, validateAutomationExecution } from './policy.js';
 import { prepareAutomationCode } from './codePreparation.js';
 import { codePreparationService } from '../experimentRunner/codePreparations.js';
 import { allowsControlledCodePatch } from '../harnessRuntime/dshFileBroker.js';
 import { prepareAutomationCodeTrial } from './codeRepair.js';
 import { isAutomationExecutionPlanLocked } from './executionPlan.js';
+import { getHarnessRun } from '../harnessRuntime/index.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
   const direction = stageData(workflow, 'direction');
   const step = session.steps.find(step => step.stage === stage);
+  const validationDesign = stage === 'experiment' ? step.validationDesign : null;
+  const designContext = validationDesign ? { validationDesign: Object.fromEntries(
+    ['ideaId','expectedPlanRevision','planSha256','plan','seeds','variants','implementationNotes','sourceRunId'].map(key => [key,validationDesign[key]])) } : {};
   const beforeEffect = runtime.automationCheckpoint || (async () => {});
   const runHarness = createAutomationStageHarness({ projectId, session, stage, step, signal: runtime.signal, beforeEffect, saveStep });
   const runStage = params => runResearchStage({ ...params, workflowStage: stage, context: { ...params.context, automationHandoff: step.handoff }, runHarness });
@@ -62,6 +66,8 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     const papers = stageData(workflow, 'selection').selectedPapers || [];
     const saved = stageData(workflow, stage);
     let plan = session.executionPlan || saved.executionPlan;
+    if (!plan && validationDesign && saved.execution) plan = validateAutomationExecution(Object.fromEntries(
+      ['dataset','datasetVersion','protocol','execution','seed','successCriteria','artifacts','parameters','codePaths','resources'].filter(key => saved[key] !== undefined).map(key => [key,saved[key]])));
     let origin = session.executionPlan ? session.executionPlanOrigin || 'legacy' : 'stage';
     let availableDatasets=[],availableEnvironments=[],preparedCode;
     const prepareEnvironment = async () => {
@@ -101,7 +107,7 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     }
     if (!plan) {
       availableDatasets=[...new Map(availableDatasets.map(dataset=>[dataset.id,dataset])).values()];
-      const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files,
+      const result = await run('execution_proposal', { papers, savedPlan: saved, method: stageData(workflow, 'method'), availableFiles: files, ...designContext,
         ...(policy.codeScope ? {codeScope:policy.codeScope,codeInstruction:'A new source entrypoint within the explicit codeScope is permitted only when the supplied paper, protocol, fixed dataset and evaluation materials define its implementation. The application will delegate implementation to Codex and freeze it before execution. Do not claim the file already exists. A new Python entrypoint may omit environmentId here; its environment is prepared after code verification. Missing scientific materials still require plan:null.'} : {}),
         ...(availableDatasets.length?{availableDatasets:availableDatasets.map(dataset=>({id:dataset.id,sha256:dataset.sha256,byteLength:dataset.byteLength,filename:dataset.filename,source:dataset.source,split:dataset.split,preview:dataset.preview}))}:{}),
         ...(availableEnvironments.length?{availableEnvironments:availableEnvironments.map(environment=>({id:environment.id,sha256:environment.sha256,python:environment.python.version,packages:environment.packages})),environmentInstruction:'A Python plan must select one exact prepared environmentId. Existing private dataset copies and code still need Runner preparation; an environment alone is not reproduction.'}:{}),
@@ -113,14 +119,18 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
       if(availableDatasets.length&&!availableDatasets.some(dataset=>dataset.id===plan.dataset&&dataset.sha256===plan.datasetVersion))throw new ResearchWorkflowError(409,'AUTOMATION_DATASET_VERSION_CHANGED','实验建议没有绑定已核对的数据版本。');
       origin = 'model';
     }
+    if (validationDesign && (plan.dataset !== validationDesign.plan.evaluation.dataset
+      || plan.datasetVersion !== validationDesign.plan.evaluation.datasetVersion || String(plan.seed) !== validationDesign.plan.evaluation.seed)) {
+      throw new ResearchWorkflowError(409, 'VALIDATION_DESIGN_MATERIALS_CHANGED', '实验材料必须保留验证方案的固定数据版本和首个种子。');
+    }
     if(/^dataset-[a-f0-9]{64}$/.test(plan.dataset))await resolveExperimentDataset(projectId,{id:plan.dataset,version:plan.datasetVersion});
     if (plan.execution?.codePreparationId) {
       preparedCode = await codePreparationService.verify(projectId, plan.execution.codePreparationId, plan.execution.codePreparationId.slice(17));
-    } else if (!files.includes(plan.execution?.entrypoint) && policy.codeScope) {
+    } else if ((!files.includes(plan.execution?.entrypoint) || validationDesign) && policy.codeScope) {
       if (isAutomationExecutionPlanLocked(session)) throw new ResearchWorkflowError(409,'AUTOMATION_EXECUTION_PLAN_LOCKED','已执行的链路计划不能更换代码版本。');
       if (!allowsAutomatic(policy,'code')) throw new ResearchWorkflowError(409,'AUTOMATION_CONFIRMATION_REQUIRED','代码准备环节等待授权。',{part:'code'});
       if (!allowsControlledCodePatch(plan.execution?.entrypoint,{patchPaths:policy.codeScope.allowedPaths})) throw new ResearchWorkflowError(409,'AUTOMATION_CODE_PATH_DENIED','计划的代码入口不属于已授权的源码范围。');
-      preparedCode = await prepareAutomationCode({projectId,session,stage,input:{papers,executionPlan:plan,
+      preparedCode = await prepareAutomationCode({projectId,session,stage,input:{papers,executionPlan:plan,...designContext,
         availableFiles:snapshot.files.map(file=>({path:file.path,sha256:file.sha256,bytes:file.bytes}))},paths:[plan.execution.entrypoint],runtime,runHarness,saveStep,beforeEffect,signal:runtime.signal});
       plan = {...plan,execution:{...plan.execution,codePreparationId:preparedCode.preparation.id},
         codePaths:[...new Set([...(plan.codePaths||files),...preparedCode.files.map(file=>file.path)])]};
@@ -156,7 +166,14 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
         aiPlan: result.output }, task: createStageTask({ stage, harness: result, input: { papers, plan, protocolSource: 'execution-plan', ...(evaluationProtocol ? { evaluationProtocol } : {}) }, output: result.output }) });
     }
     const method = stageData(workflow, 'method').method || {};
-    const result = await run('experiment_plan', { method, methodId: method.id || method.title, datasetIds: [plan.dataset], baselineIds: method.baselines || [] });
+    if (validationDesign) {
+      const producer = await getHarnessRun(projectId, validationDesign.sourceRunId);
+      return update({ ...plan, methodId: method.id || method.title, seed: String(plan.seed), repetitions: validationDesign.plan.evaluation.repetitions,
+        budget: `${validationDesign.plan.evaluation.budget.maxRuns} runs / ${validationDesign.plan.evaluation.budget.maxSeconds}s`,
+        task: createStageTask({ stage, harness: { runId: producer.id, adapter: producer.adapter, status: producer.status },
+          input: { method, plan, validationDesign }, output: producer.outputValidation.data }) });
+    }
+    const result = await run('experiment_plan', { method, methodId: method.id || method.title, datasetIds: [plan.dataset], baselineIds: method.baselines || [], ...designContext });
     if (result.output.methodId !== (method.id || method.title) || !result.output.datasetIds.includes(plan.dataset)) throw new ResearchWorkflowError(409, 'AUTOMATION_PLAN_MISMATCH', '实验计划不属于当前方法或数据。');
     return update({ ...plan, methodId: method.id || method.title, seed: String(plan.seed ?? 0), repetitions: result.output.repetitions, budget: result.output.computeBudget || '既有运行器资源上限', successCriteria: result.output.successCriteria, task: createStageTask({ stage, harness: result, input: { method, plan }, output: result.output }) });
   }

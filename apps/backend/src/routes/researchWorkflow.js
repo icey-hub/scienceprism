@@ -105,6 +105,9 @@ export function registerResearchWorkflowRoutes(fastify) {
   fastify.post(campaignsPath, valueRoute(req => startAutomation(req.params.id, {
     actor: actorFromRequest(req), targetStage: 'experiment', validationCampaign: bodyOf(req)
   })));
+  fastify.post(`${campaignsPath}/auto`, valueRoute(req => startAutomation(req.params.id, {
+    actor: actorFromRequest(req), targetStage: 'experiment', validationCampaignDesign: bodyOf(req)
+  })));
   fastify.get(`${BASE_PATH}/automation`, valueRoute((req) => getAutomation(req.params.id)));
   fastify.patch(`${BASE_PATH}/automation`, valueRoute((req) => saveAutomationPolicy(req.params.id, bodyOf(req))));
   for (const [action, handler] of Object.entries({ start: startAutomation, resume: resumeAutomation, stop: stopAutomation })) {

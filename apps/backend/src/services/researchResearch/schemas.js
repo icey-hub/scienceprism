@@ -172,7 +172,16 @@ const hypothesisPlanSchema = z.object({
   }).strict()
 }).strict();
 
+const validationDesignSchema = z.object({
+  stage: stage('validation_design'), ideaId: id.max(200), seeds: z.array(nonEmpty.max(100)).max(20),
+  variants: z.array(z.object({ id: nonEmpty.max(100), label: nonEmpty.max(500), kind: z.enum(['candidate', 'baseline', 'ablation']),
+    parameters: z.record(z.union([z.string().max(1000), z.number().finite().min(-1e100).max(1e100), z.boolean(), z.null()]))
+  }).strict()).max(20),
+  implementationNotes: z.array(nonEmpty.max(2000)).max(20), blockers: z.array(nonEmpty.max(2000)).max(20)
+}).strict();
+
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
+  validation_design: validationDesignSchema,
   hypothesis_plan: hypothesisPlanSchema,
   replication_analysis: z.object({ stage: stage('replication_analysis'), paperId: nonEmpty,
     rows: z.array(z.object({ metricName: nonEmpty.max(200), reportedValue: z.number().finite().nullable(),
@@ -368,6 +377,14 @@ export function requiredResearchStageKeys(stageName) {
  * schema stay one edit apart.
  */
 const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
+  validation_design: Object.freeze([
+    'Use exactly input.ideaId. Design parameter groups for the frozen input.plan evaluation; do not change its hypothesis, dataset, split, metrics, numeric thresholds, seed, repetitions or budgets. This is a proposal, never an experiment result.',
+    'seeds must contain exactly plan.evaluation.repetitions distinct values, beginning with plan.evaluation.seed. Every seed runs every variant; total runs must fit maxRuns and the application maximum of 20.',
+    'Include candidate and baseline groups. Baseline and ablation labels must exactly cover the frozen baselines and ablations, without invented names. Use only finite scalar parameters with explicit names; controls must differ from candidate parameters. A label alone does not implement a control.',
+    'implementationNotes explains how the existing or subsequently prepared entrypoint must actually read the parameters and apply each concrete method/control/ablation algorithm under the same frozen split and metric extraction. Use supplied method, execution materials and fixed code metadata. Never claim an unsupported branch is already implemented.',
+    'blockers means a concrete inability to define or execute the requested comparison, such as absent data or unspecified algorithms. An unverified hypothesis, uncertain novelty, absent confirmed Evidence, or an unknown improvement is NOT an execution blocker: the experiment is intended to investigate it. Put scientific caveats in implementationNotes. When input.codePreparation.available is true, a missing entrypoint within its allowedPaths can be implemented later by the controlled Codex worker; its current absence alone is not a blocker.',
+    'If actual materials or the frozen budget make a complete design impossible, return blockers describing the supplied missing facts, and seeds=[]/variants=[] when no valid complete design can be offered. Do not fake data, fabricate successful runs, or bypass approval.'
+  ]),
   hypothesis_plan: Object.freeze([
     'Use exactly input.ideaId. Propose a falsifiable hypothesis and evaluation draft, not a completed experiment or a claim of novelty. Respect the selected candidate and previous human plan.',
     'Use only input.relatedWork candidates for literature facts. A failed or partial search does not establish originality; leave unsupported facts empty. Replication comparison causeHypothesis remains unverified.',

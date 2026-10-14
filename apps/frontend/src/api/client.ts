@@ -788,6 +788,9 @@ export function getValidationCampaigns(projectId:string) {
 export function startValidationCampaign(projectId:string,input:{ideaId:string;expectedPlanRevision:number;seeds:string[];variants:ValidationVariant[]}) {
   return request<import('./automationAdapter').AutomationState & {ok:boolean}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns`,{method:'POST',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
 }
+export function startAutomaticValidationCampaign(projectId:string,input:{ideaId:string;expectedPlanRevision:number}) {
+  return request<import('./automationAdapter').AutomationState & {ok:boolean}>(`/api/projects/${encodeURIComponent(projectId)}/validation-campaigns/auto`,{method:'POST',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
+}
 
 export interface ProjectTask {
   id: string;
