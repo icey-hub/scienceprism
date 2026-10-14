@@ -12,12 +12,20 @@ export interface AutomationCodePreparation {
   producerRunId:string|null; preparationId:string|null; sha256:string|null; status:string; paths:string[];
   error?:{code:string;message:string}|null;
 }
+export interface AutomationCodeTrial {
+  authorization: {stage:'replication'|'experiment';policyVersion:number;[key:string]:unknown};
+  plan:AutomationExecutionPlan;
+  runId:string|null;status:string;manifestSha256?:string|null;
+  result?:{id:string;status:string;purpose:'engineering-trial';supportsSuccessfulFinding:false;codeVersion?:string}|null;
+  error?:{code:string;message:string}|null;
+}
 export interface AutomationStep { stage: string; status: string; runIds: string[]; experimentRunId?: string; result?: { status: string; metrics: {name: string; value: number}[] };
   executionPlanBinding?: { version: number; sha256: string };
   datasetAcquisitions?: {jobId:string|null;datasetId:string|null;status:string;sha256?:string;authorization:{policyVersion:number;sourceRunId:string;proposal:{filename:string;url:string}}}[];
   calls?: {runId:string;task:string}[];
   environmentPreparations?: {jobId:string|null;status:string;environmentId:string|null;sha256?:string}[];
   codePreparations?:AutomationCodePreparation[];
+  codeTrials?:AutomationCodeTrial[];
   handoff?: { parentRunId: string; workflowVersion: number; role: string; inputArtifacts: {stage: string; dataSha256: string; producerRunIds: string[]; searchSessionIds: string[]; experimentRunId: string | null}[] }; }
 export interface AutomationState {
   version: number; policy: AutomationPolicy; agents: {stage: string; id: string; label: string; purpose: string}[];

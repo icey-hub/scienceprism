@@ -117,6 +117,9 @@ function stageTask(stage) {
 
 function experimentRunTask(run) {
   const status = run.status === 'approved' ? 'queued' : run.status;
+  const isTrial = run.manifest?.purpose === 'engineering-trial';
+  const sourceStage = isTrial ? run.manifest.trial?.authorization?.stage : run.manifest?.replication ? 'replication' : 'experiment';
+  const stage = ['replication', 'experiment'].includes(sourceStage) ? sourceStage : 'experiment';
   const log = [
     `phase:${run.phase || 'plan'}`,
     ...(run.approval ? [`approval:${run.approval.decision} by ${run.approval.actor}`] : []),
@@ -127,14 +130,15 @@ function experimentRunTask(run) {
   return normalizeTask({
     id: `experiment-run:${run.id}`,
     kind: 'experiment-run',
-    title: `Experiment Run ${run.id.slice(-8)}`,
+    title: `${isTrial ? '工程试跑' : 'Experiment Run'} ${run.id.slice(-8)}`,
     status,
     progress: ['completed', 'failed', 'cancelled', 'rejected'].includes(run.status) ? 100 : null,
-    stage: 'experiment',
+    stage,
     log,
     error: run.error || null,
-    retryable: run.status === 'failed',
-    metadata: { runId: run.id, planId: run.planId, approval: run.approval, phase: run.phase, codeVersion: run.manifest?.code?.version || null, dataset: run.manifest?.dataset || null, evidence: run.evidence || null },
+    retryable: !isTrial && run.status === 'failed',
+    metadata: { runId: run.id, planId: run.planId, approval: run.approval, phase: run.phase, codeVersion: run.manifest?.code?.version || null, dataset: run.manifest?.dataset || null, evidence: run.evidence || null,
+      ...(isTrial ? { purpose: 'engineering-trial', sourceStage: stage } : {}) },
     createdAt: run.createdAt,
     startedAt: run.startedAt || run.execution?.startedAt || null,
     finishedAt: ['completed', 'failed', 'cancelled', 'rejected'].includes(run.status) ? run.execution?.finishedAt || run.updatedAt : null,

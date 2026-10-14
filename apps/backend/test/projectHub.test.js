@@ -9,7 +9,7 @@ process.env.SCIENCEPRISM_DATA_DIR = dataDir;
 
 const { importPaper, listPapers, updatePaper, paperAnnotationsRevision } = await import('../src/services/projectHub/paperLibrary.js');
 const { initializeProject, getProjectDashboard } = await import('../src/services/projectHub/dashboard.js');
-const { createTask, getTask, getTaskSummary, listTasks } = await import('../src/services/projectHub/taskCenter.js');
+const { createTask, getTask, getTaskSummary, listTasks, retryTask } = await import('../src/services/projectHub/taskCenter.js');
 const { getWritingQuality } = await import('../src/services/projectHub/writingQuality.js');
 const { createWorkflowDocument } = await import('../src/services/researchWorkflow/stateMachine.js');
 const { createStageTask, markStageTaskDecision } = await import('../src/services/researchWorkflow/stageTask.js');
@@ -183,4 +183,36 @@ test('task projection groups explicit stage Run references and can locate archiv
   assert.equal((await getTask(projectId, 'harness:linked')).metadata.runId, 'linked');
   assert.equal((await getTask(projectId, 'harness:old')).status, 'completed');
   await assert.rejects(getTask(projectId, 'harness:missing'), /not found/i);
+});
+
+test('engineering trial task names and source stages remain explicit and failed trials cannot retry independently', async () => {
+  const projectId = 'trial-task-source', root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism', 'experiment-runs.json'), JSON.stringify({ schemaVersion: 1, projectId, runs:
+    ['replication', 'experiment'].map(stage => ({ id: `trial-${stage}`, projectId, status: 'failed', phase: 'execution', purpose: 'engineering-trial',
+      manifest: { purpose: 'engineering-trial', trial: { authorization: { stage } } },
+      updatedAt: '2026-10-14T00:00:00.000Z' })) }));
+  const tasks = await listTasks(projectId, { kind: 'experiment-run' });
+  assert.equal(tasks.length, 2);
+  for (const stage of ['replication', 'experiment']) {
+    const task = tasks.find(item => item.metadata.runId === `trial-${stage}`);
+    assert.match(task.title, /^工程试跑 /); assert.equal(task.stage, stage);
+    assert.equal(task.metadata.purpose, 'engineering-trial'); assert.equal(task.metadata.sourceStage, stage);
+    assert.equal(task.retryable, false);
+    await assert.rejects(retryTask(projectId, task.id), { code: 'EXPERIMENT_TRIAL_INTERNAL_ONLY' });
+  }
+});
+
+test('formal replication task links to replication while legacy experiment task projection stays compatible', async () => {
+  const projectId = 'formal-run-task-source', root = await createProject(projectId);
+  await mkdir(path.join(root, '.scienceprism'), { recursive: true });
+  await writeFile(path.join(root, '.scienceprism', 'experiment-runs.json'), JSON.stringify({ schemaVersion: 1, projectId, runs: [
+    { id: 'formal-replication', projectId, status: 'failed', manifest: { replication: { sourceStage: 'replication' } }, updatedAt: '2026-10-14T00:00:00.000Z' },
+    { id: 'legacy-experiment', projectId, status: 'failed', manifest: {}, updatedAt: '2026-10-14T00:00:00.000Z' }
+  ] }));
+  const tasks = await listTasks(projectId, { kind: 'experiment-run' });
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks.find(item => item.metadata.runId === 'formal-replication').stage, 'replication');
+  assert.equal(tasks.find(item => item.metadata.runId === 'legacy-experiment').stage, 'experiment');
+  for (const task of tasks) { assert.match(task.title, /^Experiment Run /); assert.equal(task.retryable, true); assert.equal(task.metadata.purpose, undefined); }
 });

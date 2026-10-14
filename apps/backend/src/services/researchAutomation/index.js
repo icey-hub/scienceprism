@@ -10,6 +10,7 @@ import { initializeResearchWorkflow, updateResearchWorkflow, mutateWorkflow } fr
 import { getStageReadiness, RESEARCH_WORKFLOW_STAGES } from '../researchWorkflow/stageContracts.js';
 import { stageData } from '../researchWorkflow/application.js';
 import { createExperimentRun, automaticallyApproveExperiment, startExperimentRun, getExperimentRun, cancelExperimentRun, experimentRunSummary } from '../experimentRunner/index.js';
+import { assertCompletedTrial } from '../experimentRunner/trialContext.js';
 import { readReplicationContextFromWorkflow, readExperimentContextFromWorkflow } from '../experimentRunner/replicationContext.js';
 import { getEvidenceLedger } from '../evidenceLedger/index.js';
 import { getHarnessRun, decideHarnessRun, applyHarnessRunPatches, createAutomationCoordinator, recordAutomationCoordinator, listHarnessRuns, recoverHarnessRun } from '../harnessRuntime/index.js';
@@ -24,6 +25,24 @@ const stageIds = RESEARCH_WORKFLOW_STAGES.map(stage => stage.id);
 const requireHuman = actor => { if (actor !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', '由用户启动、继续或停止研究链路。'); };
 const now = () => new Date().toISOString();
 const waiting = part => new ResearchWorkflowError(409, 'AUTOMATION_CONFIRMATION_REQUIRED', '该环节等待人工确认，确认后可继续链路。', { part });
+
+async function experimentProcessesStopped(projectId, session, control) {
+  const ids = new Set((session?.steps || []).flatMap(step => [step.experimentRunId,
+    ...(step.codeTrials || []).map(trial => trial.runId || `experiment-trial-${sourceHash(trial.authorization)}`)]).filter(Boolean));
+  if (control?.experimentRunId) ids.add(control.experimentRunId);
+  for (const id of ids) {
+    let run;
+    try { run = await getExperimentRun(projectId, id); }
+    catch (error) { if (error.code === 'EXPERIMENT_RUN_NOT_FOUND') continue; return false; }
+    const processState = run.execution?.process;
+    if (run.status === 'running' || processState && !processState.stopConfirmed) return false;
+    if (processState?.pid) {
+      try { process.kill(processState.pid, 0); return false; }
+      catch (error) { if (error.code !== 'ESRCH') return false; }
+    }
+  }
+  return true;
+}
 
 async function claimOwner(projectId, sessionId) {
   const held = heldOwners.get(projectId);
@@ -40,7 +59,8 @@ async function releaseOwner(projectId, control) {
   const state = await readAutomation(projectId);
   const ids = state.session?.id === control.id ? state.session.steps.flatMap(step => step.runIds || []) : [];
   const retained = (await Promise.all(ids.map(id => getHarnessRun(projectId, id)))).some(run => run.cleanup?.modelSlotRetained);
-  if (control.owner.release({ stopConfirmed: !retained }) && heldOwners.get(projectId) === control.owner) heldOwners.delete(projectId);
+  const runnerStopped = await experimentProcessesStopped(projectId, state.session?.id === control.id ? state.session : null, control);
+  if (control.owner.release({ stopConfirmed: !retained && runnerStopped }) && heldOwners.get(projectId) === control.owner) heldOwners.delete(projectId);
 }
 
 async function recoverStages(projectId, control, runtime) {
@@ -212,11 +232,24 @@ async function walk(projectId, control, runtime) {
           control.preparationPolicyVersion = state.version;
           workflow = await prepareAutomationStage(projectId, workflow, state.session, state.policy,
             { ...runtime, signal: control.controller.signal, automationCheckpoint: savedWorkflow => handoffCheckpoint(projectId, control, stage, handoff, savedWorkflow),
-              automationBindExecutionPlan: (plan, origin) => bindStageExecutionPlan(projectId, control, stage, plan, origin) },
+              automationBindExecutionPlan: (plan, origin) => bindStageExecutionPlan(projectId, control, stage, plan, origin),
+              automationTrialRun: id => { control.experimentRunId = id; } },
             change => changeStep(projectId, control.id, stage, change));
           await changeStep(projectId, control.id, stage, { prepared: true, status: 'awaiting_confirmation' });
         }
         ({ state, workflow } = await checkpoint(projectId, control));
+        const preparedStep = state.session.steps.find(item => item.stage === stage);
+        if (preparedStep.executionPlanBinding && preparedStep.codeTrials?.length) {
+          const matching = preparedStep.codeTrials.filter(trial => sourceHash(trial.plan) === state.session.executionPlanSha256);
+          if (matching.length !== 1 || !matching[0].runId) throw new ResearchWorkflowError(409, 'AUTOMATION_TRIAL_RECEIPT_REQUIRED', '正式计划需要唯一的原工程试跑回执。');
+          const trial = matching[0], run = await getExperimentRun(projectId, trial.runId);
+          await assertCompletedTrial(projectId, run, { sessionId: control.id, stage, plan: state.session.executionPlan });
+          await checkpoint(projectId, control);
+          await changeStep(projectId, control.id, stage, { trialVerification: {
+            runId: run.id, manifestSha256: trial.manifestSha256, checkedAt: now(),
+            sessionId: control.id, parentRunId: state.session.coordinatorRunId
+          } });
+        }
         if (!allowsAutomatic(state.policy, stage)) throw waiting(stage);
         if (stage === 'selection' && !stageData(workflow, stage).selectedPaperIds?.length) workflow = await automaticWorkflowDecision(projectId, { sessionId: control.id, stageId: stage, expectedVersion: workflow.version, paperIds: stageData(workflow, stage).automaticSelectionProposal?.paperIds });
         if (stage === 'ideation' && stage !== state.session.targetStage) {
@@ -237,8 +270,10 @@ async function walk(projectId, control, runtime) {
     const stopped = control.stop || error.code === 'AUTOMATION_STOPPED';
     const state = await readAutomation(projectId);
     const ids = state.session?.id === control.id ? state.session.steps.flatMap(step => step.runIds || []) : [];
-    const retained = stopped && (await Promise.all(ids.map(id => getHarnessRun(projectId, id)))).some(run => run.cleanup?.modelSlotRetained);
-    if (retained) error = new ResearchWorkflowError(409, 'HARNESS_STOP_UNCONFIRMED', '运行器尚未确认停止，已有Run与工作区保留，请核对中断记录。');
+    const harnessRetained = stopped && (await Promise.all(ids.map(id => getHarnessRun(projectId, id)))).some(run => run.cleanup?.modelSlotRetained);
+    const runnerRetained = stopped && !await experimentProcessesStopped(projectId, state.session, control);
+    const retained = harnessRetained || runnerRetained;
+    if (retained) error = new ResearchWorkflowError(409, runnerRetained ? 'EXPERIMENT_STOP_UNCONFIRMED' : 'HARNESS_STOP_UNCONFIRMED', '运行器尚未确认停止，已有Run与工作区保留，请核对中断记录。');
     const status = retained ? 'blocked' : stopped ? 'stopped' : error.code === 'AUTOMATION_CONFIRMATION_REQUIRED' ? 'waiting_confirmation' : 'blocked';
     const current = await readAutomation(projectId);
     const currentStep = current.session?.steps.find(step => step.stage === current.session.currentStage);
@@ -309,6 +344,7 @@ export async function resumeAutomation(projectId, input = {}, runtime = {}) {
       Object.assign(current.session, { status: 'queued', stopRequested: false, message: '', error: null, attempt: (current.session.attempt || 0) + 1, ownerPid: control.owner.pid, updatedAt: now() });
     });
     control.queued = true;
+    control.preparationPolicyVersion = updated.version;
     const prepared = await ensureCoordinator(projectId, updated);
     if (input.recoverExisting) await recoverStages(projectId, control, runtime);
     queue = queue.catch(() => {}).then(() => walk(projectId, control, runtime));
@@ -342,9 +378,15 @@ export async function stopAutomation(projectId, { actor } = {}) {
       Object.assign(state.session, { stopRequested: true, status: retained ? 'blocked' : stopping ? 'stopping' : 'stopped',
         message: retained ? '后续步骤已停止；原任务仍需核对进程停止状态。' : stopping ? '正在取消当前任务；已停止后续步骤。' : '已停止。', updatedAt: now() });
     }
-  }); } finally { if (stoppedControl) await releaseOwner(projectId, stoppedControl); }
-  control?.controller.abort(new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止研究链路。'));
-  if (control?.experimentRunId) await cancelExperimentRun(projectId, control.experimentRunId);
+  });
+    control?.controller.abort(new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止研究链路。'));
+    const trialIds = (snapshot.session?.steps || []).flatMap(step => (step.codeTrials || [])
+      .map(trial => trial.runId || `experiment-trial-${sourceHash(trial.authorization)}`));
+    for (const id of new Set([control?.experimentRunId, ...trialIds].filter(Boolean))) {
+      try { await cancelExperimentRun(projectId, id); }
+      catch (error) { if (error.code !== 'EXPERIMENT_RUN_NOT_FOUND') throw error; }
+    }
+  } finally { if (stoppedControl) await releaseOwner(projectId, stoppedControl); }
   return state;
 }
 

@@ -241,6 +241,7 @@ export function manifestSummary(manifest) {
     resources: manifest.resources,
     successCriteria: manifest.successCriteria,
     artifacts: manifest.artifacts,
+    ...(manifest.purpose === 'engineering-trial' ? { purpose: manifest.purpose, trial: manifest.trial } : {}),
     ...(manifest.replication ? { replication: manifest.replication } : {}),
     ...(manifest.researchPlan ? { researchPlan: manifest.researchPlan } : {})
   };

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { automationApi, type AutomationState, type AutomationPolicy, type ConfirmationMode, type CodeScope } from '../../api/automationAdapter';
+import { automationApi, type AutomationState, type AutomationPolicy, type ConfirmationMode, type CodeScope, type AutomationCodeTrial } from '../../api/automationAdapter';
 import { workspaceModel } from '../workspace/workspaceModel';
 import { taskHref } from './taskLocation';
 import './ResearchAutomationPanel.css';
@@ -8,12 +8,30 @@ import './ResearchAutomationPanel.css';
 const STAGES: [string, string][] = [['direction','方向'],['search','检索'],['selection','筛选'],['replication','复现'],['ideation','不足与创新'],['method','方法'],['experiment','实验'],['writing','写作交接']];
 const taskNames:Record<string,string>={'research:environment_proposal':'环境建议 Run','research:execution_proposal':'实验材料 Run','research:dataset_discovery':'数据来源 Run','research:code-preparation':'代码生产 Agent','research:code-repair':'代码修复 Agent'};
 const codeLabels:Record<string,string>={prepared:'等待生成',producing:'代码生成中',verifying:'核对代码版本',completed:'代码已准备',failed:'代码准备失败',cancelled:'代码准备已取消'};
+const trialLabels:Record<string,string>={prepared:'待试跑',created:'待试跑',awaiting_approval:'待试跑授权',awaiting_execution:'待试跑授权',approved:'待试跑',running:'工程试跑中',executing:'工程试跑中',failed:'工程试跑失败',cancelled:'工程试跑已取消',interrupted:'工程试跑中断',blocked:'工程试跑需要处理'};
 const labels: Record<string,string> = {pending:'待开始',queued:'排队中',running:'运行中',preparing:'Agent分析中',recovering:'核对原任务中',awaiting_confirmation:'待确认',approved:'已决定',awaiting_execution:'待执行授权',executing:'实验运行中',completed:'完成',stopping:'正在停止',stopped:'已停止',blocked:'需要处理',waiting_confirmation:'等待确认',interrupted:'执行中断',failed:'失败'};
 const DATASET_HOSTS=['raw.githubusercontent.com','archive.ics.uci.edu','zenodo.org','huggingface.co'];
 const href = (projectId: string, stage: string) => `/editor/${projectId}/research/${stage === 'ideation' ? 'innovation' : stage}`;
 
 function ConfirmationControl({part,label,mode,disabled,onChange}:{part:string;label:string;mode:ConfirmationMode;disabled:boolean;onChange:(part:string,mode:ConfirmationMode)=>void}) {
   return <div className="confirmation-control" role="group" aria-label={label}>{([['inherit','跟随'],['auto','自动'],['manual','人工']] as const).map(([value,text])=><button key={value} type="button" data-mode={value} aria-pressed={mode===value} title={value==='inherit'?'跟随总开关':value==='auto'?'自动继续':'人工确认'} disabled={disabled} onClick={()=>onChange(part,value)}>{text}</button>)}</div>;
+}
+
+function CodeTrialRecord({projectId,item}:{projectId:string;item:AutomationCodeTrial}) {
+  const passed=item.status==='completed'&&item.result?.status==='completed'&&item.result.purpose==='engineering-trial';
+  const status=passed?'工程检查通过':item.status==='completed'?'试跑记录待核对':trialLabels[item.status]||item.status;
+  const codeVersion=item.plan.execution.codePreparationId;
+  return <article className="automation-code-record automation-code-trial" aria-label={`${status} · ${item.plan.execution.entrypoint}`}>
+    <div className="automation-code-record-heading"><strong>{status}</strong><small>授权 v{item.authorization.policyVersion} · {STAGES.find(([id])=>id===item.authorization.stage)?.[1]||item.authorization.stage}</small></div>
+    <p>{item.plan.execution.entrypoint}</p>
+    <div className="automation-run-links">
+      {item.runId&&<Link to={taskHref(projectId,`experiment-run:${item.runId}`)}>查看工程试跑 Run</Link>}
+      {codeVersion&&<Link to={href(projectId,item.authorization.stage)} title={codeVersion}>查看对应固定代码</Link>}
+    </div>
+    {item.manifestSha256&&<small title={item.manifestSha256}>执行快照 {item.manifestSha256.slice(0,16)}</small>}
+    {item.error&&<p role="alert">{item.error.message}</p>}
+    <small>检查代码在固定数据和环境中能否运行；试跑通过不等于论文复现或创新得到验证。</small>
+  </article>;
 }
 
 export function ResearchAutomationPanel({projectId, expanded = false}:{projectId:string; expanded?:boolean}) {
@@ -125,7 +143,7 @@ function ProjectAutomation({projectId, expanded}:{projectId:string;expanded:bool
               {item.preparationId&&<code title={item.sha256||undefined}>{item.preparationId}</code>}
               {item.error&&<p role="alert">{item.error.message}</p>}
               <small>固定代码用于隔离运行；执行结果见实验 Run。</small>
-            </article>)}{step.experimentRunId&&<Link to={taskHref(projectId,`experiment-run:${step.experimentRunId}`)}>实验 Run · {step.result?.status||step.status}</Link>}</div>)}<div className="automation-controls">{state.session.status==='waiting_confirmation'&&<Link className="hub-small-button" to={href(projectId,['execution','environment','dataset','code'].includes(state.session.error?.details?.part||'')?(state.session.currentStage||'replication'):(state.session.error?.details?.part||state.session.currentStage||'direction'))}>查看并确认当前环节</Link>}{!active&&state.session.status!=='completed'&&<button className="hub-small-button" disabled={busy} onClick={()=>void perform(()=>automationApi.action(projectId,'resume',{recoverExisting:['interrupted','blocked'].includes(state.session?.status||'')},workspaceModel()))}>{['interrupted','blocked'].includes(state.session.status)?'核对并继续原任务':'继续链路'}</button>}{state.session.status!=='completed'&&state.session.status!=='stopped'&&<button className="hub-small-button is-quiet" disabled={busy||state.session.status==='stopping'} onClick={()=>void perform(()=>automationApi.action(projectId,'stop'))}>停止链路</button>}<Link to={`/project/${projectId}/explore`}>查看横向执行链路</Link></div></div>}
+            </article>)}{step.codeTrials?.map((item,index)=><CodeTrialRecord key={item.runId||`${item.plan.execution.codePreparationId||step.stage}:${index}`} projectId={projectId} item={item}/>)}{step.experimentRunId&&<Link to={taskHref(projectId,`experiment-run:${step.experimentRunId}`)}>实验 Run · {step.result?.status||step.status}</Link>}</div>)}<div className="automation-controls">{state.session.status==='waiting_confirmation'&&<Link className="hub-small-button" to={href(projectId,['execution','environment','dataset','code'].includes(state.session.error?.details?.part||'')?(state.session.currentStage||'replication'):(state.session.error?.details?.part||state.session.currentStage||'direction'))}>查看并确认当前环节</Link>}{!active&&state.session.status!=='completed'&&<button className="hub-small-button" disabled={busy} onClick={()=>void perform(()=>automationApi.action(projectId,'resume',{recoverExisting:['interrupted','blocked'].includes(state.session?.status||'')},workspaceModel()))}>{['interrupted','blocked'].includes(state.session.status)?'核对并继续原任务':'继续链路'}</button>}{state.session.status!=='completed'&&state.session.status!=='stopped'&&<button className="hub-small-button is-quiet" disabled={busy||state.session.status==='stopping'} onClick={()=>void perform(()=>automationApi.action(projectId,'stop'))}>停止链路</button>}<Link to={`/project/${projectId}/explore`}>查看横向执行链路</Link></div></div>}
         <p className="automation-footnote">自动推进记录为授权决定；论文、实验结果和 AI 提出的不足仍保留各自的核验状态。</p>
       </>}
     </div>

@@ -14,10 +14,11 @@ import { acquireAutomationDataset } from './datasetAcquisition.js';
 import { prepareAutomationEnvironment } from './environmentPreparation.js';
 import { environmentService } from '../experimentRunner/environments.js';
 import { resolveExperimentDataset } from '../experimentRunner/datasetInput.js';
-import { allowsAutomatic } from './policy.js';
+import { allowsAutomatic, readAutomation } from './policy.js';
 import { prepareAutomationCode } from './codePreparation.js';
 import { codePreparationService } from '../experimentRunner/codePreparations.js';
 import { allowsControlledCodePatch } from '../harnessRuntime/dshFileBroker.js';
+import { prepareAutomationTrial } from './trialPreparation.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
@@ -152,6 +153,12 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
         plan={...plan,execution:{...plan.execution,environmentId:availableEnvironments[0].id}};
     }
     if (!files.includes(plan.execution?.entrypoint) || !plan.dataset || !plan.datasetVersion) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIALS_REQUIRED', '项目内需要可运行的代码入口、真实数据和数据版本。');
+    const currentCode = (await readAutomation(projectId)).session?.steps?.find(item => item.stage === stage)?.codePreparations;
+    if (preparedCode && currentCode?.some(item => item.preparationId === preparedCode.preparation.id)) {
+      if (!allowsAutomatic(policy, 'execution')) throw new ResearchWorkflowError(409, 'AUTOMATION_CONFIRMATION_REQUIRED', '工程试跑等待实验执行授权。', { part: 'execution' });
+      await prepareAutomationTrial({ projectId, session, stage, plan, saveStep, beforeEffect, signal: runtime.signal,
+        onRun: runtime.automationTrialRun });
+    }
     await runtime.automationBindExecutionPlan(plan, origin);
     // The Runner validates paths, resources and snapshots again before dispatch.
     if (stage === 'replication') {

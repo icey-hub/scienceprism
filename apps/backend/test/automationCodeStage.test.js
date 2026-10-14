@@ -51,7 +51,7 @@ async function fixture(t, id, { manual = false, scope = true, python = false, en
     execution: { adapter: python ? 'python' : 'node', entrypoint, args: [] }, seed: 0, successCriteria: ['mean'], artifacts: [] };
   const state = await readAutomation(id);
   await saveAutomationPolicy(id, { actor: 'human', expectedVersion: state.version, policy: { enabled: true, agentMode: 'specialists',
-    overrides: { replication: 'manual', ...(manual ? { code: 'manual' } : {}) }, ...(scope ? { codeScope } : {}),
+    overrides: { replication: 'manual', execution: 'manual', ...(manual ? { code: 'manual' } : {}) }, ...(scope ? { codeScope } : {}),
     ...(python && env ? { environmentScope: envScope } : {}) } });
   const counts = { models: [], freeze: 0, environment: 0 }, frozen = new Map();
   const originalCreate = codePreparationService.create, originalVerify = codePreparationService.verify;
@@ -104,15 +104,17 @@ async function fixture(t, id, { manual = false, scope = true, python = false, en
   return { root, counts, plan, state: await settled(id) };
 }
 
-test('original stage ledger delegates code, freezes it and binds one final plan; waiting resume repeats no effect', async t => {
+test('original stage freezes code and waits for trial execution authority without binding the formal plan', async t => {
   const id = 'frozen-stage', f = await fixture(t, id);
   assert.equal(f.state.session.status, 'waiting_confirmation', JSON.stringify(f.state.session.error));
-  assert.equal(f.state.session.error.details.part, 'replication');
+  assert.equal(f.state.session.error.details.part, 'execution');
   const step = f.state.session.steps.find(s => s.stage === 'replication'), saved = (await getResearchWorkflow(id)).stages.find(s => s.id === 'replication').data;
   assert.equal(step.codePreparations[0].status, 'completed');
-  assert.equal(saved.executionPlan.execution.codePreparationId, step.codePreparations[0].preparationId);
-  assert.ok(saved.replication.codePaths.includes('experiments/run.mjs'));
-  assert.deepEqual(f.counts.models, ['research:execution_proposal', 'research:code-preparation', 'research:reproduction_plan']);
+  assert.equal(f.state.session.executionPlan, null);
+  assert.equal(step.executionPlanBinding, undefined);
+  assert.equal(saved.executionPlan, undefined);
+  assert.equal(step.codeTrials, undefined);
+  assert.deepEqual(f.counts.models, ['research:execution_proposal', 'research:code-preparation']);
   const before = (await listHarnessRuns(id)).map(run => run.id).sort();
   await resumeAutomation(id, { actor: 'human' }, { adapter: 'fake' }); await settled(id);
   assert.deepEqual((await listHarnessRuns(id)).map(run => run.id).sort(), before); assert.equal(f.counts.freeze, 1);
@@ -124,15 +126,32 @@ test('new Python code reaches the original environment preparation despite no pr
   const f = await fixture(t, 'new-python', { python: true });
   assert.equal(f.state.session.status, 'waiting_confirmation', JSON.stringify(f.state.session.error));
   const step = f.state.session.steps.find(s => s.stage === 'replication');
-  assert.equal(f.state.session.executionPlan.execution.environmentId, step.environmentPreparations[0].environmentId);
+  assert.match(step.environmentPreparations[0].environmentId, /^environment-/);
+  assert.equal(f.state.session.executionPlan, null);
+  assert.equal(step.executionPlanBinding, undefined);
   assert.equal(f.counts.environment, 1); assert.equal(f.counts.freeze, 1);
-  assert.deepEqual(f.counts.models, ['research:execution_proposal', 'research:code-preparation', 'research:environment_proposal', 'research:reproduction_plan']);
+  assert.deepEqual(f.counts.models, ['research:execution_proposal', 'research:code-preparation', 'research:environment_proposal']);
 });
 test('unrelated old Python does not preempt the selected new code or its environment', async t => {
   const f = await fixture(t, 'unrelated-python', { python: true, unrelatedPython: true });
   assert.equal(f.state.session.status, 'waiting_confirmation', JSON.stringify(f.state.session.error));
   assert.equal(f.counts.freeze, 1); assert.equal(f.counts.environment, 1);
-  assert.deepEqual(f.counts.models, ['research:execution_proposal', 'research:code-preparation', 'research:environment_proposal', 'research:reproduction_plan']);
+  assert.deepEqual(f.counts.models, ['research:execution_proposal', 'research:code-preparation', 'research:environment_proposal']);
+});
+test('enabling execution resumes pending preparation without approving the manual research stage or repeating its producer', async t => {
+  const id = 'resume-pending-trial', f = await fixture(t, id);
+  const initial = await readAutomation(id), ids = (await listHarnessRuns(id)).map(run => run.id).sort();
+  await saveAutomationPolicy(id, { actor: 'human', expectedVersion: initial.version,
+    policy: { ...initial.policy, overrides: { ...initial.policy.overrides, execution: 'auto' } } });
+  await resumeAutomation(id, { actor: 'human' }, { adapter: 'fake' });
+  const next = await settled(id);
+  // This old wiring fixture has a legacy data label rather than a SHA-backed
+  // input; reaching that check proves resume did not stop at stage approval.
+  assert.equal(next.session.error.code, 'EXPERIMENT_TRIAL_FIXED_DATA_REQUIRED');
+  assert.deepEqual((await listHarnessRuns(id)).map(run => run.id).sort(), ids);
+  assert.equal(f.counts.freeze, 1);
+  assert.equal(next.session.executionPlan, null);
+  assert.equal((await getResearchWorkflow(id)).stages.find(s => s.id === 'replication').status, 'pending');
 });
 for (const [name, options, error] of [
   ['manual code waits before producer', { manual: true }, 'AUTOMATION_CONFIRMATION_REQUIRED'],
