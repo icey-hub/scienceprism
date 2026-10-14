@@ -39,7 +39,7 @@ export async function loadVerifiedDshSdk(configuredEntry) {
 export function delegateArguments(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['task', 'maxTokens', 'timeoutMs'].includes(key))
     || typeof input.task !== 'string' || !input.task.trim() || Buffer.byteLength(input.task) > 65_536
-    || input.maxTokens !== undefined && (!Number.isSafeInteger(input.maxTokens) || input.maxTokens < 128 || input.maxTokens > 100_000)
+    || input.maxTokens !== undefined && (!Number.isSafeInteger(input.maxTokens) || input.maxTokens < 128 || input.maxTokens > 1_000_000)
     || input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 600_000)) throw error('DSH_ARGUMENTS_INVALID', 'Codex delegation accepts only a bounded task and optional smaller budgets.');
   return { task: input.task, ...(input.maxTokens === undefined ? {} : { maxTokens: input.maxTokens }), ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }) };
 }

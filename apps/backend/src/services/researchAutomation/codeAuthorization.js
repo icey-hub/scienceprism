@@ -32,7 +32,7 @@ export function validateCodeScope(value) {
     || !prefix.isWellFormed() || !prefix || prefix !== prefix.trim() || prefix.length > 500 || /[\x00-\x1f\x7f\\:*?]/.test(prefix)
     || prefix !== path.posix.normalize(prefix) || prefix.startsWith('/') || prefix.split('/').some(part => !part || part.startsWith('.'))
     || isSensitivePath(prefix))
-    || !Number.isSafeInteger(value.maxTokens) || value.maxTokens < 128 || value.maxTokens > 100000
+    || !Number.isSafeInteger(value.maxTokens) || value.maxTokens < 128 || value.maxTokens > 1_000_000
     || !Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 100 || value.timeoutMs > 600000
     || !Number.isSafeInteger(value.maxVersions) || value.maxVersions < 1 || value.maxVersions > 2) {
     fail(code, '请明确配置非敏感源码路径、模型预算、时限和代码版本上限。', 400);

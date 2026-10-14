@@ -46,7 +46,7 @@ function ProjectAutomation({projectId, expanded}:{projectId:string;expanded:bool
   const [entry,setEntry] = useState(''), [dataset,setDataset] = useState(''), [version,setVersion] = useState('');
   const [dataBudget,setDataBudget]=useState('16'),[dataCount,setDataCount]=useState('1'),[dataHosts,setDataHosts]=useState<string[]>(DATASET_HOSTS);
   const [environmentPaths,setEnvironmentPaths]=useState('wheels'),[environmentPackages,setEnvironmentPackages]=useState('10'),[environmentMinutes,setEnvironmentMinutes]=useState('2'),[environmentCount,setEnvironmentCount]=useState('1');
-  const [codeEnabled,setCodeEnabled]=useState(false),[codePaths,setCodePaths]=useState(''),[codeTokens,setCodeTokens]=useState('32000'),[codeSeconds,setCodeSeconds]=useState('300'),[codeVersions,setCodeVersions]=useState('2'),[codeConflict,setCodeConflict]=useState(false);
+  const [codeEnabled,setCodeEnabled]=useState(false),[codePaths,setCodePaths]=useState(''),[codeTokens,setCodeTokens]=useState('250000'),[codeSeconds,setCodeSeconds]=useState('300'),[codeVersions,setCodeVersions]=useState('2'),[codeConflict,setCodeConflict]=useState(false);
   const codeDirty=useRef(false),codeSaved=useRef('null');
   const alive = useRef(true), lock = useRef(false), revision = useRef(0);
   useEffect(() => {
@@ -63,7 +63,7 @@ function ProjectAutomation({projectId, expanded}:{projectId:string;expanded:bool
   useEffect(()=>{const scope=state?.policy.environmentScope;if(scope){setEnvironmentPaths(scope.allowedPaths.join('\n'));setEnvironmentPackages(String(scope.maxPackages));setEnvironmentMinutes(String(scope.maxPrepareMs/60000));setEnvironmentCount(String(scope.maxEnvironments));}},[state?.policy.environmentScope?.allowedPaths.join('|'),state?.policy.environmentScope?.maxPackages,state?.policy.environmentScope?.maxPrepareMs,state?.policy.environmentScope?.maxEnvironments]);
   const codeScopeKey=JSON.stringify(state?.policy.codeScope??null);
   function loadCodeDraft(scope:CodeScope|null|undefined) {
-    setCodeEnabled(!!scope);setCodePaths(scope?.allowedPaths.join('\n')||'');setCodeTokens(String(scope?.maxTokens??32000));
+    setCodeEnabled(!!scope);setCodePaths(scope?.allowedPaths.join('\n')||'');setCodeTokens(String(scope?.maxTokens??250000));
     setCodeSeconds(String((scope?.timeoutMs??300000)/1000));setCodeVersions(String(scope?.maxVersions??2));
     codeDirty.current=false;codeSaved.current=JSON.stringify(scope??null);setCodeConflict(false);
   }
@@ -122,10 +122,11 @@ function ProjectAutomation({projectId, expanded}:{projectId:string;expanded:bool
             <div className="automation-start"><label>允许的源码路径<textarea aria-label="自动代码源码路径" rows={3} required={codeEnabled} disabled={busy||!codeEnabled} value={codePaths} onChange={event=>{editCode();setCodePaths(event.target.value);}} placeholder={'experiments\nsrc/baseline.py'}/></label></div>
             <p>每行一个项目内相对目录或源文件；需明确填写，不能使用根目录或通配符。</p>
             <div className="automation-code-budgets">
-              <label>模型 token 上限<input aria-label="自动代码模型预算" type="number" min="128" max="100000" step="1" required={codeEnabled} value={codeTokens} disabled={busy||!codeEnabled} onChange={event=>{editCode();setCodeTokens(event.target.value);}}/></label>
+              <label>代码任务 token 上限<input aria-label="自动代码模型预算" type="number" min="128" max="1000000" step="1" required={codeEnabled} value={codeTokens} disabled={busy||!codeEnabled} onChange={event=>{editCode();setCodeTokens(event.target.value);}}/></label>
               <label>总时限 · 秒<input aria-label="自动代码时限预算" type="number" min="0.1" max="600" step="0.001" required={codeEnabled} value={codeSeconds} disabled={busy||!codeEnabled} onChange={event=>{editCode();setCodeSeconds(event.target.value);}}/></label>
               <label>每阶段代码版本上限<input aria-label="自动代码版本预算" type="number" min="1" max="2" step="1" required={codeEnabled} value={codeVersions} disabled={busy||!codeEnabled} onChange={event=>{editCode();setCodeVersions(event.target.value);}}/></label>
             </div>
+            <p>这是父编排与 Codex worker 合计的任务预算；已有配置沿用保存值，新范围默认 250000 token。</p>
             {codeConflict&&<p role="alert">后端代码范围已变化，当前草稿已保留。请重新载入范围后核对。</p>}
             <div className="automation-controls"><button className="hub-small-button" disabled={busy||codeConflict||(codeEnabled&&!codePaths.trim())}>保存代码范围</button><button type="button" className="hub-small-button is-quiet" disabled={busy} onClick={()=>loadCodeDraft(state.policy.codeScope)}>重新载入范围</button><span className="automation-scope-note">{state.policy.codeScope?'已保存源码范围':'尚未授权源码范围'}{codeDirty.current?' · 有未保存更改':''}</span></div>
           </form>

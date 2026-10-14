@@ -49,6 +49,8 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
   const calls = new Map();
   let pending = Promise.resolve();
   let childTokens = recoveredChildren.reduce((total, child) => total + usageTotal(child.usage), 0);
+  let reservedTokens = recoveredChildren.reduce((total, child) => total + (child.usage?.estimated ? child.usage.reservedTokens ?? usageTotal(child.usage) : 0), 0);
+  const accountedUsage = () => ({ totalTokens: childTokens, ...(reservedTokens ? { estimated: true, reservedTokens, reportedTotalTokens: childTokens - reservedTokens } : {}) });
   let closed = false;
   let preserveWorkspace = false;
   const persist = (id, event) => updateRun(id, run => { appendRuntimeEvents(run, [summarizeEvent(event)]); return run; });
@@ -57,7 +59,7 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
     if (closed || signal.aborted || options.signal?.aborted) throw fail('HARNESS_CANCELLED', 'The parent task is no longer active.');
     if (!input || Object.keys(input).some(key => !['task', 'maxTokens', 'timeoutMs'].includes(key))
       || typeof input.task !== 'string' || !input.task.trim() || Buffer.byteLength(input.task) > 262144
-      || input.maxTokens !== undefined && (!Number.isSafeInteger(input.maxTokens) || input.maxTokens < 128 || input.maxTokens > 100000)
+      || input.maxTokens !== undefined && (!Number.isSafeInteger(input.maxTokens) || input.maxTokens < 128 || input.maxTokens > 1_000_000)
       || input.timeoutMs !== undefined && (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > 600000)) {
       throw fail('CODEX_WORKER_INPUT_INVALID', 'Provide a bounded task and optional token/time limits.');
     }
@@ -78,7 +80,7 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
     }
     const remaining = parent.limits.maxTokens - usageTotal(sumEventUsage(current.events)) - childTokens;
     const allocation = automaticCodeAllocation(parent, current, policy);
-    const limits = { maxTokens: Math.min(remaining, allocation?.maxTokens ?? input.maxTokens ?? remaining, 100000),
+    const limits = { maxTokens: Math.min(remaining, allocation?.maxTokens ?? input.maxTokens ?? remaining, 1_000_000),
       timeoutMs: Math.min(deadline - Date.now(), allocation?.timeoutMs ?? input.timeoutMs ?? 600000, 600000), maxConcurrent: 1, retryLimit: 0 };
     if (limits.maxTokens < 128 || limits.timeoutMs < 100) throw fail('HARNESS_BUDGET_EXHAUSTED', 'The parent has no remaining worker budget.');
     const controller = new AbortController();
@@ -192,7 +194,8 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
       } finally {
         // Missing usage after a failed model call consumes the allocated budget.
         childTokens += usage ? usageTotal(usage) : limits.maxTokens;
-        await updateRun(parent.id, stored => { stored.workerTokenUsage = { totalTokens: childTokens }; return stored; });
+        reservedTokens += usage ? usage.estimated ? usage.reservedTokens ?? usageTotal(usage) : 0 : limits.maxTokens;
+        await updateRun(parent.id, stored => { stored.workerTokenUsage = accountedUsage(); return stored; });
         controller.abort();
         if (merger) await merger.close();
         // Private baseline, worker history and merge receipts belong to this Run.
@@ -213,7 +216,7 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
       return promise;
     },
     async close() { closed = true; await pending; },
-    get usage() { return { totalTokens: childTokens }; },
+    get usage() { return accountedUsage(); },
     get preserveWorkspace() { return preserveWorkspace; }
   });
 }

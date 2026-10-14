@@ -122,6 +122,8 @@ test('unconfirmed worker termination retains private workspace for recovery', as
   const f = await fixture(t, async () => { throw Object.assign(new Error('process still active'), { code: 'CODEX_STOP_FAILED' }); });
   await assert.rejects(f.delegate.run({ task: 'edit' }, { callId: 'stuck' }), { code: 'CODEX_STOP_FAILED' });
   assert.equal(f.delegate.preserveWorkspace, true);
+  assert.deepEqual(f.delegate.usage, { totalTokens: 20000, estimated: true, reservedTokens: 20000, reportedTotalTokens: 0 });
+  assert.deepEqual(f.rows.get('parent').workerTokenUsage, f.delegate.usage);
   assert.equal([...f.rows.values()][1].cleanup.workspaceRetained, true);
   assert.equal((await fs.readdir(f.root)).filter(name => name.startsWith('delegated-')).length, 1);
 });
@@ -161,6 +163,14 @@ test('admitted automatic profile v2 allocates actual worker 80 percent tokens an
   const child = f.rows.get(result.childRunId); assert.equal(child.limits.maxTokens, 80000); assert.equal(child.limits.timeoutMs, 9000);
   assert.equal(child.limits.retryLimit, 0); assert.equal(child.limits.maxConcurrent, 1); assert.equal(f.calls(), 1);
   assert.equal(child.status, 'completed'); assert.equal(f.delegate.usage.totalTokens, 14173); assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'original');
+});
+
+test('explicit larger code scopes reach the worker without the former 100000 token clamp', async t => {
+  const f = await fixture(t, async args => { assert.equal(args.maxTokens, 200000); return noPatchResult(120000); });
+  admittedAutomaticProducer(f, { maxTokens: 250000 });
+  const result = await f.delegate.run({ task: 'prepare within the larger authorized scope', maxTokens: 200000 }, { callId: 'larger-budget' });
+  assert.equal(result.status, 'completed');
+  assert.equal(f.delegate.usage.totalTokens, 120000);
 });
 
 test('automatic allocation still obeys remaining parent usage and subsequent exhaustion rather than reserving unavailable budget', async t => {

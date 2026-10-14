@@ -125,6 +125,7 @@ test('parent final usage plus its completed worker cannot mark an over-budget DS
   assert.equal(f.rows.get(childId).status, 'completed');
   assert.equal(result.status, 'failed');
   assert.equal(result.error.code, 'HARNESS_BUDGET_EXHAUSTED');
+  assert.deepEqual(result.error.details, { maxTokens: 1000, parentTokens: 400, workerAccountedTokens: 800 });
   assert.equal(result.reply, undefined);
   assert.deepEqual(result.patches, []);
   assert.equal(await fs.readFile(path.join(f.root, 'main.tex'), 'utf8'), 'private manuscript must stay in its project');

@@ -26,7 +26,7 @@ export function codexWorkerConfig({ provider, cwd, controlFile, maxTokens }) {
     || endpoint.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
     || typeof provider?.model !== 'string' || !provider.model.trim() || provider.model.length > 200
     || typeof provider.apiKey !== 'string' || !provider.apiKey) throw error('CODEX_PROVIDER_REQUIRED', 'Configure the model, endpoint and its own API credential explicitly.');
-  if (!Number.isSafeInteger(maxTokens) || maxTokens < 128 || maxTokens > 100_000) throw error('CODEX_BUDGET_REQUIRED', 'A bounded Codex token budget is required.');
+  if (!Number.isSafeInteger(maxTokens) || maxTokens < 128 || maxTokens > 1_000_000) throw error('CODEX_BUDGET_REQUIRED', 'A bounded Codex token budget is required.');
   return [
     `model_provider=${JSON.stringify(PROVIDER)}`, `model=${JSON.stringify(provider.model)}`,
     `model_providers.${PROVIDER}.name="SciencePrism controlled worker"`, `model_providers.${PROVIDER}.base_url=${JSON.stringify(endpoint.href.replace(/\/$/, ''))}`,

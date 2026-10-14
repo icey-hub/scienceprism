@@ -112,6 +112,9 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
     const previousParentTokens = continuing ? Math.max(usageTotal(sumEventUsage(run.events)),
       Number(run.tokenUsage?.parentTotalTokens ?? Math.max(0, usageTotal(run.tokenUsage) - usageTotal(run.workerTokenUsage)))) : 0;
     let parentReportedTokens = previousParentTokens;
+    const budgetError = parentTokens => new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED',
+      `组合任务 token 上限 ${run.limits.maxTokens} 已用尽：编排 ${parentTokens}，worker 计入 ${delegation?.usage.totalTokens || 0}（缺失用量时按预留额计入）。请提高代码预算后发起新任务。`,
+      { maxTokens: run.limits.maxTokens, parentTokens, workerAccountedTokens: delegation?.usage.totalTokens || 0 });
     let eventWrite = Promise.resolve();
     const emit = (event) => {
       const summary = summarizeEvent(event);
@@ -121,7 +124,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
       if (summary.usage) {
         parentReportedTokens += usageTotal(summary.usage);
         if (parentReportedTokens + (delegation?.usage.totalTokens || 0) > run.limits.maxTokens && !control.violation) {
-          control.violation = new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED', 'The combined parent and worker token budget was exhausted.');
+          control.violation = budgetError(parentReportedTokens);
           control.controller.abort(control.violation);
           return;
         }
@@ -230,7 +233,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
       control.controller.signal.throwIfAborted();
       if (delegation?.preserveWorkspace) throw new HarnessRuntimeError(503, 'HARNESS_STOP_UNCONFIRMED', 'A delegated process has not confirmed stopping.');
       if (delegation && previousParentTokens + usageTotal(rawResult?.usage || rawResult?.tokenUsage) + delegation.usage.totalTokens > run.limits.maxTokens) {
-        throw new HarnessRuntimeError(409, 'HARNESS_BUDGET_EXHAUSTED', 'The combined parent and worker token budget was exhausted.');
+        throw budgetError(previousParentTokens + usageTotal(rawResult?.usage || rawResult?.tokenUsage));
       }
       const result = await finalizeAssistantReply(projectId, request, rawResult);
       await eventWrite;
@@ -254,6 +257,8 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         const parentUsage = result?.usage || result?.tokenUsage;
         const parentTokens = parentUsage ? previousParentTokens + usageTotal(parentUsage) : usageTotal(sumEventUsage(current.events));
         current.tokenUsage = delegation ? { ...parentUsage,
+          ...(delegation.usage.estimated ? { estimated: true, reservedTokens: delegation.usage.reservedTokens,
+            reportedTotalTokens: parentTokens + delegation.usage.reportedTotalTokens } : {}),
           totalTokens: parentTokens + delegation.usage.totalTokens, parentTotalTokens: parentTokens, workerTotalTokens: delegation.usage.totalTokens }
           : parentUsage || sumEventUsage(current.events) || null;
         if (continuing) current.recovery = { ...current.recovery, status: 'continued' };
@@ -370,6 +375,7 @@ export function createRunExecutor({ getRun, updateRun, adapterFor, forgetRequest
         current.finishedAt = now();
         current.updatedAt = current.finishedAt;
         current.error = { code: runtimeError.code, message: runtimeError.message, retryable: runtimeError.retryable };
+        if (runtimeError.code === 'HARNESS_BUDGET_EXHAUSTED' && runtimeError.details) current.error.details = runtimeError.details;
         if (control.stopUnconfirmed) current.cleanup = { status: 'process-stop-unconfirmed', workspaceRetained: Boolean(runRoot) || run.adapter === 'mcp', modelSlotRetained: true };
         return current;
       });

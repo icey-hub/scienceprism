@@ -11,7 +11,7 @@ const reject = (fn, code) => assert.throws(fn, error => error instanceof Researc
 test('code scope is explicit, nonempty, canonical and budget bounded', () => {
   assert.equal(validateCodeScope(), null); assert.equal(validateCodeScope(null), null);
   assert.deepEqual(validateCodeScope({ ...scope(), allowedPaths: ['scripts', 'experiments', 'scripts'] }), { ...scope(), allowedPaths: ['experiments', 'scripts'] });
-  for (const patch of [{ allowedPaths: [] }, { allowedPaths: Array(1) }, { maxTokens: 127 }, { maxTokens: 100001 }, { maxTokens: 5000.5 },
+  for (const patch of [{ allowedPaths: [] }, { allowedPaths: Array(1) }, { maxTokens: 127 }, { maxTokens: 1000001 }, { maxTokens: 5000.5 },
     { timeoutMs: 99 }, { timeoutMs: 600001 }, { timeoutMs: Infinity }, { maxVersions: 0 }, { maxVersions: 3 }, { approved: true }]) {
     reject(() => validateCodeScope({ ...scope(), ...patch }), 'AUTOMATION_CODE_SCOPE_INVALID');
   }
