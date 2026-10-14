@@ -49,7 +49,7 @@ function PaperSearchWorkspace({ projectId }: { projectId: string }) {
       <header className="paper-search-heading"><h1>论文搜索</h1><Link to={libraryHref}><BookOpen size={15} />我的文献库</Link></header>
       <form className="paper-search-form" onSubmit={submit} aria-label="论文检索"><div className="paper-search-query"><Search size={19} /><input aria-label="论文关键词" value={query} onChange={event => setQuery(event.target.value)} placeholder="论文标题、作者、研究问题或关键词" maxLength={1000} required /><button type="submit" disabled={controller.loading || controller.busy || !query.trim() || !sources.length}>{controller.busy ? '检索中…' : '搜索'}</button>{controller.busy && <button type="button" className="paper-search-cancel" onClick={controller.cancel}>取消检索</button>}</div></form>
       {controller.error && <p role="alert" className="paper-search-alert">{controller.error}</p>}{controller.notice && <p role="status" className="paper-search-notice">{controller.notice}</p>}
-      {citation && <Suspense fallback={<p>正在读取引用选项…</p>}><PaperCitationPanel projectId={projectId} paper={citation} onClose={() => setCitation(null)} /></Suspense>}
+      {citation && <Suspense fallback={<p>正在读取引用选项…</p>}><PaperCitationPanel key={`${projectId}:${citation.id}`} projectId={projectId} paper={citation} onClose={() => setCitation(null)} /></Suspense>}
       <div className="paper-search-body">
         <aside className="paper-search-facets" aria-label="论文筛选">
           <section><h2>论文来源</h2>{controller.data?.sources.map(source => <label className="paper-filter-check" key={source.id}><input type="checkbox" checked={sources.includes(source.id)} onChange={event => setSources(value => event.target.checked ? [...value, source.id] : value.filter(id => id !== source.id))} />{source.label}</label>)}</section>

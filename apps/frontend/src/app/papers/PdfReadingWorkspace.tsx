@@ -13,9 +13,10 @@ import { ReadingExplanationPanel } from './ReadingExplanationPanel';
 import { ReadingOcrPanel } from './ReadingOcrPanel';
 import type { OcrSource, OcrRotation } from '../../api/readingOcrAdapter';
 import type { PdfNormalizedRegion } from '../pdf/pdfSelection';
+import type { CitationReadingSource } from '../../api/manuscriptCitationAdapter';
 
 const noVisible = () => {};
-export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projectId: string; paperId: string; attachment: PaperAttachment }) {
+export function PdfReadingWorkspace({ projectId, paperId, attachment, onCitationSourceChange }: { projectId: string; paperId: string; attachment: PaperAttachment; onCitationSourceChange?: (source: CitationReadingSource) => void }) {
   const { pdf, outline, error } = usePdfDocument(attachmentUrl(projectId, paperId, attachment.id));
   const annotations = usePaperAnnotations(projectId, paperId);
   const [params]=useSearchParams(),linkedOcrTask=params.get('ocrTask')||undefined;
@@ -65,6 +66,28 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
     return () => { clearTimeout(timer); findVersion.current++; };
   }, [pdf, storageKey, goToPage]);
   useEffect(() => { if (!pdf) return; const timer = setTimeout(() => { try { localStorage.setItem(storageKey, String(page)); } catch { /* Reading works without storage. */ } }, 400); return () => clearTimeout(timer); }, [page, pdf, storageKey]);
+  const linkedPage = params.get('page'), linkedAnnotation = params.get('annotation'), linkedAttachment = params.get('attachment');
+  useEffect(() => {
+    if (!pdf) return;
+    if ((linkedPage || linkedAnnotation) && linkedAttachment && linkedAttachment !== attachment.id) { setNotice('原引用附件不可用，未在其它版本定位。'); return; }
+    if (linkedPage && !/^\d+$/.test(linkedPage)) { setNotice('原引用页码无效。'); return; }
+    if (linkedAnnotation && !annotations.data) return;
+    const note = linkedAnnotation ? annotations.data?.annotations.find(item => item.id === linkedAnnotation) : null;
+    if (linkedAnnotation && (!note || note.locationStatus !== 'anchored' || note.anchor?.attachmentId !== attachment.id || note.anchor.fileSha256 !== attachment.sha256)) {
+      setNotice('原批注或附件版本不可定位；当前阅读内容保持。');
+      return;
+    }
+    const target = note?.anchor?.page ?? (linkedPage && /^\d+$/.test(linkedPage) ? Number(linkedPage) : null);
+    if (target === null) return;
+    if (!Number.isSafeInteger(target) || target < 1 || target > pdf.numPages) { setNotice('原引用页码不在此附件中。'); return; }
+    const timer = setTimeout(() => goToPage(target), 120);
+    return () => clearTimeout(timer);
+  }, [pdf, linkedPage, linkedAnnotation, linkedAttachment, annotations.data, attachment.id, attachment.sha256, goToPage]);
+  useEffect(() => {
+    if (!pdf || !onCitationSourceChange) return;
+    const note = selection && annotations.data?.annotations.find(item => item.locationStatus === 'anchored' && item.anchor?.attachmentId === attachment.id && item.anchor.fileSha256 === attachment.sha256 && item.anchor.page === selection.page && item.anchor.quote === selection.text && JSON.stringify(item.anchor.rects) === JSON.stringify(selection.rects));
+    onCitationSourceChange({ attachmentId: attachment.id, sha256: attachment.sha256, page: selection?.page ?? page, ...(note ? { selectionId: note.id } : {}) });
+  }, [pdf, attachment.id, attachment.sha256, page, selection, annotations.data, onCitationSourceChange]);
   const select = () => {
     if(ocrMode)return;
     if (!scrollRef.current) return;

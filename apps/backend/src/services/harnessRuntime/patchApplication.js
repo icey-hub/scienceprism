@@ -1,13 +1,11 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { safeJoin } from '../../utils/pathUtils.js';
 import { assertApprovedConstraint } from '../constraintRegistry/proposals.js';
 import { assertProjectPath } from './capabilities.js';
 import { HarnessRuntimeError } from './errors.js';
 import { fileVersion, readFileState, sameVersion } from './fileVersions.js';
 import { clone, writeHarnessRuns } from './repository.js';
-import { collabFileMatches, syncCollabFile } from '../collab/docStore.js';
+import { collabFileMatches } from '../collab/docStore.js';
+import { rollbackFileTransaction, writeFileTransaction } from './fileTransactions.js';
 
 export function selectPatchPaths(run, paths) {
   const available = new Set((run.patches || []).map((patch) => patch.path));
@@ -23,53 +21,6 @@ function validVersion(version) {
     || version.exists === true && /^[a-f0-9]{64}$/.test(version.sha256));
 }
 
-/** Replace one file atomically; a failed write never leaves a truncated draft. */
-async function writeState(root, relativePath, state) {
-  const target = safeJoin(root, relativePath);
-  if (!state.exists) {
-    await fs.rm(target, { force: true });
-    return;
-  }
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  const temporaryPath = `${relativePath}.${randomUUID()}.patch-tmp`;
-  const temporary = safeJoin(root, temporaryPath);
-  try {
-    const mode = await fs.stat(target).then((stat) => stat.mode, (error) => {
-      if (error.code !== 'ENOENT') throw error;
-      return undefined;
-    });
-    await fs.writeFile(temporary, state.content, { encoding: 'utf8', flag: 'wx', mode });
-    // Recheck the target after asynchronous operations, including symlink checks.
-    await fs.rename(safeJoin(root, temporaryPath), safeJoin(root, relativePath));
-  } finally {
-    await fs.rm(safeJoin(root, temporaryPath), { force: true }).catch(() => {});
-  }
-}
-
-async function rollback(root, transaction, projectId) {
-  const conflicts = [];
-  for (const entry of [...transaction.entries].reverse()) {
-    try {
-      const current = await readFileState(root, entry.path);
-      if (sameVersion(current, entry.before)) continue;
-      const collabMatchesBefore = collabFileMatches(`${projectId}:${entry.path}`, entry.before);
-      const collabMatchesAfter = collabFileMatches(`${projectId}:${entry.path}`, entry.after);
-      if (!sameVersion(current, entry.after) || (!collabMatchesBefore && !collabMatchesAfter)) {
-        conflicts.push({ path: entry.path, reason: 'changed_since_application' });
-        continue;
-      }
-      await writeState(root, entry.path, entry.before);
-      if (collabMatchesAfter) syncCollabFile(`${projectId}:${entry.path}`, entry.before.exists ? entry.before.content : '');
-    } catch (error) {
-      conflicts.push({ path: entry.path, reason: error.code || error.message });
-    }
-  }
-  transaction.status = conflicts.length ? 'recovery_required' : 'rolled_back';
-  transaction.recoveryConflicts = conflicts;
-  transaction.recoveredAt = new Date().toISOString();
-  return conflicts;
-}
-
 /** Caller holds the project Run lock through preflight, writes and journal commit. */
 export async function applyPatchTransaction({ projectId, root, document, index, policy, actor, paths }) {
   const run = clone(document.runs[index]);
@@ -81,7 +32,7 @@ export async function applyPatchTransaction({ projectId, root, document, index, 
   // The journal precedes every write, so a process restart can safely roll back
   // an interrupted transaction. Files edited since the interruption are kept.
   if (['applying', 'recovery_required'].includes(run.patchApplication?.status)) {
-    const conflicts = await rollback(root, run.patchApplication, projectId);
+    const conflicts = await rollbackFileTransaction(root, run.patchApplication, projectId);
     await persist();
     if (conflicts.length) {
       throw new HarnessRuntimeError(409, 'PATCH_RECOVERY_REQUIRED', 'An interrupted application needs recovery; newer content was preserved.', { runId: run.id, conflicts });
@@ -123,21 +74,8 @@ export async function applyPatchTransaction({ projectId, root, document, index, 
   run.patchApplication = transaction;
   await persist();
   try {
-    for (const entry of entries) {
-      const current = await readFileState(root, entry.path);
-      if (!sameVersion(current, entry.before)) {
-        throw new HarnessRuntimeError(409, 'PATCH_VERSION_CONFLICT', 'A file changed during application.', { conflicts: [{ path: entry.path }] });
-      }
-      await writeState(root, entry.path, entry.after);
-    }
-    // WebSocket updates can arrive while disk writes await. Recheck the live
-    // documents together, then synchronously publish changes before yielding.
-    const changedDocuments = entries.filter((entry) => !collabFileMatches(`${projectId}:${entry.path}`, entry.before, { deleted: !entry.after.exists }));
-    if (changedDocuments.length) {
-      throw new HarnessRuntimeError(409, 'PATCH_VERSION_CONFLICT', 'A collaborative document changed during application.', { paths: changedDocuments.map((entry) => entry.path) });
-    }
+    await writeFileTransaction({ root, projectId, entries });
     run.appliedPatches = [...alreadyApplied, ...transaction.paths];
-    for (const entry of entries) syncCollabFile(`${projectId}:${entry.path}`, entry.after.exists ? entry.after.content : '');
     run.patchApplication = { ...transaction, status: 'applied', appliedAt: new Date().toISOString() };
     // The success record is sufficient after the atomic Run storage commit.
     delete run.patchApplication.entries;
@@ -148,7 +86,7 @@ export async function applyPatchTransaction({ projectId, root, document, index, 
     run.appliedPatches = [...alreadyApplied];
     run.events = (run.events || []).filter((event) => event.details?.applicationId !== transaction.id);
     run.patchApplication = transaction;
-    const recoveryConflicts = await rollback(root, transaction, projectId);
+    const recoveryConflicts = await rollbackFileTransaction(root, transaction, projectId);
     transaction.error = { code: error.code || 'WRITE_FAILED', message: error.message };
     // Keep original contents in the journal when automatic recovery cannot finish.
     if (!recoveryConflicts.length) delete transaction.entries;

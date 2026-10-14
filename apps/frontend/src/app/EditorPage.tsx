@@ -27,7 +27,7 @@ import { useDocumentDrafts } from './editor/useDocumentDrafts';
 import { loadCollabName, loadSettings, persistCollabName, persistSettings } from './editor/editorSettings';
 import type { AppSettings, CompileEngine } from './editor/editorSettings';
 import { ProjectWorkspaceNav } from './components/ProjectWorkspaceNav';
-import { rememberEditorFile, restoredEditorFile } from './editor/editorLocation';
+import { rememberEditorFile, restoredEditorFile, citationNavigationRange } from './editor/editorLocation';
 import {
   ChevronDown,
   Languages,
@@ -551,14 +551,19 @@ function ProjectEditorSession() {
     onStatus: setStatus
   });
 
-  const openFile = async (filePath: string) => {
+  const openFile = async (filePath: string, expectedVersion?: string) => {
     const request = ++openFileSequenceRef.current;
     let draft = drafts.get(filePath);
-    if (!draft) {
+    if (!draft || (expectedVersion && draft.content === draft.saved && draft.version.sha256 !== expectedVersion)) {
       const data = await getFile(projectId, filePath);
       if (request !== openFileSequenceRef.current || draftsRef.current !== drafts) return '';
-      drafts.loaded(filePath, data.content, data.version);
-      draft = drafts.get(filePath)!;
+      // A source-link refresh must never replace a draft typed during the read.
+      const latest = drafts.get(filePath);
+      if (latest && latest.content !== latest.saved) draft = latest;
+      else {
+        drafts.loaded(filePath, data.content, data.version);
+        draft = drafts.get(filePath)!;
+      }
     }
     rememberEditorFile(projectId, filePath);
     setActivePath(filePath);
@@ -587,6 +592,9 @@ function ProjectEditorSession() {
 
   const sourcePath = searchParams.get('file') || searchParams.get('open') || '';
   const sourceLine = searchParams.get('line') || '';
+  const sourceVersion = searchParams.get('version') || '';
+  const sourceFrom = searchParams.get('from') || '';
+  const sourceTo = searchParams.get('to') || '';
   const sourceNavigationRef = useRef({ openFile, tree, collabEnabled });
   sourceNavigationRef.current = { openFile, tree, collabEnabled };
   useEffect(() => {
@@ -598,8 +606,20 @@ function ProjectEditorSession() {
     }
     let cancelled = false;
     const request = openFileSequenceRef.current + 1;
-    current.openFile(sourcePath).then(() => {
+    current.openFile(sourcePath, sourceVersion).then(() => {
       if (cancelled || request !== openFileSequenceRef.current || activePathRef.current !== sourcePath) return;
+      if (sourceVersion || sourceFrom || sourceTo) {
+        if (current.collabEnabled && isTextPath(sourcePath)) {
+          setStatus(t('已打开引用文件；协同文稿可能变化，请按引用键查找。'));
+          return;
+        }
+        const draft = draftsRef.current.get(sourcePath), view = cmViewRef.current;
+        const range = citationNavigationRange(new URLSearchParams({ version: sourceVersion, from: sourceFrom, to: sourceTo }), draft?.content || '', draft?.version, !draft || draft.content !== draft.saved);
+        if (!range || !view || view.state.doc.toString() !== draft?.content) throw new Error('文稿显示已变化，请按引用键查找。');
+        view.dispatch({ selection: { anchor: range.from, head: range.to }, scrollIntoView: true });
+        view.focus();
+        return;
+      }
       if (!sourceLine) return;
       const line = Number(sourceLine);
       const view = cmViewRef.current;
@@ -618,7 +638,7 @@ function ProjectEditorSession() {
       if (!cancelled && request === openFileSequenceRef.current) setStatus(t('打开来源失败：{{error}}', { error: String(error) }));
     });
     return () => { cancelled = true; ++openFileSequenceRef.current; };
-  }, [sourcePath, sourceLine, treeLoaded, t]);
+  }, [sourcePath, sourceLine, sourceVersion, sourceFrom, sourceTo, treeLoaded, t]);
 
   const clearInlineSuggestion = useCallback(() => {
     inlineSuggestionRef.current = '';

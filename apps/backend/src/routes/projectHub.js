@@ -22,6 +22,9 @@ import { lookupPaperSource } from '../services/projectHub/paperSourceLookup.js';
 import { sourceConfirmations } from '../services/projectHub/paperSourceConfirmation.js';
 import { PaperSourceLookupError } from '../services/researchSources/doiLookup.js';
 
+import { HarnessRuntimeError } from '../services/harnessRuntime/errors.js';
+import { previewManuscriptCitation, applyManuscriptCitation, getManuscriptCitationRequest } from '../services/projectHub/manuscriptCitations.js';
+
 const BASE = '/api/projects/:id';
 
 function bodyOf(req) {
@@ -36,9 +39,10 @@ function sendError(req, reply, error) {
   const message = error instanceof Error ? error.message : String(error);
   const importError = error instanceof PaperImportPreviewError || error instanceof PaperImportConflictError || error instanceof PaperSourceLookupError;
   if (error instanceof PaperSourceLookupError && error.retryAfter) reply.header('Retry-After', String(error.retryAfter));
-  const status = importError ? error.statusCode : /not found/i.test(message) ? 404 : /required|must be|invalid|not retryable|no longer active/i.test(message) ? 400 : 500;
+  const runtimeError = error instanceof HarnessRuntimeError;
+  const status = runtimeError ? error.statusCode : importError ? error.statusCode : /not found/i.test(message) ? 404 : /required|must be|invalid|not retryable|no longer active/i.test(message) ? 400 : 500;
   req.log?.error?.(error);
-  return reply.code(status).send({ ok: false, error: { code: importError ? error.code : (status === 404 ? 'NOT_FOUND' : 'PROJECT_HUB_ERROR'), message } });
+  return reply.code(status).send({ ok: false, error: { code: runtimeError || importError ? error.code : (status === 404 ? 'NOT_FOUND' : 'PROJECT_HUB_ERROR'), message } });
 }
 
 function route(handler) {
@@ -49,6 +53,9 @@ function route(handler) {
 }
 
 export function registerProjectHubRoutes(fastify, { doiLookup, arxivLookup, confirmations = sourceConfirmations } = {}) {
+  fastify.post(`${BASE}/manuscript-citations/preview`, route(req => previewManuscriptCitation(req.params.id, bodyOf(req), {actor:req.headers?.['x-scienceprism-actor'] || req.collabAuth?.sub})));
+  fastify.post(`${BASE}/manuscript-citations`, route(req => applyManuscriptCitation(req.params.id, bodyOf(req), {actor:req.headers?.['x-scienceprism-actor'] || req.collabAuth?.sub})));
+  fastify.get(`${BASE}/manuscript-citations/requests/:requestId`, route(req => getManuscriptCitationRequest(req.params.id,req.params.requestId)));
   fastify.get(`${BASE}/dashboard`, route(async (req) => ({ dashboard: await getProjectDashboard(req.params.id) })));
   fastify.post(`${BASE}/initialize`, route(async (req) => ({ result: await initializeProject(req.params.id, bodyOf(req), actor(req, bodyOf(req))) })));
 
