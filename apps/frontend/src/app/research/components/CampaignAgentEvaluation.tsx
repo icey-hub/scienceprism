@@ -16,10 +16,10 @@ function usageText(usage:CampaignAgentEvaluationRecord['usage']) {
   if(typeof usage.totalTokens==='number')return `${usage.totalTokens.toLocaleString()} ${usage.estimated?'预算计入 tokens（含预留）':'已报告 tokens'}`;
   return '用量尚未报告';
 }
-export function CampaignAgentEvaluation({projectId,campaignId,campaignStatus}:{projectId:string;campaignId:string;campaignStatus:string}) {
-  return <EvaluationWorkspace key={`${projectId}:${campaignId}`} projectId={projectId} campaignId={campaignId} campaignStatus={campaignStatus}/>;
+export function CampaignAgentEvaluation({projectId,campaignId,campaignStatus,ideaId}:{projectId:string;campaignId:string;campaignStatus:string;ideaId?:string}) {
+  return <EvaluationWorkspace key={`${projectId}:${campaignId}`} projectId={projectId} campaignId={campaignId} campaignStatus={campaignStatus} ideaId={ideaId}/>;
 }
-function EvaluationWorkspace({projectId,campaignId,campaignStatus}:{projectId:string;campaignId:string;campaignStatus:string}) {
+function EvaluationWorkspace({projectId,campaignId,campaignStatus,ideaId}:{projectId:string;campaignId:string;campaignStatus:string;ideaId?:string}) {
   const storageKey=`campaign-evaluation-request:${projectId}:${campaignId}`;
   const [records,setRecords]=useState<CampaignAgentEvaluationRecord[]>([]),[selected,setSelected]=useState('');
   const [pending,setPending]=useState<string|null>(()=>{try{const id=sessionStorage.getItem(storageKey);return id&&/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(id)?id:null;}catch{return null;}});
@@ -70,6 +70,7 @@ function EvaluationWorkspace({projectId,campaignId,campaignStatus}:{projectId:st
         {!!record.output.findings.length&&<div className="campaign-agent-findings"><h5>AI 解读与来源</h5><p className="campaign-agent-note">模型表述需核对，数值与配对数量以原始比较表为准。</p><ul>{record.output.findings.map((finding,index)=><li key={index}><p>{finding.text}</p><span>{finding.runIds.filter(id=>record.source.trialRunIds.includes(id)).map(id=><Link key={id} to={task(projectId,`experiment-run:${id}`)}>原试验 {record.source.trialRunIds.indexOf(id)+1} ↗</Link>)}</span></li>)}</ul></div>}
         {!!record.output.limitations.length&&<details open className="campaign-agent-details"><summary>结论局限</summary><ul>{record.output.limitations.map((text,index)=><li key={index}>{text}</li>)}</ul></details>}
         {!!record.output.nextPlanSuggestions.length&&<details className="campaign-agent-details"><summary>下一方案建议 · 尚未执行</summary><ul>{record.output.nextPlanSuggestions.map((text,index)=><li key={index}>{text}</li>)}</ul></details>}
+        {record.sourceCurrent&&ideaId&&record.output.nextPlanSuggestions.length>0&&<p><Link className="research-button research-button-secondary" to={`/editor/${encodeURIComponent(projectId)}/research/innovation?idea=${encodeURIComponent(ideaId)}&campaign=${encodeURIComponent(campaignId)}&evaluation=${encodeURIComponent(record.runId)}`}>选择建议并准备下一版方案 ↗</Link></p>}
         {record.sourceCurrent && <p><Link className="research-button research-button-secondary" to={`/editor/${encodeURIComponent(projectId)}/research/writing?campaign=${encodeURIComponent(campaignId)}&evaluation=${encodeURIComponent(record.runId)}`}>将全部试验与本次评价交给写作 ↗</Link></p>}
         <p className="campaign-agent-note">AI 评价基于冻结条件，不替代统计显著性判断；建议尚未写入方案或启动试验。</p>
       </>:record.status==='completed'?<p className="validation-campaign-error">任务完成，但没有可展示的结构化评价，请查看原任务。</p>:!finished(record.status)?<p className="research-panel-copy">正在读取原评价任务；刷新不会新建模型请求。暂停任务可查看或停止，不会自动重启。</p>:null}

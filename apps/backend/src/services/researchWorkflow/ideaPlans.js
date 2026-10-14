@@ -128,3 +128,5 @@ async function persistIdeaPlan(projectId, ideaId, input, { actor, sourceRunId, r
   const workflow = await updateResearchWorkflow(projectId, options), history = historyFor(workflow, ideaId);
   return structuredClone({ plan: history.at(-1), history });
 }
+
+export { validate as validateIdeaPlanInput, readiness as getIdeaPlanReadiness, historyFor as ideaPlanHistoryFor };

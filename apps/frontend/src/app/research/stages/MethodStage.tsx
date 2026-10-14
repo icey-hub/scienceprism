@@ -1,5 +1,6 @@
 import type { MethodDraft, ReplicationResultSummary as ReplicationResult } from '../researchStages';
 import { ReplicationResultSummary } from './ReplicationResultSummary';
+import { NextAttemptRunPanel } from '../components/NextAttemptRunPanel';
 
 export interface MethodStageProps {
   value: MethodDraft;
@@ -19,6 +20,7 @@ function toLines(value: string) {
 export function MethodStage({ value, replicationResult, candidates = [], selectedIdeaCount, busy = false, onChange, onGenerate, onSave }: MethodStageProps) {
   return (
     <div className="research-page-stack">
+      <NextAttemptRunPanel />
       <ReplicationResultSummary value={replicationResult} heading="复现结果如何约束方法设计" />
       <section className="research-panel">
         <div className="research-panel-heading">

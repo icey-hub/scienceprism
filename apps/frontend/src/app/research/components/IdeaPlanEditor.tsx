@@ -6,7 +6,7 @@ import './IdeaPlanEditor.css';
 
 export interface IdeaPlanEditorProps { projectId:string;idea:InnovationIdea;replicationRunId?:string;onSaved?:()=>void|Promise<void>;readOnly?:boolean; }
 type MetricDraft = {key:string;name:string;direction:IdeaEvaluation['metrics'][number]['direction'];threshold:string};
-interface Draft { hypothesis:IdeaHypothesis;researchType:IdeaEvaluation['researchType'];dataset:string;datasetVersion:string;split:string;seed:string;baselines:string;metrics:MetricDraft[];repetitions:string;ablations:string;maxRuns:string;maxSeconds:string; }
+export interface Draft { hypothesis:IdeaHypothesis;researchType:IdeaEvaluation['researchType'];dataset:string;datasetVersion:string;split:string;seed:string;baselines:string;metrics:MetricDraft[];repetitions:string;ablations:string;maxRuns:string;maxSeconds:string; }
 const hypothesisFields:[keyof IdeaHypothesis,string,string][] = [['problem','待解决的问题','明确现有工作哪里不足'],['prediction','可检验预测','哪些可观察结果支持该假设'],['priorWork','已有工作与文献来源','已有论文、方法及其限制'],['conditions','适用条件与风险','数据范围、成立条件或需要控制的风险'],['falsificationCondition','可证伪条件','什么结果会否定这项假设']];
 const numberInput = (value:string) => value.trim() ? Number(value) : null;
 const lines = (value:string) => value.split('\n').map(item=>item.trim()).filter(Boolean);
@@ -29,17 +29,17 @@ function RelatedWork({projectId,work}:{projectId:string;work?:IdeaPlan['relatedW
     <p>结果来自服务端检索，候选尚未自动入库，也不代表已取得 PDF。查询范围有限，新颖性仍需核查。</p>
   </details>;
 }
-function draftOf(idea:InnovationIdea,plan:IdeaPlan|null):Draft {
+export function draftOf(idea:InnovationIdea,plan:Pick<IdeaPlan,'hypothesis'|'evaluation'>|null):Draft {
   const evaluation=plan?.evaluation;
   return {hypothesis:plan?.hypothesis || {problem:idea.problem||'',prediction:idea.hypothesis||'',priorWork:idea.relatedPaperIds?.join('\n')||'',conditions:idea.risks?.length?`已识别风险：\n${idea.risks.join('\n')}`:'',falsificationCondition:idea.humanReview?.falsificationCondition||''},
     researchType:evaluation?.researchType||'empirical',dataset:evaluation?.dataset||'',datasetVersion:evaluation?.datasetVersion||'',split:evaluation?.split||'',seed:evaluation?.seed??'',baselines:evaluation?.baselines.join('\n')||'',
     metrics:evaluation?.metrics.map(metric=>({...metric,key:crypto.randomUUID(),threshold:metric.threshold==null?'':String(metric.threshold)}))||[],
     repetitions:evaluation?.repetitions==null?'':String(evaluation.repetitions),ablations:evaluation?.ablations.join('\n')||'',maxRuns:evaluation?.budget.maxRuns==null?'':String(evaluation.budget.maxRuns),maxSeconds:evaluation?.budget.maxSeconds==null?'':String(evaluation.budget.maxSeconds)};
 }
-function evaluationOf(draft:Draft):IdeaEvaluation {
+export function evaluationOf(draft:Draft):IdeaEvaluation {
   return {researchType:draft.researchType,dataset:draft.dataset,datasetVersion:draft.datasetVersion,split:draft.split,seed:draft.seed,baselines:lines(draft.baselines),metrics:draft.metrics.map(metric=>({name:metric.name,direction:metric.direction,threshold:numberInput(metric.threshold)})),repetitions:numberInput(draft.repetitions),ablations:lines(draft.ablations),budget:{maxRuns:numberInput(draft.maxRuns),maxSeconds:numberInput(draft.maxSeconds)}};
 }
-function PlanHistory({projectId,plan}:{projectId:string;plan:IdeaPlan}) {
+export function PlanHistory({projectId,plan}:{projectId:string;plan:IdeaPlan}) {
   const evaluation=plan.evaluation;
   return <div className="idea-plan-history-record"><p>版本 {plan.revision} · {plan.createdAt} · {plan.readiness.ready?'方案字段已齐备':'方案仍有缺口'} · 科学假设尚未验证</p>
     <PlanOrigin projectId={projectId} plan={plan}/><RelatedWork projectId={projectId} work={plan.relatedWork}/>
@@ -56,6 +56,30 @@ function PlanHistory({projectId,plan}:{projectId:string;plan:IdeaPlan}) {
       <details className="idea-plan-wide"><summary>查看该版本对比快照（只读）</summary><table><thead><tr><th scope="col">指标</th><th scope="col">论文报告值</th><th scope="col">实测值</th><th scope="col">原因假设 · 未验证</th></tr></thead><tbody>{plan.evidence.rows.map(row=><tr key={row.id}><th scope="row">{row.metricName}</th><td>{row.reportedValue??'未报告'}</td><td>{row.actualValue??'未报告'}</td><td>{row.causeHypothesis||'未记录'}</td></tr>)}</tbody></table></details>
     </div>}
   </div>;
+}
+export function IdeaPlanFields({draft,title,disabled=false,onChange}:{draft:Draft;title:string;disabled?:boolean;onChange:(patch:Partial<Draft>)=>void}) {
+  return <fieldset disabled={disabled} className="idea-plan-fields">
+        {hypothesisFields.map(([key,label,placeholder])=><label className="research-field" key={key}><span>{label}</span><textarea aria-label={`${title} · ${label}`} rows={3} maxLength={4000} placeholder={placeholder} value={draft.hypothesis[key]} onChange={event=>onChange({hypothesis:{...draft.hypothesis,[key]:event.target.value}})}/></label>)}
+        <label className="research-field"><span>研究类型</span><select value={draft.researchType} onChange={event=>onChange({researchType:event.target.value as IdeaEvaluation['researchType']})}><option value="empirical">实证研究</option><option value="computational">计算研究</option><option value="theoretical">理论研究</option></select></label>
+        <label className="research-field"><span>固定数据名称 / ID</span><input value={draft.dataset} maxLength={500} placeholder="已取得的固定数据名称或 ID；未确定可留空" onChange={event=>onChange({dataset:event.target.value})}/></label>
+        <label className="research-field"><span>数据版本</span><input value={draft.datasetVersion} maxLength={500} placeholder="固定版本或校验摘要" onChange={event=>onChange({datasetVersion:event.target.value})}/></label>
+        <label className="research-field"><span>固定随机种子</span><input value={draft.seed} maxLength={100} placeholder="未确定可留空；0 是有效种子" onChange={event=>onChange({seed:event.target.value})}/></label>
+        <label className="research-field idea-plan-wide"><span>数据划分与样本范围</span><textarea rows={2} value={draft.split} maxLength={4000} onChange={event=>onChange({split:event.target.value})}/></label>
+        <label className="research-field"><span>对照基线（每行一个）</span><textarea rows={3} value={draft.baselines} onChange={event=>onChange({baselines:event.target.value})}/></label>
+        <label className="research-field"><span>消融条件（每行一个）</span><textarea rows={3} value={draft.ablations} onChange={event=>onChange({ablations:event.target.value})}/></label>
+        <div className="idea-plan-wide"><div className="idea-plan-metric-heading"><strong>评价指标</strong><button type="button" className="research-button research-button-quiet" onClick={()=>onChange({metrics:[...draft.metrics,{key:crypto.randomUUID(),name:'',direction:'increase',threshold:''}]})}>添加指标</button></div>
+          {!draft.metrics.length&&<p>尚未填写指标；不预设阈值或实验成功。</p>}
+          {draft.metrics.map(metric=><div className="idea-plan-metric" key={metric.key}>
+            <label className="research-field"><span>指标名称</span><input aria-label="假设评价指标名称" value={metric.name} maxLength={200} onChange={event=>onChange({metrics:draft.metrics.map(row=>row.key===metric.key?{...row,name:event.target.value}:row)})}/></label>
+            <label className="research-field"><span>预期方向</span><select value={metric.direction} onChange={event=>onChange({metrics:draft.metrics.map(row=>row.key===metric.key?{...row,direction:event.target.value as MetricDraft['direction']}:row)})}><option value="increase">增加</option><option value="decrease">减少</option><option value="target">达到目标值</option></select></label>
+            <label className="research-field"><span>预设阈值</span><input type="number" step="any" value={metric.threshold} placeholder="未确定" onChange={event=>onChange({metrics:draft.metrics.map(row=>row.key===metric.key?{...row,threshold:event.target.value}:row)})}/></label>
+            <button className="research-button research-button-quiet" type="button" aria-label={`删除评价指标${metric.name||'未命名'}`} onClick={()=>onChange({metrics:draft.metrics.filter(row=>row.key!==metric.key)})}>删除</button>
+          </div>)}
+        </div>
+        <label className="research-field"><span>重复次数</span><input type="number" min="1" step="1" value={draft.repetitions} placeholder="未确定" onChange={event=>onChange({repetitions:event.target.value})}/></label>
+        <label className="research-field"><span>最多运行次数</span><input type="number" min="1" step="1" value={draft.maxRuns} placeholder="未授权预算" onChange={event=>onChange({maxRuns:event.target.value})}/></label>
+        <label className="research-field"><span>总运行上限 · 秒</span><input type="number" min="1" step="1" value={draft.maxSeconds} placeholder="未授权预算" onChange={event=>onChange({maxSeconds:event.target.value})}/></label>
+      </fieldset>;
 }
 export function IdeaPlanEditor(props:IdeaPlanEditorProps) {
   const [opened,setOpened]=useState(false);
@@ -109,28 +133,7 @@ function Editor({projectId,idea,replicationRunId,onSaved,readOnly=false}:IdeaPla
       </div>
       {dirty&&<p className="idea-plan-hint">有未保存的方案草稿，请先保存后再让 AI 补全；检索关键词不会替换假设字段。</p>}
       <RelatedWork projectId={projectId} work={plan?.relatedWork}/>
-      <form onSubmit={event=>void save(event)}><fieldset disabled={busy||readOnly} className="idea-plan-fields">
-        {hypothesisFields.map(([key,label,placeholder])=><label className="research-field" key={key}><span>{label}</span><textarea aria-label={`${idea.title} · ${label}`} rows={3} maxLength={4000} placeholder={placeholder} value={draft.hypothesis[key]} onChange={event=>change({hypothesis:{...draft.hypothesis,[key]:event.target.value}})}/></label>)}
-        <label className="research-field"><span>研究类型</span><select value={draft.researchType} onChange={event=>change({researchType:event.target.value as IdeaEvaluation['researchType']})}><option value="empirical">实证研究</option><option value="computational">计算研究</option><option value="theoretical">理论研究</option></select></label>
-        <label className="research-field"><span>固定数据名称 / ID</span><input value={draft.dataset} maxLength={500} placeholder="已取得的固定数据名称或 ID；未确定可留空" onChange={event=>change({dataset:event.target.value})}/></label>
-        <label className="research-field"><span>数据版本</span><input value={draft.datasetVersion} maxLength={500} placeholder="固定版本或校验摘要" onChange={event=>change({datasetVersion:event.target.value})}/></label>
-        <label className="research-field"><span>固定随机种子</span><input value={draft.seed} maxLength={100} placeholder="未确定可留空；0 是有效种子" onChange={event=>change({seed:event.target.value})}/></label>
-        <label className="research-field idea-plan-wide"><span>数据划分与样本范围</span><textarea rows={2} value={draft.split} maxLength={4000} onChange={event=>change({split:event.target.value})}/></label>
-        <label className="research-field"><span>对照基线（每行一个）</span><textarea rows={3} value={draft.baselines} onChange={event=>change({baselines:event.target.value})}/></label>
-        <label className="research-field"><span>消融条件（每行一个）</span><textarea rows={3} value={draft.ablations} onChange={event=>change({ablations:event.target.value})}/></label>
-        <div className="idea-plan-wide"><div className="idea-plan-metric-heading"><strong>评价指标</strong><button type="button" className="research-button research-button-quiet" onClick={()=>change({metrics:[...draft.metrics,{key:crypto.randomUUID(),name:'',direction:'increase',threshold:''}]})}>添加指标</button></div>
-          {!draft.metrics.length&&<p>尚未填写指标；不预设阈值或实验成功。</p>}
-          {draft.metrics.map(metric=><div className="idea-plan-metric" key={metric.key}>
-            <label className="research-field"><span>指标名称</span><input aria-label="假设评价指标名称" value={metric.name} maxLength={200} onChange={event=>change({metrics:draft.metrics.map(row=>row.key===metric.key?{...row,name:event.target.value}:row)})}/></label>
-            <label className="research-field"><span>预期方向</span><select value={metric.direction} onChange={event=>change({metrics:draft.metrics.map(row=>row.key===metric.key?{...row,direction:event.target.value as MetricDraft['direction']}:row)})}><option value="increase">增加</option><option value="decrease">减少</option><option value="target">达到目标值</option></select></label>
-            <label className="research-field"><span>预设阈值</span><input type="number" step="any" value={metric.threshold} placeholder="未确定" onChange={event=>change({metrics:draft.metrics.map(row=>row.key===metric.key?{...row,threshold:event.target.value}:row)})}/></label>
-            <button className="research-button research-button-quiet" type="button" aria-label={`删除评价指标${metric.name||'未命名'}`} onClick={()=>change({metrics:draft.metrics.filter(row=>row.key!==metric.key)})}>删除</button>
-          </div>)}
-        </div>
-        <label className="research-field"><span>重复次数</span><input type="number" min="1" step="1" value={draft.repetitions} placeholder="未确定" onChange={event=>change({repetitions:event.target.value})}/></label>
-        <label className="research-field"><span>最多运行次数</span><input type="number" min="1" step="1" value={draft.maxRuns} placeholder="未授权预算" onChange={event=>change({maxRuns:event.target.value})}/></label>
-        <label className="research-field"><span>总运行上限 · 秒</span><input type="number" min="1" step="1" value={draft.maxSeconds} placeholder="未授权预算" onChange={event=>change({maxSeconds:event.target.value})}/></label>
-      </fieldset>
+      <form onSubmit={event=>void save(event)}><IdeaPlanFields draft={draft} title={idea.title} disabled={busy||readOnly} onChange={change}/>
       {idea.validationPlan&&idea.validationPlan.length>0&&<details className="idea-plan-reference"><summary>原候选的验证建议</summary><ol>{idea.validationPlan.map((step,index)=><li key={index}>{step}</li>)}</ol><small>原建议仅供填写参考，不自动当作确定的数据、阈值或预算。</small></details>}
       <div className="idea-plan-source"><strong>复现与论文来源</strong>{evidence?<><span>对比 v{evidence.comparisonRevision} · {evidence.paper.title}</span><Link to={`/project/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(`experiment-run:${evidence.runId}`)}`}>原复现 Run</Link><Link to={`/project/${encodeURIComponent(projectId)}/papers/${encodeURIComponent(evidence.paper.id)}/read`}>论文阅读与来源</Link></>:<span>{replicationRunId?'保存时关联当前复现 Run 的对比快照。':'未关联复现证据，可先保存草稿。'}</span>}<Link to={`/editor/${encodeURIComponent(projectId)}/research/replication`}>查看论文复现</Link></div>
       <div className="idea-plan-actions"><span>{dirty?'有未保存更改':'保存会生成新的方案版本'}</span><button className="research-button research-button-quiet" type="button" disabled={busy} onClick={()=>void load(true)}>读取最新版本，保留草稿</button><button className="research-button research-button-primary" disabled={busy||readOnly} type="submit">{saving?'保存中…':'保存方案新版本'}</button></div>

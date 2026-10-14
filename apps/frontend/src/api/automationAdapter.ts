@@ -44,6 +44,7 @@ export interface AutomationState {
     executionPlan?: AutomationExecutionPlan | null; executionPlanVersion?: number; executionPlanSha256?: string | null; executionPlanLocked?: boolean;
     campaignEvaluationVersion?:1;
     writingCampaignSource?:{id:string;campaignEvaluationRunId?:string;sourceSha256:string;actualExperimentRunIds:string[]};
+    planAttempt?:{id:string;ideaId:string;planRevision:number;planSha256:string;source:{campaignId:string;evaluationRunId:string;sourceSha256:string}};
     validationCampaignDesign?:{ideaId:string;expectedPlanRevision:number;planSha256?:string};
     validationCampaign?:{ideaId:string;expectedPlanRevision:number;seeds:string[];variants:ValidationVariant[]} };
 }

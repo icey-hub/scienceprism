@@ -213,7 +213,7 @@ export async function runUiAction(projectId, body, actor, { signal, search = sea
   if (action === 'generate-method') {
     const ideation = stageData(workflow, 'ideation');
     const ideas = ideation.ideas || [];
-    const selected = ideas.filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
+    const selected = ideas.filter((idea) => workflow.activePlanAttempt ? String(idea.id)===workflow.activePlanAttempt.ideaId : idea.selected || (body.ideaIds || []).includes(idea.id));
     const ideaPlans = selected.flatMap(idea => {
       const plan = ideation.ideaPlans?.[idea.id]?.at(-1);
       return plan ? [plan] : [];

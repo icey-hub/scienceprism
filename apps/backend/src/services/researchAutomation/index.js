@@ -6,6 +6,7 @@ import { claimAutomationOwner, inspectAutomationOwner } from './owner.js';
 import { prepareAutomationStage } from './stages.js';
 import { analyzeAutomationReplication } from './paperComparison.js';
 import { evaluateAutomationCampaign } from './campaignEvaluation.js';
+import { resolveAutomationPlanAttempt, assertAutomationPlanAttempt } from './planAttempt.js';
 import { prepareAutomationIdeaPlans } from './ideaPlans.js';
 import { prepareValidationDesign, validateValidationDesignInput } from './validationDesign.js';
 import { ensureValidationCampaign, executeValidationCampaign, cancelValidationCampaign, validateCampaignRequest, getValidationCampaign } from '../validationCampaign/index.js';
@@ -148,6 +149,7 @@ async function checkpoint(projectId, control) {
   if (control.stop || state.session?.id !== control.id || state.session.stopRequested) throw new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止后续步骤。');
   const workflow = await getResearchWorkflow(projectId);
   if (workflow.id !== state.session.workflowId) throw new ResearchWorkflowError(409, 'AUTOMATION_WORKFLOW_CHANGED', '研究流程已被替换。');
+  await assertAutomationPlanAttempt(projectId,workflow,state.session.planAttempt);
   return { state, workflow };
 }
 
@@ -324,6 +326,7 @@ async function walk(projectId, control, runtime) {
       if (step.status === 'completed' && !(stage === 'replication' && state.session.paperComparisonVersion === 1 && !step.skipped && !step.paperComparison)) continue;
       const savedStage = workflow.stages.find(item => item.id === stage);
       if (savedStage.status === 'rejected' || workflow.status === 'blocked') throw new ResearchWorkflowError(409, 'AUTOMATION_REJECTED', '阶段已拒绝，请修订或恢复流程后继续。');
+      if(state.session.planAttempt&&!['approved','skipped'].includes(savedStage.status)&&!allowsAutomatic(state.policy,stage))throw waiting(stage);
       if (stage === 'experiment' && state.session.validationCampaignDesign) {
         const handoff = step.handoff || buildAutomationHandoff({ projectId, workflow, session: state.session, stage, role: automationRole(stage, state.policy.agentMode) });
         state = await changeStep(projectId, control.id, stage, { handoff, status: 'preparing', startedAt: step.startedAt || now() });
@@ -454,6 +457,9 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     catch (error) { if (error.code !== 'WORKFLOW_NOT_FOUND') throw error; workflow = await initializeResearchWorkflow(projectId, { actor: 'human', data: { researchQuestion: String(input.question || '').trim() } }); }
     if (workflow.status === 'completed') throw new ResearchWorkflowError(409, 'WORKFLOW_COMPLETED', '当前研究流程已完成，请保留记录或另建研究流程。');
     const targetStage = input.targetStage || (writingCampaign ? 'writing' : 'ideation');
+    const planAttempt=writingCampaign?null:resolveAutomationPlanAttempt(workflow,input.planAttemptId,validationCampaignDesign);
+    if(input.planAttemptId!==undefined&&(writingCampaign||validationCampaign||workflow.currentStage!=='method'||targetStage!=='experiment'||!validationCampaignDesign))throw new ResearchWorkflowError(409,'AUTOMATION_PLAN_ATTEMPT_REQUIRED','请从新版方法阶段沿AI条件设计运行到实验；新尝试不能替代原批次或只读写作。');
+    await assertAutomationPlanAttempt(projectId,workflow,planAttempt);
     let writingCampaignSource;
     if (writingCampaign) {
       if (workflow.currentStage !== 'writing' || targetStage !== 'writing') throw new ResearchWorkflowError(409, 'WRITING_CAMPAIGN_STAGE_REQUIRED', '完整批次整理仅在写作阶段启动写作链路。');
@@ -463,7 +469,7 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     }
     const approvedExperiment = workflow.currentStage === 'writing' && workflow.stages.find(item => item.id === 'experiment')?.status === 'approved';
     if (validationCampaign || validationCampaignDesign) {
-      if (targetStage !== 'experiment' || !(workflow.currentStage === 'experiment' || approvedExperiment)) throw new ResearchWorkflowError(409, 'CAMPAIGN_STAGE_REQUIRED', '请在实验阶段保存计划，再开始创新试验批次。');
+      if (targetStage !== 'experiment' || !(workflow.currentStage === 'experiment' || approvedExperiment || planAttempt&&validationCampaignDesign&&workflow.currentStage==='method')) throw new ResearchWorkflowError(409, 'CAMPAIGN_STAGE_REQUIRED', '请在实验阶段保存计划，或从明确的新版尝试设计条件，再开始创新试验批次。');
       if (validationCampaign && !approvedExperiment && !getStageReadiness(workflow, 'experiment').ready) throw new ResearchWorkflowError(409, 'CAMPAIGN_MATERIALS_REQUIRED', '请先保存完整实验计划与可执行材料，再配置批次参数。');
       const request = validationCampaign || validationCampaignDesign;
       const { plan } = await getIdeaPlan(projectId, request.ideaId);
@@ -472,6 +478,8 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     if (!stageIds.includes(targetStage) || stageIds.indexOf(targetStage) < stageIds.indexOf(workflow.currentStage) && !((validationCampaign || validationCampaignDesign) && approvedExperiment)) throw new ResearchWorkflowError(400, 'INVALID_AUTOMATION_TARGET', '结束阶段不能早于当前阶段。');
     if (workflow.currentStage === 'direction' && input.question) workflow = await updateResearchWorkflow(projectId, { actor: 'human', stageId: 'direction', expectedVersion: workflow.version, data: { researchQuestion: String(input.question).slice(0, 4000).trim() } });
     const state = await mutateAutomation(projectId, async state => {
+      if(planAttempt){const current=await getResearchWorkflow(projectId);if(current.id!==workflow.id||current.version!==workflow.version||current.currentStage!=='method')throw new ResearchWorkflowError(409,'AUTOMATION_PLAN_ATTEMPT_CHANGED','新尝试已变化，未创建执行链路。');await assertAutomationPlanAttempt(projectId,current,planAttempt);}
+      if(planAttempt&&state.session?.planAttempt?.id===planAttempt.id)throw new ResearchWorkflowError(409,'AUTOMATION_PLAN_ATTEMPT_BOUND','本次尝试已经有原研究链路，请查看或继续原会话，不重复创建。');
       if (writingCampaignSource) {
         const current = await getResearchWorkflow(projectId), source = await readCampaignWritingHandoff(projectId, writingCampaign.campaignId, writingCampaign.evaluationRunId);
         if (current.id !== workflow.id || current.version !== workflow.version || current.currentStage !== 'writing' || source.sourceSha256 !== writingCampaignSource.sourceSha256) throw new ResearchWorkflowError(409, 'WRITING_CAMPAIGN_SOURCE_CHANGED', '写作流程或所选完整批次来源已变化，未启动模型或实验。');
@@ -480,10 +488,11 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
       state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true, paperComparisonVersion: 1, ideaPlanVersion: 1, campaignEvaluationVersion: 1,
         executionPlan, ownerPid: control.owner.pid, createdAt: now(), updatedAt: now(), stopRequested: false,
         ...(writingCampaignSource ? { writingCampaignSource } : {}),
+        ...(planAttempt ? { planAttempt } : {}),
         ...(validationCampaign ? { validationCampaign } : {}),
         ...(validationCampaignDesign ? { validationCampaignDesign } : {}),
         ...(executionPlan ? { executionPlanOrigin: 'human' } : {}),
-        steps: (writingCampaignSource ? ['writing'] : validationCampaign || validationCampaignDesign ? ['experiment'] : stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1)).map(stage => ({ stage, status: 'pending', runIds: [] })) });
+        steps: (writingCampaignSource ? ['writing'] : planAttempt ? ['method','experiment'] : validationCampaign || validationCampaignDesign ? ['experiment'] : stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1)).map(stage => ({ stage, status: 'pending', runIds: [] })) });
     });
     const prepared = await ensureCoordinator(projectId, state);
     queue = queue.catch(() => {}).then(() => walk(projectId, control, runtime));

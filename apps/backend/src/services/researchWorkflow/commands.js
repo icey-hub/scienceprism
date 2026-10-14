@@ -157,7 +157,7 @@ export function saveResearchDirection(projectId, { direction, ...options } = {})
 }
 
 export function updateResearchWorkflow(projectId, options = {}) {
-  if ([options.data, options.patch].some(value => value && Object.hasOwn(value, 'ideaPlans'))) {
+  if ([options.data, options.patch].some(value => value && ['ideaPlans', 'planAttempts', 'activePlanAttempt'].some(key => Object.hasOwn(value, key)))) {
     throw new ResearchWorkflowError(403, 'IDEA_PLAN_VERSION_ENDPOINT_REQUIRED', 'Use the versioned idea plan endpoint to preserve immutable plan history.');
   }
   return mutateWorkflow(projectId, {

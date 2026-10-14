@@ -271,11 +271,16 @@ export function recordAutomationCoordinator(projectId, runId, { sessionId, statu
 function isCampaignEvaluationRequest(request) {
   return request?.source === 'campaign-evaluation' || request?.role === 'campaign-evaluator' || Object.hasOwn(request || {}, 'evaluationSource');
 }
+function isIdeaPlanRevisionRequest(request) {
+  return request?.source === 'idea-plan-revision' || Object.hasOwn(request || {}, 'revisionIdentity');
+}
 function assertEvaluationOverrides(run, request) {
+  if (isIdeaPlanRevisionRequest(request) || isIdeaPlanRevisionRequest(run.request) && Object.keys(request || {}).length) throw new HarnessRuntimeError(403, 'IDEA_PLAN_REVISION_OWNS_REQUEST', 'Use the plan revision owner; generic controls cannot replace its complete source.');
   if (isCampaignEvaluationRequest(request) || isCampaignEvaluationRequest(run.request) && Object.keys(request || {}).length) throw new HarnessRuntimeError(403, 'CAMPAIGN_EVALUATION_OWNS_REQUEST', 'Use the campaign evaluation owner; its frozen request cannot be replaced by generic Harness controls.');
 }
 
-export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId, campaignEvaluationAdmission = false } = {}) {
+export async function createHarnessRun(projectId, request = {}, { coordinatorSessionId, automationSessionId, campaignEvaluationAdmission = false, ideaPlanRevisionAdmission = false } = {}) {
+  if (isIdeaPlanRevisionRequest(request) && ideaPlanRevisionAdmission !== true) throw new HarnessRuntimeError(403, 'IDEA_PLAN_REVISION_ADMISSION_REQUIRED', 'Only the idea plan revision owner may admit this source.');
   if (isCampaignEvaluationRequest(request) && campaignEvaluationAdmission !== true) throw new HarnessRuntimeError(403, 'CAMPAIGN_EVALUATION_ADMISSION_REQUIRED', 'Only the campaign evaluation owner may admit a frozen evaluation Run.');
   if (request.role === 'research-code-coordinator' && !coordinatorSessionId) throw new HarnessRuntimeError(403, 'AUTOMATION_OWNS_COORDINATOR', 'The internal code coordinator cannot be started as an ordinary model Run.');
   const projectRoot = await resolveHarnessProjectRoot(projectId);
@@ -411,7 +416,7 @@ export async function createHarnessRun(projectId, request = {}, { coordinatorSes
     // Conversation and composed execution history must retain proposals,
     // worker identity, sessions and the exact Skill evidence they used.
     const composedParents = new Set(allRuns.filter(old => old.kind === 'codex-worker').map(old => old.parentRunId));
-    const archivable = olderRuns.filter((old) => !['editor', 'paper-reading', 'campaign-evaluation', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
+    const archivable = olderRuns.filter((old) => !['editor', 'paper-reading', 'campaign-evaluation', 'idea-plan-revision', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
       !composedParents.has(old.id) && !old.cleanup?.modelSlotRetained && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
     const archivedIds = new Set(archivable.map((old) => old.id));
     document.runs = allRuns.filter((old) => !archivedIds.has(old.id));
@@ -621,6 +626,7 @@ export async function cancelHarnessRun(projectId, runId, { automationSessionId }
 export async function replayHarnessRun(projectId, runId, { request = {}, start = true } = {}) {
   const original = await getHarnessRun(projectId, runId);
   assertCoordinatorControl(original);
+  if (isIdeaPlanRevisionRequest(original.request)) throw new HarnessRuntimeError(403, 'IDEA_PLAN_REVISION_OWNS_REQUEST', 'Generate a new version through its original plan owner; generic replay cannot preserve this source.');
   if (isCampaignEvaluationRequest(original.request)) throw new HarnessRuntimeError(403, 'CAMPAIGN_EVALUATION_OWNS_REQUEST', 'Request a new evaluation through its campaign owner; generic replay cannot retain or replace its provenance.');
   if (original.kind === 'codex-worker') throw new HarnessRuntimeError(409, 'DELEGATED_RUN_CONTROL', 'Retry the owning DSH task.');
   const run = await createHarnessRun(projectId, { ...original.request, ...request, stage: original.stage, task: original.task, replayOf: original.id });

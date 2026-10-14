@@ -60,6 +60,7 @@ export function toFrontendWorkflow(workflow) {
   const currentStage = STAGE_TO_UI[workflow.currentStage] || workflow.currentStage;
   return {
     id: workflow.id, projectId: workflow.projectId, version: workflow.version, status: workflow.status,
+    ...(workflow.activePlanAttempt ? { activePlanAttempt: structuredClone(workflow.activePlanAttempt) } : {}),
     activeStage: currentStage, currentStage,
     humanInstructions: Object.fromEntries(Object.entries(workflow.humanInstructions || {}).map(([id, text]) => [STAGE_TO_UI[id] || id, text])),
     skillBindings: structuredClone(workflow.skillBindings || {}),

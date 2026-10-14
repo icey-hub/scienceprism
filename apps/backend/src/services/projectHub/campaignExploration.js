@@ -31,7 +31,8 @@ export function addCampaignExploration({ projectId, campaigns, harnessRuns, expe
   }
   for (const run of harnessRuns) {
     const material = run.request?.input?.validationCampaign, target = `harness:${run.id}`;
-    if (!['research:writing_brief', 'research:writing'].includes(run.task) || run.projectId !== projectId || !material || !nodes.has(target)) continue;
+    const accepted=['research:writing_brief','research:writing'].includes(run.task)||run.task==='research:hypothesis_plan'&&run.request?.source==='idea-plan-revision';
+    if (!accepted || run.projectId !== projectId || !material || !nodes.has(target)) continue;
     const { sourceSha256, ...snapshot } = material, campaign = campaignMap.get(material.campaignId);
     try { if (!campaign || snapshot.projectId !== projectId || sourceHash(snapshot) !== sourceSha256) continue; }
     catch { continue; }

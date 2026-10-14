@@ -1,5 +1,6 @@
 import type { InnovationIdea } from '../researchStages';
 import { IdeaPlanEditor } from '../components/IdeaPlanEditor';
+import { IdeaPlanRevision } from '../components/IdeaPlanRevision';
 
 export interface InnovationStageProps {
   projectId?: string;
@@ -61,6 +62,7 @@ export function InnovationStage({ projectId, replicationRunId, onPlanSaved, read
                     {idea.risks?.length ? <ul>{idea.risks.map((risk, riskIndex) => <li key={riskIndex}>{risk}</li>)}</ul> : <p>未记录风险，不代表没有风险。</p>}
                   </details>
                   {projectId&&<IdeaPlanEditor projectId={projectId} idea={idea} replicationRunId={replicationRunId} onSaved={onPlanSaved} readOnly={readOnly||busy}/>}
+                  {projectId&&<IdeaPlanRevision projectId={projectId} idea={idea} onSaved={onPlanSaved} disabled={busy}/>}
                   <div className="research-evidence-list">{(idea.evidence || idea.relatedPaperIds || []).map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
                 </div>
               </article>

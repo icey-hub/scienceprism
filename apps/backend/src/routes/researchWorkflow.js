@@ -22,6 +22,8 @@ import { saveAutomationPolicy } from '../services/researchAutomation/policy.js';
 import { getIdeaPlan, saveIdeaPlan } from '../services/researchWorkflow/ideaPlans.js';
 
 import { generateIdeaPlan } from '../services/researchWorkflow/ideaPlanGeneration.js';
+import { saveNextIdeaPlan, startIdeaPlanAttempt, getIdeaPlanAttempts } from '../services/researchWorkflow/ideaPlanRevision.js';
+import { generateNextIdeaPlan } from '../services/researchWorkflow/ideaPlanRevisionGeneration.js';
 import { campaignEvaluationService } from '../services/validationCampaign/agentEvaluation.js';
 import { listValidationCampaigns } from '../services/validationCampaign/index.js';
 import { listCampaignFigures, createCampaignFigure } from '../services/validationCampaign/figures.js';
@@ -120,7 +122,7 @@ export function registerResearchWorkflowRoutes(fastify, { evaluationService = ca
     fastify.post(`${BASE_PATH}/automation/${action}`, valueRoute(async req => {
       const body = bodyOf(req);
       // Provider secrets live only in the worker, never in persisted policy/session.
-      return handler(req.params.id, { actor: actorFromRequest(req, body), question: body.question, targetStage: body.targetStage, skipReplication: body.skipReplication, executionPlan: body.executionPlan, writingCampaign: body.writingCampaign, recoverExisting: body.recoverExisting,
+      return handler(req.params.id, { actor: actorFromRequest(req, body), question: body.question, targetStage: body.targetStage, skipReplication: body.skipReplication, executionPlan: body.executionPlan, writingCampaign: body.writingCampaign, planAttemptId: body.planAttemptId, validationCampaignDesign: body.validationCampaignDesign, recoverExisting: body.recoverExisting,
         expectedSessionId: body.expectedSessionId, expectedExecutionPlanVersion: body.expectedExecutionPlanVersion }, { llmConfig: body.llmConfig });
     }));
   }
@@ -130,6 +132,13 @@ export function registerResearchWorkflowRoutes(fastify, { evaluationService = ca
   fastify.put(`${BASE_PATH}/ideas/:ideaId/plan`, valueRoute(req => saveIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req),
     { actor: requireActor(actorFromRequest(req)) })));
 
+  fastify.get(`${BASE_PATH}/ideas/:ideaId/plan/attempts`, valueRoute(req => getIdeaPlanAttempts(req.params.id, req.params.ideaId)));
+  fastify.post(`${BASE_PATH}/ideas/:ideaId/plan/next-version`, valueRoute(req => saveNextIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req), { actor: requireActor(actorFromRequest(req)) })));
+  fastify.post(`${BASE_PATH}/ideas/:ideaId/plan/generate-next`, valueRoute(req => generateNextIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req), { actor: requireActor(actorFromRequest(req)) })));
+  fastify.post(`${BASE_PATH}/ideas/:ideaId/plan/:revision/next-attempt`, valueRoute(async req => {
+    const result = await startIdeaPlanAttempt(req.params.id, req.params.ideaId, Number(req.params.revision), bodyOf(req), { actor: requireActor(actorFromRequest(req)) });
+    return { ...result, workflow: toFrontendWorkflow(result.workflow) };
+  }));
   fastify.post(`${BASE_PATH}/ideas/:ideaId/plan/generate`, valueRoute(req => {
     if (requireActor(actorFromRequest(req)) !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', '此入口由人工请求生成方案。');
     return generateIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req));
