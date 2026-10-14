@@ -158,12 +158,26 @@ for (const [name, options, error] of [
   ['old policy grants no code', { scope: false }, 'AUTOMATION_MATERIALS_REQUIRED'],
   ['new entrypoint outside scope is rejected', { wrongPath: true }, 'AUTOMATION_CODE_PATH_DENIED'],
   ['handoff failure cannot bind final materials', { failFreeze: true }, 'CODE_PREPARATION_HANDOFF_MISMATCH'],
-  ['new Python without environment authority preserves frozen code and stops', { python: true, env: false }, 'AUTOMATION_ENVIRONMENT_SCOPE_REQUIRED'],
-  ['saved session plan is preserved without implicit material replacement', { sessionPlan: true }, 'AUTOMATION_EXECUTION_PLAN_LOCKED']
+  ['new Python without environment authority preserves frozen code and stops', { python: true, env: false }, 'AUTOMATION_ENVIRONMENT_SCOPE_REQUIRED']
 ]) test(name, async t => {
   const id = name.replaceAll(' ', '-'), f = await fixture(t, id, options);
   assert.equal(f.state.session.error.code, error, JSON.stringify(f.state.session.error));
   assert.deepEqual(await listExperimentRuns(id), []);
   assert.equal(f.state.session.steps.find(s => s.stage === 'replication').executionPlanBinding, undefined);
   if (!options.failFreeze && !options.python) assert.equal(f.counts.freeze, 0);
+});
+
+test('user plan prepares scoped code and environment while retaining the exact original until the trial can run', async t => {
+  const f = await fixture(t, 'user-materials', { sessionPlan: true, python: true });
+  assert.equal(f.state.session.status, 'waiting_confirmation');
+  assert.equal(f.state.session.error.details.part, 'execution');
+  const step = f.state.session.steps.find(s => s.stage === 'replication');
+  assert.equal(step.codePreparations[0].status, 'completed');
+  assert.equal(step.environmentPreparations[0].status, 'completed');
+  assert.equal(f.state.session.executionPlan.execution.codePreparationId, undefined);
+  assert.equal(f.state.session.executionPlan.execution.environmentId, undefined);
+  assert.equal(f.state.session.executionPlanVersion, 1);
+  assert.equal(step.materialPreparation, undefined); assert.equal(step.executionPlanBinding, undefined);
+  assert.deepEqual(f.counts.models, ['research:code-preparation', 'research:environment_proposal']);
+  assert.equal(f.counts.freeze, 1); assert.equal(f.counts.environment, 1);
 });

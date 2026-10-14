@@ -4,13 +4,15 @@ import { RESEARCH_SPECIALISTS, automationRole } from './agents.js';
 import { buildAutomationHandoff, assertAutomationHandoff, sourceHash } from './handoff.js';
 import { claimAutomationOwner, inspectAutomationOwner } from './owner.js';
 import { prepareAutomationStage } from './stages.js';
-import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked } from './executionPlan.js';
+import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked, prepareAutomationExecutionMaterials } from './executionPlan.js';
 import { getResearchWorkflow } from '../researchWorkflow/queries.js';
 import { initializeResearchWorkflow, updateResearchWorkflow, mutateWorkflow } from '../researchWorkflow/commands.js';
 import { getStageReadiness, RESEARCH_WORKFLOW_STAGES } from '../researchWorkflow/stageContracts.js';
 import { stageData } from '../researchWorkflow/application.js';
 import { createExperimentRun, automaticallyApproveExperiment, startExperimentRun, getExperimentRun, cancelExperimentRun, experimentRunSummary } from '../experimentRunner/index.js';
-import { assertCompletedTrial } from '../experimentRunner/trialContext.js';
+import { assertCompletedTrial, assertTrialExperiment } from '../experimentRunner/trialContext.js';
+import { environmentService } from '../experimentRunner/environments.js';
+import { assertEnvironmentAuthorization } from './environmentAuthorization.js';
 import { readReplicationContextFromWorkflow, readExperimentContextFromWorkflow } from '../experimentRunner/replicationContext.js';
 import { getEvidenceLedger } from '../evidenceLedger/index.js';
 import { getHarnessRun, decideHarnessRun, applyHarnessRunPatches, createAutomationCoordinator, recordAutomationCoordinator, listHarnessRuns, recoverHarnessRun } from '../harnessRuntime/index.js';
@@ -150,10 +152,35 @@ async function handoffCheckpoint(projectId, control, stage, handoff, savedWorkfl
 
 async function bindStageExecutionPlan(projectId, control, stage, plan, origin) {
   await checkpoint(projectId, control);
-  return mutateAutomation(projectId, state => {
+  return mutateAutomation(projectId, async state => {
     control.owner.assertOwned();
     if (control.stop || state.session?.id !== control.id || state.session.stopRequested || state.session.status !== 'running') throw new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止计划消费。');
-    state.session = bindAutomationExecutionPlan(state.session, stage, plan, { origin });
+    const next = prepareAutomationExecutionMaterials(state.session, stage, plan);
+    if (next.executionPlanVersion !== state.session.executionPlanVersion && state.session.executionPlan) {
+      const step = state.session.steps.find(item => item.stage === stage);
+      if (plan.execution.codePreparationId !== state.session.executionPlan.execution.codePreparationId) {
+        const receipt = step.codeTrials.find(item => sourceHash(item.plan) === sourceHash(plan));
+        const trial = await getExperimentRun(projectId, receipt.runId);
+        await assertTrialExperiment(projectId, trial.manifest, { executionBinding: trial.executionBinding });
+        if (trial.status !== 'completed' || trial.execution?.exitCode !== 0 || !trial.execution?.process?.stopConfirmed
+          || trial.executionBinding?.manifestSha256 !== receipt.manifestSha256) throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIAL_TRIAL_REQUIRED', '新代码必须通过原工程试跑。');
+        try { process.kill(trial.execution.process.pid, 0); throw new ResearchWorkflowError(409, 'AUTOMATION_MATERIAL_TRIAL_REQUIRED', '工程试跑进程尚未确认停止。'); }
+        catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+      if (plan.execution.environmentId !== state.session.executionPlan.execution.environmentId) {
+        const entry = step.environmentPreparations.find(item => item.environmentId === plan.execution.environmentId);
+        const auth = entry.authorization, producer = await getHarnessRun(projectId, auth.sourceRunId);
+        assertEnvironmentAuthorization(auth, { projectId, session: state.session, stage, policyVersion: state.version,
+          policy: state.policy, proposal: auth.proposal, sourceRunId: auth.sourceRunId });
+        await environmentService.verify(projectId, entry.environmentId, entry.sha256);
+        if (producer.status !== 'completed' || producer.automationSessionId !== state.session.id || producer.parentRunId !== state.session.coordinatorRunId
+          || producer.stage !== stage || producer.task !== 'research:environment_proposal'
+          || !step.calls?.some(call => call.runId === producer.id && call.task === producer.task)) throw new ResearchWorkflowError(409, 'AUTOMATION_ENVIRONMENT_PRODUCER_CHANGED', '环境来源不属于原研究阶段。');
+      }
+      control.owner.assertOwned();
+      if (control.stop) throw new ResearchWorkflowError(409, 'AUTOMATION_STOPPED', '已停止材料绑定。');
+    }
+    state.session = bindAutomationExecutionPlan(next, stage, plan, { origin });
   });
 }
 

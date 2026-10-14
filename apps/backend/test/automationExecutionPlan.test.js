@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked } from '../src/services/researchAutomation/executionPlan.js';
+import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked, prepareAutomationExecutionMaterials } from '../src/services/researchAutomation/executionPlan.js';
 import { validateAutomationExecution } from '../src/services/researchAutomation/policy.js';
 import { sourceHash } from '../src/services/researchAutomation/handoff.js';
 
@@ -132,4 +132,109 @@ test('invalid and nonfinite material structure is rejected instead of hashed as 
   assert.throws(() => bindAutomationExecutionPlan(current, 'search', plan()), { code: 'INVALID_AUTOMATION_EXECUTION_BINDING' });
   assert.throws(() => bindAutomationExecutionPlan(current, 'replication', plan(), { origin: 'untrusted-freeform' }), { code: 'INVALID_AUTOMATION_EXECUTION_BINDING' });
   assert.throws(() => bindAutomationExecutionPlan(current, 'replication', null), { code: 'INVALID_AUTOMATION_EXECUTION' });
+});
+
+// Structural completed preparation/trial fixtures for this pure transition.
+// The caller must verify actual domain versions, authorization and stopped Run.
+function materialFixture({ environment = false, implicitPaths = false, code = true } = {}) {
+  const original = { ...plan(), execution: { adapter: environment ? 'python' : 'node', entrypoint: environment ? 'run.py' : 'run.mjs', args: [] },
+    ...(implicitPaths ? {} : { codePaths: ['protocol.json'] }) };
+  const current = initializeAutomationExecutionPlan({ ...session(original), status: 'running', currentStage: 'replication', coordinatorRunId: 'coordinator', executionPlanOrigin: 'human' });
+  const codeId = `code-preparation-${'a'.repeat(64)}`, environmentId = 'environment-11111111-1111-4111-8111-111111111111';
+  const target = { ...structuredClone(current.executionPlan), execution: { ...current.executionPlan.execution,
+    ...(code ? { codePreparationId: codeId } : {}), ...(environment ? { environmentId } : {}) },
+    ...(code ? { codePaths: ['protocol.json', current.executionPlan.execution.entrypoint] } : {}) };
+  const step = current.steps[1], input = { executionPlan: structuredClone(current.executionPlan), availableFiles: [{ path: 'protocol.json' }] };
+  if (code) {
+    step.calls = [{ runId: 'code-producer', task: 'research:code-preparation' }];
+    step.codePreparations = [{ status: 'completed', preparationId: codeId, sha256: 'a'.repeat(64), producerRunId: 'code-producer',
+      paths: [current.executionPlan.execution.entrypoint], input,
+      authorization: { sessionId: current.id, parentRunId: current.coordinatorRunId, stage: 'replication', inputSha256: sourceHash(input) } }];
+    step.codeTrials = [{ status: 'completed', runId: 'actual-trial', plan: structuredClone(target), manifestSha256: 'b'.repeat(64),
+      authorization: { sessionId: current.id, parentRunId: current.coordinatorRunId, stage: 'replication', code: { id: codeId, sha256: 'a'.repeat(64) }, draftPlanSha256: sourceHash(target) } }];
+  }
+  if (environment) {
+    step.calls = [...(step.calls || []), { runId: 'environment-producer', task: 'research:environment_proposal' }];
+    step.environmentPreparations = [{ status: 'completed', environmentId, sha256: 'c'.repeat(64), jobId: 'original-environment-job',
+      authorization: { sessionId: current.id, parentRunId: current.coordinatorRunId, stage: 'replication', sourceRunId: 'environment-producer' } }];
+  }
+  return { current, target, step };
+}
+
+test('material completion retains original human plan/version/hash, increments once and leaves formal consumption to bind', () => {
+  for (const options of [{}, { environment: true }, { implicitPaths: true }, { environment: true, code: false }]) {
+    const f = materialFixture(options), before = structuredClone(f.current);
+    const prepared = prepareAutomationExecutionMaterials(f.current, 'replication', f.target);
+    assert.deepEqual(f.current, before); assert.deepEqual(prepared.executionPlan, f.target);
+    assert.equal(prepared.executionPlanVersion, 2); assert.equal(prepared.executionPlanSha256, sourceHash(f.target));
+    assert.equal(prepared.executionPlanOrigin, 'human'); assert.equal(prepared.steps[1].executionPlanBinding, undefined);
+    assert.deepEqual(prepared.steps[1].materialPreparation, { sourcePlan: before.executionPlan, sourceVersion: 1, sourceSha256: before.executionPlanSha256,
+      preparedSha256: sourceHash(f.target), preparedVersion: 2 });
+    assert.deepEqual(prepareAutomationExecutionMaterials(prepared, 'replication', f.target), prepared);
+    assert.deepEqual(initializeAutomationExecutionPlan(prepared), prepared);
+    const bound = bindAutomationExecutionPlan(prepared, 'replication', f.target);
+    assert.deepEqual(bound.steps[1].executionPlanBinding, { version: 2, sha256: sourceHash(f.target) });
+    assert.deepEqual(bound.steps[1].materialPreparation, prepared.steps[1].materialPreparation);
+  }
+  const absent = initializeAutomationExecutionPlan(session());
+  assert.deepEqual(prepareAutomationExecutionMaterials(absent, 'replication', plan()), absent);
+});
+
+test('material completion refuses scientific changes, explicit version replacement and unproven code paths', () => {
+  const f = materialFixture();
+  for (const change of [{ dataset: 'different' }, { datasetVersion: 'different' }, { protocol: 'looser' }, { seed: 2 },
+    { parameters: {} }, { resources: { timeoutMs: 2000 } }, { artifacts: [] }, { successCriteria: ['easier'] },
+    { execution: { ...f.target.execution, args: ['different'] } }, { execution: { ...f.target.execution, entrypoint: 'different.mjs' } },
+    { execution: { ...f.target.execution, adapter: 'python' } }]) {
+    assert.throws(() => prepareAutomationExecutionMaterials(f.current, 'replication', { ...f.target, ...change }), { code: 'AUTOMATION_EXECUTION_MATERIALS_PROTOCOL_CHANGED' });
+  }
+  for (const field of ['codePreparationId', 'environmentId']) {
+    const original = structuredClone(f.current);
+    original.executionPlan.execution[field] = field === 'codePreparationId' ? `code-preparation-${'d'.repeat(64)}` : 'environment-22222222-2222-4222-8222-222222222222';
+    original.executionPlanSha256 = sourceHash(original.executionPlan);
+    assert.throws(() => prepareAutomationExecutionMaterials(original, 'replication', f.target), { code: 'AUTOMATION_EXECUTION_MATERIALS_PROTOCOL_CHANGED' });
+  }
+  for (const paths of [['run.mjs'], ['protocol.json', 'run.mjs', 'main.tex'], ['protocol.json'], ['protocol.json', 'run.mjs', 'run.mjs']]) {
+    const value = materialFixture(), target = { ...value.target, codePaths: paths };
+    value.step.codeTrials[0].plan = target; value.step.codeTrials[0].authorization.draftPlanSha256 = sourceHash(target);
+    assert.throws(() => prepareAutomationExecutionMaterials(value.current, 'replication', target), { code: 'AUTOMATION_EXECUTION_MATERIALS_PATHS_CHANGED' });
+  }
+});
+
+test('material completion requires unique original completed producers, environment records and exact successful engineering trial', () => {
+  for (const change of [f => { f.step.codePreparations[0].status = 'failed'; }, f => { f.step.codePreparations.push(structuredClone(f.step.codePreparations[0])); },
+    f => { f.step.codePreparations[0].authorization.parentRunId = 'other'; }, f => { f.step.codePreparations[0].input.executionPlan.seed = 99; },
+    f => { f.step.calls = []; }, f => { f.step.codePreparations[0].sha256 = 'b'.repeat(64); }]) {
+    const f = materialFixture(); change(f);
+    assert.throws(() => prepareAutomationExecutionMaterials(f.current, 'replication', f.target), { code: 'AUTOMATION_EXECUTION_MATERIALS_CODE_REQUIRED' });
+  }
+  for (const change of [f => { f.step.codeTrials[0].status = 'failed'; }, f => { f.step.codeTrials[0].plan.seed = 99; },
+    f => { f.step.codeTrials[0].manifestSha256 = null; }, f => { f.step.codeTrials[0].authorization.code.id = `code-preparation-${'d'.repeat(64)}`; }]) {
+    const f = materialFixture(); change(f);
+    assert.throws(() => prepareAutomationExecutionMaterials(f.current, 'replication', f.target), { code: 'AUTOMATION_EXECUTION_MATERIALS_TRIAL_REQUIRED' });
+  }
+  for (const change of [f => { f.step.environmentPreparations[0].status = 'failed'; }, f => { f.step.environmentPreparations[0].authorization.stage = 'experiment'; },
+    f => { f.step.environmentPreparations[0].jobId = null; }, f => { f.step.environmentPreparations[0].sha256 = null; }]) {
+    const f = materialFixture({ environment: true, code: false }); change(f);
+    assert.throws(() => prepareAutomationExecutionMaterials(f.current, 'replication', f.target), { code: 'AUTOMATION_EXECUTION_MATERIALS_ENVIRONMENT_REQUIRED' });
+  }
+});
+
+test('material completion stays closed after consumption or stopping and rejects corrupted restoration receipts', () => {
+  for (const marker of [{ prepared: true }, { result: { status: 'failed' } }, { experimentRunId: 'original-run' }, { calls: [{ task: 'research:reproduction_plan' }] }]) {
+    const f = materialFixture(); Object.assign(f.step, marker);
+    assert.throws(() => prepareAutomationExecutionMaterials(f.current, 'replication', f.target), { code: 'AUTOMATION_EXECUTION_PLAN_LOCKED' });
+  }
+  for (const change of [f => { f.current.status = 'paused'; }, f => { f.current.currentStage = 'experiment'; }, f => { f.current.stopRequested = true; }]) {
+    const f = materialFixture(); change(f);
+    assert.throws(() => prepareAutomationExecutionMaterials(f.current, 'replication', f.target), { code: 'AUTOMATION_EXECUTION_MATERIALS_INACTIVE' });
+  }
+  const f = materialFixture(), prepared = prepareAutomationExecutionMaterials(f.current, 'replication', f.target);
+  for (const change of [record => { record.sourceVersion = 0; }, record => { record.sourcePlan.seed = 99; },
+    record => { record.sourceSha256 = 'd'.repeat(64); }, record => { record.preparedVersion = 9; }, record => { record.preparedSha256 = 'd'.repeat(64); },
+    record => { record.extra = true; }]) {
+    const changed = structuredClone(prepared); change(changed.steps[1].materialPreparation);
+    assert.throws(() => initializeAutomationExecutionPlan(changed), { code: 'AUTOMATION_EXECUTION_MATERIALS_CHANGED' });
+  }
+  assert.throws(() => prepareAutomationExecutionMaterials(prepared, 'replication', { ...f.target, seed: 99 }), { code: 'AUTOMATION_EXECUTION_MATERIALS_LOCKED' });
 });

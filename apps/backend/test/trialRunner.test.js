@@ -91,6 +91,27 @@ test('draft trials use an internal registered grant and recover the same persist
   assert.deepEqual(await createTrialAuthorization(f.id, { sessionId: f.session.id, stage: 'replication', plan: f.plan }), f.authorization);
 });
 
+test('an unconsumed user plan can trial verified material and bind a new version without changing its scientific inputs', async () => {
+  const f = await fixture('user-material-trial');
+  const { initializeAutomationExecutionPlan, prepareAutomationExecutionMaterials, bindAutomationExecutionPlan } = await import('../src/services/researchAutomation/executionPlan.js');
+  const { steps, ...versioned } = initializeAutomationExecutionPlan({ ...f.session, executionPlan: f.step.codePreparations[0].input.executionPlan, executionPlanOrigin: 'human' });
+  Object.assign(f.session, versioned);
+  const original = structuredClone(f.session.executionPlan);
+  await f.saveState();
+  f.session.executionPlan.seed = 9; await f.saveState();
+  await assert.rejects(createTrialAuthorization(f.id, { sessionId: f.session.id, stage: 'replication', plan: f.plan }), { code: 'EXPERIMENT_TRIAL_PROTOCOL_CHANGED' });
+  f.session.executionPlan = original; await f.saveState();
+  const run = await approved(f), done = await runner.startExperimentRun(f.id, run.id, controls(f, run));
+  assert.equal(done.status, 'completed', JSON.stringify(done.error));
+  f.step.codeTrials[0] = { ...f.step.codeTrials[0], runId: done.id, status: 'completed', manifestSha256: experimentManifestHash(done.manifest) };
+  Object.assign(f.session, bindAutomationExecutionPlan(prepareAutomationExecutionMaterials(f.session, 'replication', f.plan), 'replication', f.plan));
+  assert.equal(f.session.executionPlanVersion, 2);
+  assert.deepEqual(f.session.steps[0].materialPreparation.sourcePlan, original);
+  assert.equal(f.session.executionPlanOrigin, 'human');
+  await f.saveState();
+  assert.equal((await assertCompletedTrial(f.id, done, { sessionId: f.session.id, stage: 'replication', plan: f.plan })).id, done.id);
+});
+
 test('ordinary create/approve/start/retry cannot forge or bypass an engineering trial', async () => {
   const f = await fixture('public-trial'), run = await approved(f);
   for (const input of [{ purpose: 'engineering-trial', plan: f.plan }, { plan: { ...f.plan, trial: run.manifest.trial } }, { authorization: f.authorization }]) {

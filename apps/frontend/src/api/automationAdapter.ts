@@ -22,6 +22,7 @@ export interface AutomationCodeTrial {
 }
 export interface AutomationStep { stage: string; status: string; runIds: string[]; experimentRunId?: string; result?: { status: string; metrics: {name: string; value: number}[] };
   executionPlanBinding?: { version: number; sha256: string };
+  materialPreparation?:{sourcePlan:AutomationExecutionPlan;sourceVersion:number;sourceSha256:string;preparedSha256:string;preparedVersion:number};
   datasetAcquisitions?: {jobId:string|null;datasetId:string|null;status:string;sha256?:string;authorization:{policyVersion:number;sourceRunId:string;proposal:{filename:string;url:string}}}[];
   calls?: {runId:string;task:string}[];
   environmentPreparations?: {jobId:string|null;status:string;environmentId:string|null;sha256?:string}[];

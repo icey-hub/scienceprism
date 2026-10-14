@@ -19,6 +19,7 @@ import { prepareAutomationCode } from './codePreparation.js';
 import { codePreparationService } from '../experimentRunner/codePreparations.js';
 import { allowsControlledCodePatch } from '../harnessRuntime/dshFileBroker.js';
 import { prepareAutomationCodeTrial } from './codeRepair.js';
+import { isAutomationExecutionPlanLocked } from './executionPlan.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
@@ -89,7 +90,7 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
       }}else{
         if(!allowsAutomatic(policy,'environment'))throw new ResearchWorkflowError(409,'AUTOMATION_CONFIRMATION_REQUIRED','环境准备环节等待授权。',{part:'environment'});
         const result=await run('environment_proposal',{papers,savedPlan:saved,availableFiles:files,
-          ...(policy.codeScope ? {executionPlan:plan,entrypoint:plan?.execution?.entrypoint} : {}),
+          ...(plan ? {executionPlan:plan,entrypoint:plan.execution?.entrypoint} : {}),
           ...(preparedCode ? {preparedCode:{id:preparedCode.preparation.id,files:preparedCode.files.map(file=>({path:file.path,sha256:file.sha256,content:file.content}))}} : {}),
           availableWheels:snapshot.files.filter(file=>file.path.endsWith('.whl')&&file.sha256).map(file=>({path:file.path,sha256:file.sha256,bytes:file.bytes})),
           scope:policy.environmentScope,instructions:'Inspect the existing Python entrypoint and dependency declarations using project reads. Propose only existing fixed wheel paths and their supplied SHA256 hashes. An empty packages list means a standard-library-only environment. If dependencies or executable code are missing, list missing materials. The application prepares and verifies the environment; do not claim installation or experiment success.'});
@@ -134,7 +135,7 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     if (plan.execution?.codePreparationId) {
       preparedCode = await codePreparationService.verify(projectId, plan.execution.codePreparationId, plan.execution.codePreparationId.slice(17));
     } else if (!files.includes(plan.execution?.entrypoint) && policy.codeScope) {
-      if (session.executionPlan) throw new ResearchWorkflowError(409,'AUTOMATION_EXECUTION_PLAN_LOCKED','已保存的链路计划不能隐式添加代码版本；请保留原计划或开始包含代码准备的新链路。');
+      if (isAutomationExecutionPlanLocked(session)) throw new ResearchWorkflowError(409,'AUTOMATION_EXECUTION_PLAN_LOCKED','已执行的链路计划不能更换代码版本。');
       if (!allowsAutomatic(policy,'code')) throw new ResearchWorkflowError(409,'AUTOMATION_CONFIRMATION_REQUIRED','代码准备环节等待授权。',{part:'code'});
       if (!allowsControlledCodePatch(plan.execution?.entrypoint,{patchPaths:policy.codeScope.allowedPaths})) throw new ResearchWorkflowError(409,'AUTOMATION_CODE_PATH_DENIED','计划的代码入口不属于已授权的源码范围。');
       preparedCode = await prepareAutomationCode({projectId,session,stage,input:{papers,executionPlan:plan,
@@ -145,8 +146,8 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     if (preparedCode) {
       for (const file of preparedCode.files) if (!files.includes(file.path)) files.push(file.path);
     }
-    if ((preparedCode||policy.codeScope)&&plan.execution.adapter==='python'&&!plan.execution.environmentId) {
-        if (session.executionPlan) throw new ResearchWorkflowError(409,'AUTOMATION_EXECUTION_PLAN_LOCKED','已保存的链路计划不能隐式添加环境版本。');
+    if ((preparedCode||policy.codeScope||policy.environmentScope)&&plan.execution.adapter==='python'&&!plan.execution.environmentId) {
+        if (isAutomationExecutionPlanLocked(session)) throw new ResearchWorkflowError(409,'AUTOMATION_EXECUTION_PLAN_LOCKED','已执行的链路计划不能更换环境版本。');
         if (!policy.environmentScope && !step.environmentPreparations?.length) throw new ResearchWorkflowError(409,'AUTOMATION_ENVIRONMENT_SCOPE_REQUIRED','新Python代码需要明确的环境准备范围。');
         if (!availableEnvironments.length) await prepareEnvironment();
         if (availableEnvironments.length!==1) throw new ResearchWorkflowError(409,'AUTOMATION_ENVIRONMENT_BINDING_REQUIRED','新Python代码需要唯一已核验的环境版本。');

@@ -14,7 +14,7 @@ import { resolveExperimentDataset } from './datasetInput.js';
 import { ExperimentRunnerError } from './errors.js';
 import { buildExperimentManifest, experimentManifestHash } from './manifest.js';
 import { readExperimentRuns, resolveExperimentProjectRoot } from './repository.js';
-import { initializeAutomationExecutionPlan } from '../researchAutomation/executionPlan.js';
+import { initializeAutomationExecutionPlan, isAutomationExecutionPlanLocked } from '../researchAutomation/executionPlan.js';
 import { safeJoin } from '../../utils/pathUtils.js';
 
 const fail = (code, message) => { throw new ExperimentRunnerError(409, code, message); };
@@ -38,7 +38,7 @@ async function currentSource(projectId, { sessionId, stage, plan }, workflow, { 
   if (session?.id !== sessionId || session.status !== 'running' || session.stopRequested || session.currentStage !== stage
     || session.workflowId !== workflow.id || workflow.projectId !== projectId || !step?.handoff || !sourceStage
     || !['pending', 'in_progress', 'awaiting_approval', ...(completedBinding ? ['approved'] : [])].includes(sourceStage.status)
-    || !completedBinding && (step.executionPlanBinding || step.experimentRunId || session.executionPlan)) {
+    || !completedBinding && (step.executionPlanBinding || step.experimentRunId || isAutomationExecutionPlanLocked(session))) {
     fail('EXPERIMENT_TRIAL_OWNER_CHANGED', 'The original unconsumed research draft and its running coordinator are required.');
   }
   assertAutomationHandoff(step.handoff, { projectId, workflow, session, stage, role: step.handoff.role });
@@ -61,6 +61,9 @@ async function currentSource(projectId, { sessionId, stage, plan }, workflow, { 
     fail('EXPERIMENT_TRIAL_CODE_SOURCE_REQUIRED', 'The original completed code producer and fixed version are required.');
   }
   const base = validateAutomationExecution(entry.input.executionPlan);
+  if (!completedBinding && session.executionPlan && sourceHash(base) !== sourceHash(validateAutomationExecution(session.executionPlan))) {
+    fail('EXPERIMENT_TRIAL_PROTOCOL_CHANGED', 'Code preparation must preserve the exact current user plan before material binding.');
+  }
   if (!base || !isDeepStrictEqual(scientificPlan(base), scientificPlan(draft))
     || base.execution.environmentId && base.execution.environmentId !== draft.execution.environmentId) {
     fail('EXPERIMENT_TRIAL_PROTOCOL_CHANGED', 'An engineering trial cannot change the fixed scientific protocol, seed, metrics, outputs or resource limits.');
@@ -235,7 +238,7 @@ export async function assertRepairableTrial(projectId, run, { sessionId, stage, 
   const rows = (step?.codeTrials || []).filter(item => item.runId === run.id);
   if (state.session?.id !== sessionId || authorization.sessionId !== sessionId || authorization.stage !== stage
     || state.session.coordinatorRunId !== authorization.parentRunId || state.session.currentStage !== stage
-    || state.session.status !== 'running' || state.session.stopRequested || state.session.executionPlan
+    || state.session.status !== 'running' || state.session.stopRequested || isAutomationExecutionPlanLocked(state.session)
     || step.executionPlanBinding || step.experimentRunId || rows.length !== 1 || rows[0].status !== 'failed'
     || !isDeepStrictEqual(rows[0].authorization, authorization) || !isDeepStrictEqual(rows[0].plan, plan)
     || !isDeepStrictEqual(run.manifest.trial.plan, plan) || rows[0].manifestSha256 !== manifestSha256
