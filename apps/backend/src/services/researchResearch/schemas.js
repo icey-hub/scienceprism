@@ -160,7 +160,20 @@ const writingBriefSchema = z.object({
   unsupportedClaims: z.array(nonEmpty).default([])
 }).strict();
 
+const hypothesisPlanSchema = z.object({
+  stage: stage('hypothesis_plan'), ideaId: id.max(200),
+  hypothesis: z.object(Object.fromEntries(['problem', 'prediction', 'priorWork', 'conditions', 'falsificationCondition'].map(key => [key, z.string().max(4000)]))).strict(),
+  evaluation: z.object({
+    researchType: z.enum(['empirical', 'computational', 'theoretical']), dataset: z.string().max(500), datasetVersion: z.string().max(500), seed: z.string().max(100), split: z.string().max(4000),
+    baselines: z.array(z.string().max(500)).max(30),
+    metrics: z.array(z.object({ name: z.string().max(200), direction: z.enum(['increase', 'decrease', 'target']), threshold: z.number().finite().min(-1e100).max(1e100).nullable() }).strict()).max(30),
+    repetitions: z.number().int().positive().max(1000).nullable(), ablations: z.array(z.string().max(500)).max(30),
+    budget: z.object({ maxRuns: z.number().int().positive().max(10000).nullable(), maxSeconds: z.number().finite().positive().max(86400).nullable() }).strict()
+  }).strict()
+}).strict();
+
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
+  hypothesis_plan: hypothesisPlanSchema,
   replication_analysis: z.object({ stage: stage('replication_analysis'), paperId: nonEmpty,
     rows: z.array(z.object({ metricName: nonEmpty.max(200), reportedValue: z.number().finite().nullable(),
       unit: z.string().max(100), referenceLocation: z.string().max(1000), reportedText: z.string().max(4000),
@@ -355,6 +368,12 @@ export function requiredResearchStageKeys(stageName) {
  * schema stay one edit apart.
  */
 const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
+  hypothesis_plan: Object.freeze([
+    'Use exactly input.ideaId. Propose a falsifiable hypothesis and evaluation draft, not a completed experiment or a claim of novelty. Respect the selected candidate and previous human plan.',
+    'Use only input.relatedWork candidates for literature facts. A failed or partial search does not establish originality; leave unsupported facts empty. Replication comparison causeHypothesis remains unverified.',
+    'dataset and datasetVersion must be an id and exact sha256 pair from input.availableDatasets; otherwise use empty strings. Never invent a dataset, paper, reported value, execution result, or permission.',
+    'Specify prediction, conditions, falsificationCondition, split, baselines, metric directions and numeric thresholds, seed, repetitions and ablations when justified. Unknown fields may be empty strings, empty arrays or null. Budgets are proposals only; theoretical plans are not directly executable by the current Runner.'
+  ]),
   replication_analysis: Object.freeze([
     'Use exactly input.paper.id. Compare only the supplied Run and actual archived metrics. Never output actualValue, difference or match status: the application computes these.',
     'reportedValue requires a source excerpt in reportedText and its page/table in referenceLocation. If the paper does not report the metric or the source is unavailable, use null and missing-report; this is not author failure.',

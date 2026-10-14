@@ -95,3 +95,64 @@ test('method generation receives only the latest selected server plan and ignore
   await assert.rejects(saveIdeaPlan(f.id, 'selected-idea', body(f, 2)), { code: 'STAGE_GATE' });
   assert.equal((await getIdeaPlan(f.id, 'selected-idea')).history.length, 2);
 });
+
+const { generateIdeaPlan } = await import('../src/services/researchWorkflow/ideaPlanGeneration.js');
+const { runResearchStage } = await import('../src/services/researchResearch/harnessAdapter.js');
+const { getHarnessRun } = await import('../src/services/harnessRuntime/index.js');
+function searchReceipt(projectId, criteria, status = 'completed') {
+  assert.deepEqual(criteria.sources, ['arxiv', 'openalex']); assert.equal(criteria.pageSize, 5);
+  return { id: `search-${projectId}`, projectId, createdAt: '2026-10-14T00:00:00.000Z', status,
+    failures: status === 'failed' ? [{ source: 'arxiv', code: 'SOURCE_UNAVAILABLE', message: 'Controlled search failure' }] : [],
+    candidates: status === 'failed' ? [] : [{ id: 'actual-search-paper', title: 'Actual search record', year: 2025, doi: '10.1234/search', source: 'openalex' }] };
+}
+function modelPlan(f) { const { hypothesis, evaluation } = body(f); return { stage: 'hypothesis_plan', ideaId: 'selected-idea', hypothesis, evaluation }; }
+
+test('AI generation uses a real fake Harness Run and server search provenance; human revision preserves its origin', async () => {
+  const f = await fixture('plan-ai-origin'); let checkpoints = 0;
+  const generated = await generateIdeaPlan(f.id, 'selected-idea', { expectedRevision: 0 }, {
+    search: async (projectId, criteria) => searchReceipt(projectId, criteria), adapter: 'fake', fakeResponse: JSON.stringify(modelPlan(f)), beforeEffect: async () => { checkpoints++; }
+  });
+  assert.equal(generated.plan.actor, 'ai'); assert.equal(generated.plan.revision, 1); assert.equal(generated.plan.readiness.ready, true);
+  assert.equal(generated.plan.relatedWork.candidates[0].id, 'actual-search-paper'); assert.ok(checkpoints >= 3);
+  const producer = await getHarnessRun(f.id, generated.plan.sourceRunId);
+  assert.equal(producer.status, 'completed'); assert.equal(producer.request.task, 'research:hypothesis_plan');
+  assert.equal(producer.request.input.ideaId, 'selected-idea'); assert.equal(producer.request.input.expectedRevision, 0);
+  assert.equal(producer.request.input.availableDatasets[0].sha256, f.dataset.sha256);
+  assert.deepEqual(producer.request.input.relatedWork, generated.plan.relatedWork);
+  const amended = await saveIdeaPlan(f.id, 'selected-idea', body(f, 1));
+  assert.equal(amended.plan.actor, 'human'); assert.equal(amended.plan.generatedFromRunId, producer.id);
+  assert.deepEqual(amended.plan.relatedWork, generated.plan.relatedWork); assert.equal(amended.history[0].actor, 'ai');
+  await assert.rejects(generateIdeaPlan(f.id, 'selected-idea', { expectedRevision: 2, adapter: 'fake' }), { code: 'IDEA_PLAN_INPUT_INVALID' });
+});
+
+test('human edit during AI generation wins CAS while the completed model Run remains readable', async () => {
+  const f = await fixture('plan-ai-conflict'); let completedRunId;
+  await assert.rejects(generateIdeaPlan(f.id, 'selected-idea', { expectedRevision: 0 }, {
+    search: async (projectId, criteria) => searchReceipt(projectId, criteria),
+    runStage: async request => {
+      const result = await runResearchStage({ ...request, adapter: 'fake', fakeResponse: JSON.stringify(modelPlan(f)) }); completedRunId = result.runId;
+      const human = body(f); human.hypothesis.prediction = 'Human correction made during generation'; await saveIdeaPlan(f.id, 'selected-idea', human);
+      return result;
+    }
+  }), { code: 'IDEA_PLAN_CONFLICT' });
+  const current = await getIdeaPlan(f.id, 'selected-idea'); assert.equal(current.history.length, 1); assert.equal(current.plan.actor, 'human');
+  assert.equal(current.plan.hypothesis.prediction, 'Human correction made during generation');
+  assert.equal((await getHarnessRun(f.id, completedRunId)).status, 'completed');
+});
+
+test('failed search preserves explicit limitations; invalid output retains failed Run without publishing an AI revision', async () => {
+  const f = await fixture('plan-ai-draft'), proposal = modelPlan(f); proposal.hypothesis.priorWork = '';
+  const result = await generateIdeaPlan(f.id, 'selected-idea', { expectedRevision: 0, query: 'controlled query' }, {
+    search: async (projectId, criteria) => searchReceipt(projectId, criteria, 'failed'), adapter: 'fake', fakeResponse: JSON.stringify(proposal)
+  });
+  assert.equal(result.plan.actor, 'ai'); assert.equal(result.plan.readiness.ready, false); assert.equal(result.plan.relatedWork.status, 'failed');
+  assert.equal(result.plan.relatedWork.failures[0].code, 'SOURCE_UNAVAILABLE'); assert.equal(result.plan.relatedWork.candidates.length, 0);
+  assert.ok(result.plan.generationIssue.includes('检索')); assert.equal((await getHarnessRun(f.id, result.plan.sourceRunId)).status, 'completed');
+  let invalidRunId;
+  await assert.rejects(generateIdeaPlan(f.id, 'selected-idea', { expectedRevision: 1 }, {
+    search: async (projectId, criteria) => searchReceipt(projectId, criteria),
+    runStage: async request => { const output = await runResearchStage({ ...request, adapter: 'fake', fakeResponse: 'Invalid model JSON' }); invalidRunId = output.runId; return output; }
+  }), { code: 'IDEA_PLAN_GENERATION_INVALID' });
+  assert.equal((await getIdeaPlan(f.id, 'selected-idea')).history.length, 1);
+  const failed = await getHarnessRun(f.id, invalidRunId); assert.equal(failed.status, 'failed'); assert.equal(failed.error.code, 'OUTPUT_VALIDATION_FAILED');
+});

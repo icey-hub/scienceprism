@@ -21,6 +21,8 @@ import { getAutomation, startAutomation, resumeAutomation, stopAutomation, autom
 import { saveAutomationPolicy } from '../services/researchAutomation/policy.js';
 import { getIdeaPlan, saveIdeaPlan } from '../services/researchWorkflow/ideaPlans.js';
 
+import { generateIdeaPlan } from '../services/researchWorkflow/ideaPlanGeneration.js';
+
 const BASE_PATH = '/api/projects/:id/research-workflow';
 
 function bodyOf(req) {
@@ -104,6 +106,11 @@ export function registerResearchWorkflowRoutes(fastify) {
   fastify.get(`${BASE_PATH}/ideas/:ideaId/plan`, valueRoute(req => getIdeaPlan(req.params.id, req.params.ideaId)));
   fastify.put(`${BASE_PATH}/ideas/:ideaId/plan`, valueRoute(req => saveIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req),
     { actor: requireActor(actorFromRequest(req)) })));
+
+  fastify.post(`${BASE_PATH}/ideas/:ideaId/plan/generate`, valueRoute(req => {
+    if (requireActor(actorFromRequest(req)) !== 'human') throw new ResearchWorkflowError(403, 'HUMAN_INPUT_REQUIRED', '此入口由人工请求生成方案。');
+    return generateIdeaPlan(req.params.id, req.params.ideaId, bodyOf(req));
+  }));
 
   fastify.get(`${BASE_PATH}/stages/:stageId`, valueRoute(async (req) => ({ stage: await getResearchStageDetails(req.params.id, uiStageId(req.params.stageId)) })));
   fastify.get(`${BASE_PATH}/pending-approvals`, valueRoute(async (req) => ({ approvals: await getPendingResearchApprovals(req.params.id) })));

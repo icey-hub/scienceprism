@@ -49,6 +49,7 @@ test('a stale running snapshot cannot relabel a durably completed research chain
   assert.equal(delayedSnapshot, true); assert.equal(actual.session.status, 'completed'); assert.equal(actual.session.message, 'done');
 });
 const runtime = { adapter: 'fake', testInput: {
+  hypothesis_plan: { fakeResponse: JSON.stringify({"stage":"hypothesis_plan","ideaId":"idea1","hypothesis":{"problem":"Small sample","prediction":"A larger held-out sample may differ","priorWork":"Controlled baseline paper; novelty unverified","conditions":"Independent held-out samples","falsificationCondition":"No repeatable difference"},"evaluation":{"researchType":"empirical","dataset":"","datasetVersion":"","split":"Held-out data required","seed":"0","baselines":["original"],"metrics":[{"name":"mean","direction":"target","threshold":4}],"repetitions":3,"ablations":["original sample"],"budget":{"maxRuns":3,"maxSeconds":60}}}) },
   replication_analysis: { fakeResponse: JSON.stringify({ stage: 'replication_analysis', paperId: 'p1', rows: [{ metricName: 'mean', reportedValue: null, unit: '', referenceLocation: '', reportedText: '', causeHypothesis: 'Source report unavailable; no scientific conclusion.', nextStep: 'Supply the source table.', gapType: 'missing-report', tolerance: null }] }) },
   search: { fakeResponse: JSON.stringify({ stage: 'search_strategy', researchQuestion: 'Question', humanDirection: 'Question', queries: ['Question'], sources: ['arxiv'], rationale: 'Controlled strategy' }) },
   paper_selection: { fakeResponse: JSON.stringify({ stage: 'paper_selection', paperIds: ['p1'], rationale: 'Relevant controlled source' }) },
@@ -144,12 +145,42 @@ test('a real Node reproduction is followed by a distinct analysis Agent without 
   assert.equal(workflow.stages.find(stage => stage.id === 'selection').data.task.humanDecision, null);
   const runs = await listHarnessRuns('pipeline');
   assert.ok(runs.some(run => run.role === 'screening-agent' && run.stage === 'selection'));
-  const analysis = runs.find(run => run.role === 'innovation-agent');
+  const analysis = runs.find(run => run.request.task === 'research:innovation_ideas');
   assert.ok(JSON.stringify(analysis.request.input.replicationResults).includes(run.id));
   assert.equal(analysis.request.input.paperComparison.revision, run.paperComparison.revision);
   assert.equal(analysis.request.input.paperComparison.rows[0].actualValue, 4);
+  const savedPlan = workflow.stages.find(stage => stage.id === 'ideation').data.ideaPlans.idea1[0];
+  assert.equal(savedPlan.actor, 'ai'); assert.equal(savedPlan.evidence.runId, run.id);
+  assert.equal(savedPlan.relatedWork.status, 'partial'); assert.equal(savedPlan.relatedWork.candidates[0].id, 'p1');
+  assert.ok(state.session.steps.find(step => step.stage === 'ideation').calls.some(call => call.runId === savedPlan.sourceRunId));
   assert.equal(await readFile(path.join(root, 'data.json'), 'utf8'), '[2,4,6]');
   assert.ok(!JSON.stringify(await readAutomation('pipeline')).includes('apiKey'));
+});
+
+test('idea plan persistence interruption resumes the same generated plan and related-work search', async t => {
+  const id = 'idea-plan-resume'; await project(id); await enable(id);
+  const rename = fileIO.rename.bind(fileIO); let interrupted = false;
+  t.mock.method(fileIO, 'rename', async (from, to) => {
+    if (!interrupted && String(to).endsWith('research-workflow.json')) {
+      const workflow = JSON.parse(await readFile(from, 'utf8'));
+      if (workflow.stages.find(stage => stage.id === 'ideation').data.ideaPlans?.idea1?.length) {
+        interrupted = true; throw Object.assign(new Error('Controlled plan-save interruption'), { code: 'EIO' });
+      }
+    }
+    return rename(from, to);
+  });
+  await startAutomation(id, { actor: 'human', question: 'Question', skipReplication: true }, runtime);
+  const blocked = await settled(id);
+  assert.equal(blocked.session.status, 'blocked', JSON.stringify(blocked.session)); assert(interrupted);
+  const before = await listHarnessRuns(id), sourceCount = sourceCalls;
+  const producer = before.find(run => run.request?.task === 'research:hypothesis_plan');
+  assert.equal(producer.status, 'completed');
+  await resumeAutomation(id, { actor: 'human' }, runtime);
+  const done = await settled(id);
+  assert.equal(done.session.status, 'completed', JSON.stringify(done.session));
+  assert.equal(sourceCalls, sourceCount); assert.equal((await listHarnessRuns(id)).length, before.length);
+  const saved = (await getResearchWorkflow(id)).stages.find(stage => stage.id === 'ideation').data.ideaPlans.idea1;
+  assert.equal(saved.length, 1); assert.equal(saved[0].sourceRunId, producer.id);
 });
 
 test('execution override waits at the real Run and revoked capability still refuses automatic execution', async () => {

@@ -28,10 +28,13 @@ registerResearchSourceAdapter({ id: 'arxiv', label: 'Fixed plan-binding source',
     url: 'https://arxiv.org/abs/2601.00001', venue: 'Test Conference', publicationType: 'conference', peerReviewed: true, source: 'arxiv' }];
 } });
 
+registerResearchSourceAdapter({ id: 'openalex', label: 'Controlled related-work source', async search() { return []; } });
+
 const plan = { dataset: 'data.json', datasetVersion: 'fixture-v1', protocol: 'Calculate the saved sample mean.',
   execution: { adapter: 'node', entrypoint: 'run.mjs', args: [] }, seed: 0, successCriteria: ['Record the actual mean'],
   artifacts: [{ path: 'results/metrics.json', kind: 'metric' }] };
 const runtime = { adapter: 'fake', testInput: {
+  hypothesis_plan: { fakeResponse: JSON.stringify({"stage":"hypothesis_plan","ideaId":"idea1","hypothesis":{"problem":"Small sample","prediction":"A larger held-out sample may differ","priorWork":"Controlled baseline paper; novelty unverified","conditions":"Independent held-out samples","falsificationCondition":"No repeatable difference"},"evaluation":{"researchType":"empirical","dataset":"","datasetVersion":"","split":"Held-out data required","seed":"0","baselines":["original"],"metrics":[{"name":"mean","direction":"target","threshold":4}],"repetitions":3,"ablations":["original sample"],"budget":{"maxRuns":3,"maxSeconds":60}}}) },
   replication_analysis: { fakeResponse: JSON.stringify({ stage: 'replication_analysis', paperId: 'p1', rows: [{ metricName: 'mean', reportedValue: null, unit: '', referenceLocation: '', reportedText: '', causeHypothesis: 'Source report unavailable; no scientific conclusion.', nextStep: 'Supply the source table.', gapType: 'missing-report', tolerance: null }] }) },
   search: { fakeResponse: JSON.stringify({ stage: 'search_strategy', researchQuestion: 'Question', humanDirection: 'Question', queries: ['Question'], sources: ['arxiv'], rationale: 'Controlled source' }) },
   paper_selection: { fakeResponse: JSON.stringify({ stage: 'paper_selection', paperIds: ['p1'], rationale: 'Relevant fixture' }) },

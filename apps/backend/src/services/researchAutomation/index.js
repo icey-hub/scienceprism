@@ -5,6 +5,7 @@ import { buildAutomationHandoff, assertAutomationHandoff, sourceHash } from './h
 import { claimAutomationOwner, inspectAutomationOwner } from './owner.js';
 import { prepareAutomationStage } from './stages.js';
 import { analyzeAutomationReplication } from './paperComparison.js';
+import { prepareAutomationIdeaPlans } from './ideaPlans.js';
 import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked, prepareAutomationExecutionMaterials } from './executionPlan.js';
 import { getResearchWorkflow } from '../researchWorkflow/queries.js';
 import { initializeResearchWorkflow, updateResearchWorkflow, mutateWorkflow } from '../researchWorkflow/commands.js';
@@ -289,6 +290,18 @@ async function walk(projectId, control, runtime) {
         }
         if (!allowsAutomatic(state.policy, stage)) throw waiting(stage);
         if (stage === 'selection' && !stageData(workflow, stage).selectedPaperIds?.length) workflow = await automaticWorkflowDecision(projectId, { sessionId: control.id, stageId: stage, expectedVersion: workflow.version, paperIds: stageData(workflow, stage).automaticSelectionProposal?.paperIds });
+        if (stage === 'ideation' && state.session.ideaPlanVersion === 1) {
+          const handoff = preparedStep.handoff || buildAutomationHandoff({ projectId, workflow, session: state.session, stage, role: automationRole(stage, state.policy.agentMode) });
+          state = await changeStep(projectId, control.id, stage, { handoff, status: 'preparing' });
+          control.preparationPolicyVersion = state.version;
+          workflow = await prepareAutomationIdeaPlans({ projectId, session: state.session, policy: state.policy,
+            runtime: { ...runtime, signal: control.controller.signal }, saveStep: change => changeStep(projectId, control.id, stage, change),
+            beforeEffect: async savedWorkflow => {
+              const current = await checkpoint(projectId, control);
+              if (!allowsAutomatic(current.state.policy, stage)) throw waiting(stage);
+              await handoffCheckpoint(projectId, control, stage, handoff, savedWorkflow);
+            } });
+        }
         if (stage === 'ideation' && stage !== state.session.targetStage) {
           const ideas = stageData(workflow, stage).ideas || [];
           if (!ideas.some(idea => idea.selected)) workflow = await updateResearchWorkflow(projectId, { actor: 'system', stageId: stage, expectedVersion: workflow.version, data: { ideas: ideas.map((idea, index) => ({ ...idea, selected: index === 0 })) } });
@@ -351,7 +364,7 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     if (workflow.currentStage === 'direction' && input.question) workflow = await updateResearchWorkflow(projectId, { actor: 'human', stageId: 'direction', expectedVersion: workflow.version, data: { researchQuestion: String(input.question).slice(0, 4000).trim() } });
     const state = await mutateAutomation(projectId, state => {
       if (state.session && !['completed', 'stopped'].includes(state.session.status)) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_EXISTS', '请继续或停止已有链路，避免重复执行。');
-      state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true, paperComparisonVersion: 1,
+      state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true, paperComparisonVersion: 1, ideaPlanVersion: 1,
         executionPlan, ownerPid: control.owner.pid, createdAt: now(), updatedAt: now(), stopRequested: false,
         ...(executionPlan ? { executionPlanOrigin: 'human' } : {}),
         steps: stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1).map(stage => ({ stage, status: 'pending', runIds: [] })) });

@@ -6,9 +6,8 @@ import { snapshotExperimentCode } from '../experimentRunner/manifest.js';
 import { resolveProjectRoot } from '../researchWorkflow/repository.js';
 import { ResearchWorkflowError } from '../researchWorkflow/errors.js';
 import { automationRole } from './agents.js';
-import { createHash } from 'node:crypto';
 import { createAutomationStageHarness } from './stageHarness.js';
-import { loadPaperSearches, searchProjectPapers } from '../paperSearch.js';
+import { createAutomationStageSearch } from './stageSearch.js';
 import { datasetService } from '../datasets/index.js';
 import { acquireAutomationDataset } from './datasetAcquisition.js';
 import { prepareAutomationEnvironment } from './environmentPreparation.js';
@@ -25,27 +24,10 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
   const direction = stageData(workflow, 'direction');
   const step = session.steps.find(step => step.stage === stage);
-  let searches = [...(step.searches || [])];
   const beforeEffect = runtime.automationCheckpoint || (async () => {});
-  const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
   const runHarness = createAutomationStageHarness({ projectId, session, stage, step, signal: runtime.signal, beforeEffect, saveStep });
   const runStage = params => runResearchStage({ ...params, workflowStage: stage, context: { ...params.context, automationHandoff: step.handoff }, runHarness });
-  const search = async (id, input, options = {}) => {
-    await beforeEffect();
-    const key = `${session.id}:${stage}:${hash(input)}`;
-    const saved = searches.find(item => item.key === key);
-    const previous = (await loadPaperSearches(projectId)).sessions.find(item => item.automation?.key === key);
-    if (previous) {
-      if (previous.automation.sessionId !== session.id || previous.automation.parentRunId !== session.coordinatorRunId) throw new ResearchWorkflowError(409, 'AUTOMATION_SEARCH_OWNER_CHANGED', '检索记录不属于当前交接。');
-      return previous;
-    }
-    if (saved) throw new ResearchWorkflowError(409, 'AUTOMATION_SEARCH_UNRESOLVED', '检索已开始但没有完整回执；请核对已有搜索记录，不会自动重复。');
-    searches.push({ key, status: 'prepared' }); await saveStep({ searches });
-    const result = await searchProjectPapers(id, input, { ...options, signal: runtime.signal, beforeRequest: () => beforeEffect(), beforePersist: () => beforeEffect(),
-      automation: { key, sessionId: session.id, parentRunId: session.coordinatorRunId, stage } });
-    searches = searches.map(item => item.key === key ? { ...item, status: 'completed', searchSessionId: result.id } : item);
-    await saveStep({ searches }); return result;
-  };
+  const search = createAutomationStageSearch({ session, stage, step, signal: runtime.signal, beforeEffect, saveStep });
   const actionOptions = { signal: runtime.signal, runStage, search, beforeCommit: beforeEffect };
   const body = { expectedVersion: workflow.version, role, llmConfig: runtime.llmConfig, adapter: runtime.adapter,
     idempotencyKey: `${session.id}:${stage}:prepare:${session.attempt || 0}`, ...runtime.testInput?.[stage] };

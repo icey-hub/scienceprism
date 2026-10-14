@@ -756,15 +756,21 @@ export interface IdeaEvaluation {
   repetitions:number|null;ablations:string[];budget:{maxRuns:number|null;maxSeconds:number|null};
 }
 export interface IdeaPlan {
-  ideaId:string;revision:number;createdAt:string;actor:'human';hypothesis:IdeaHypothesis;evaluation:IdeaEvaluation;
+  ideaId:string;revision:number;createdAt:string;actor:'human'|'ai';sourceRunId?:string;generatedFromRunId?:string;hypothesis:IdeaHypothesis;evaluation:IdeaEvaluation;
   readiness:{ready:boolean;issues:string[]};
   evidence:null|{runId:string;comparisonRevision:number;paper:{id:string;title:string;doi?:string|null;url?:string|null};rows:PaperComparisonRow[]};
+  relatedWork?:{searchSessionId:string|null;query:string;sources:string[];searchedAt:string;status:string;
+    failures:{source?:string;message?:string;code?:string}[];
+    candidates:{id:string;title:string;year?:number|null;doi?:string|null;url?:string|null;source?:string|null}[]};
 }
 export function getIdeaPlan(projectId:string,ideaId:string) {
   return request<{ok:boolean;plan:IdeaPlan|null;history:IdeaPlan[]}>(`/api/projects/${encodeURIComponent(projectId)}/research-workflow/ideas/${encodeURIComponent(ideaId)}/plan`);
 }
 export function saveIdeaPlan(projectId:string,ideaId:string,input:{expectedRevision:number;hypothesis:IdeaHypothesis;evaluation:IdeaEvaluation;replicationRunId?:string}) {
   return request<{ok:boolean;plan:IdeaPlan;history:IdeaPlan[]}>(`/api/projects/${encodeURIComponent(projectId)}/research-workflow/ideas/${encodeURIComponent(ideaId)}/plan`,{method:'PUT',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
+}
+export function generateIdeaPlan(projectId:string,ideaId:string,input:{expectedRevision:number;query?:string;replicationRunId?:string}) {
+  return request<{ok:boolean;plan:IdeaPlan;history:IdeaPlan[]}>(`/api/projects/${encodeURIComponent(projectId)}/research-workflow/ideas/${encodeURIComponent(ideaId)}/plan/generate`,{method:'POST',headers:{'x-scienceprism-actor':'human'},body:JSON.stringify(input)});
 }
 
 export interface ProjectTask {

@@ -3,6 +3,8 @@ import { updateResearchWorkflow } from './commands.js';
 import { ResearchWorkflowError } from './errors.js';
 import { getExperimentRun } from '../experimentRunner/index.js';
 import { datasetService } from '../datasets/index.js';
+import { getHarnessRun } from '../harnessRuntime/index.js';
+import { sourceHash } from '../researchAutomation/handoff.js';
 
 const fail = (code, message, status = 400) => { throw new ResearchWorkflowError(status, code, message); };
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -74,11 +76,29 @@ export async function getIdeaPlan(projectId, ideaId) {
 
 export async function saveIdeaPlan(projectId, ideaId, input, { actor = 'human' } = {}) {
   if (actor !== 'human') fail('HUMAN_INPUT_REQUIRED', '本入口只保存人工方案。', 403);
+  return persistIdeaPlan(projectId, ideaId, input, { actor });
+}
+
+export async function saveGeneratedIdeaPlan(projectId, ideaId, input, { sourceRunId, relatedWork, candidateSha256, generationIssue, beforeEffect = async () => {} } = {}) {
+  return persistIdeaPlan(projectId, ideaId, input, { actor: 'ai', sourceRunId, relatedWork, candidateSha256, generationIssue, beforeEffect });
+}
+
+async function persistIdeaPlan(projectId, ideaId, input, { actor, sourceRunId, relatedWork, candidateSha256, generationIssue, beforeEffect = async () => {} }) {
   const validated = validate(input);
   const options = { actor, stageId: 'ideation', data: {}, beforeCommit: async workflow => {
+    await beforeEffect();
     const history = historyFor(workflow, ideaId), previous = history.at(-1);
     if (validated.expectedRevision !== (previous?.revision || 0)) fail('IDEA_PLAN_CONFLICT', '方案已更新，请刷新后保存；原版本不会被覆盖。', 409);
     if (history.length >= 100) fail('IDEA_PLAN_HISTORY_LIMIT', '已保留100个方案版本，请保留历史后使用新候选。', 409);
+    let producer;
+    if (actor === 'ai') {
+      const idea = workflow.stages.find(stage => stage.id === 'ideation').data.ideas.find(idea => String(idea.id) === ideaId);
+      if (workflow.currentStage !== 'ideation' || workflow.status === 'completed' || sourceHash(idea) !== candidateSha256) fail('IDEA_PLAN_CANDIDATE_CHANGED', '创新候选或当前阶段已变化，模型结果已保留。', 409);
+      producer = await getHarnessRun(projectId, sourceRunId);
+      if (producer.projectId !== projectId || producer.status !== 'completed' || producer.request?.task !== 'research:hypothesis_plan'
+        || sourceHash(producer.request?.input?.idea) !== candidateSha256 || producer.request?.input?.ideaId !== ideaId || producer.request.input.expectedRevision !== validated.expectedRevision
+        || sourceHash(producer.request.input.relatedWork) !== sourceHash(relatedWork)) fail('IDEA_PLAN_GENERATION_SOURCE_INVALID', '生成方案缺少本项目已完成的原模型来源。', 409);
+    }
     let evidence = previous?.evidence || null;
     if (validated.replicationRunId !== undefined) {
       let run;
@@ -90,8 +110,19 @@ export async function saveIdeaPlan(projectId, ideaId, input, { actor = 'human' }
       if (evidence && (evidence.runId !== run.id || JSON.stringify(evidence.paper) !== JSON.stringify(comparison.paper))) fail('IDEA_PLAN_SOURCE_CHANGED', '此候选已有固定复现来源，请保留原来源并另建候选讨论其它来源。', 409);
       evidence = { runId: run.id, comparisonRevision: comparison.revision, paper: structuredClone(comparison.paper), rows: structuredClone(comparison.rows) };
     }
-    const plan = { ideaId, revision: validated.expectedRevision + 1, createdAt: new Date().toISOString(), actor: 'human',
+    if (actor === 'ai' && sourceHash(producer.request.input.replicationEvidence ?? null) !== sourceHash(evidence)) fail('IDEA_PLAN_SOURCE_CHANGED', '复现对比已更新，原模型结果已保留，请使用最新证据重新生成。', 409);
+    const plan = { ideaId, revision: validated.expectedRevision + 1, createdAt: new Date().toISOString(), actor,
       hypothesis: validated.hypothesis, evaluation: validated.evaluation, readiness: await readiness(projectId, validated.hypothesis, validated.evaluation), evidence };
+    if (actor === 'ai') {
+      plan.sourceRunId = sourceRunId; plan.relatedWork = structuredClone(relatedWork);
+      if (generationIssue || relatedWork.status === 'failed') {
+        plan.generationIssue = generationIssue || '相近工作检索全部失败，未确认新颖性。';
+        plan.readiness.ready = false; plan.readiness.issues.push(plan.generationIssue);
+      }
+    } else if (previous?.relatedWork) {
+      plan.relatedWork = structuredClone(previous.relatedWork);
+      if (previous.sourceRunId || previous.generatedFromRunId) plan.generatedFromRunId = previous.sourceRunId || previous.generatedFromRunId;
+    }
     options.data = { ideaPlans: { [ideaId]: [...history, plan] } };
   } };
   const workflow = await updateResearchWorkflow(projectId, options), history = historyFor(workflow, ideaId);

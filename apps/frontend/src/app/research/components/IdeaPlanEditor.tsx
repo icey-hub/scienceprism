@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { getIdeaPlan, saveIdeaPlan, type IdeaPlan, type IdeaHypothesis, type IdeaEvaluation } from '../../../api/client';
+import { getIdeaPlan, saveIdeaPlan, generateIdeaPlan, type IdeaPlan, type IdeaHypothesis, type IdeaEvaluation } from '../../../api/client';
 import type { InnovationIdea } from '../researchStages';
 import './IdeaPlanEditor.css';
 
@@ -10,6 +10,25 @@ interface Draft { hypothesis:IdeaHypothesis;researchType:IdeaEvaluation['researc
 const hypothesisFields:[keyof IdeaHypothesis,string,string][] = [['problem','待解决的问题','明确现有工作哪里不足'],['prediction','可检验预测','哪些可观察结果支持该假设'],['priorWork','已有工作与文献来源','已有论文、方法及其限制'],['conditions','适用条件与风险','数据范围、成立条件或需要控制的风险'],['falsificationCondition','可证伪条件','什么结果会否定这项假设']];
 const numberInput = (value:string) => value.trim() ? Number(value) : null;
 const lines = (value:string) => value.split('\n').map(item=>item.trim()).filter(Boolean);
+const safePaperUrl = (value?:string|null) => {try{const url=new URL(value||'');return ['http:','https:'].includes(url.protocol)?url.href:null;}catch{return null;}};
+function PlanOrigin({projectId,plan}:{projectId:string;plan:IdeaPlan}) {
+  const sourceRunId = plan.sourceRunId || plan.generatedFromRunId;
+  return <div className="idea-plan-source"><span>{plan.actor==='ai'?'AI 生成':'人工保存'}</span>{sourceRunId&&<Link to={`/project/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(`harness:${sourceRunId}`)}`}>{plan.actor==='ai'?'查看方案生成 Run':'查看原 AI 生成记录'}</Link>}</div>;
+}
+function RelatedWork({projectId,work}:{projectId:string;work?:IdeaPlan['relatedWork']}) {
+  if(!work)return null;
+  const searchHref=`/project/${encodeURIComponent(projectId)}/papers/search?${new URLSearchParams({q:work.query,...(work.searchSessionId?{search:work.searchSessionId}:{})})}`;
+  return <details className="idea-plan-related-work"><summary>相近工作 · {work.candidates.length} 篇检索候选</summary>
+    <p>查询：{work.query} · 来源：{work.sources.join('、')||'未记录'} · {work.searchedAt} · 状态：{work.status}</p>
+    <Link to={searchHref}>查看原检索记录与查询范围</Link>
+    {work.candidates.length>0?<ol>{work.candidates.map(paper=>{const url=safePaperUrl(paper.url);return <li key={paper.id}>
+      {url?<a href={url} target="_blank" rel="noreferrer">{paper.title}</a>:<Link to={`/project/${encodeURIComponent(projectId)}/papers/search?q=${encodeURIComponent(paper.title)}`}>{paper.title}</Link>}
+      <small>{paper.year??'年份未记录'} · {paper.source||'来源未记录'}{paper.doi?` · DOI ${paper.doi}`:''}</small>
+    </li>;})}</ol>:<p>没有取得相近工作候选；不能据此确认新颖性。</p>}
+    {work.failures.length>0&&<div className="idea-plan-error"><strong>检索局限</strong><ul>{work.failures.map((failure,index)=><li key={index}>{failure.source||'来源'}：{failure.message||failure.code||'检索未完成'}</li>)}</ul></div>}
+    <p>结果来自服务端检索，候选尚未自动入库，也不代表已取得 PDF。查询范围有限，新颖性仍需核查。</p>
+  </details>;
+}
 function draftOf(idea:InnovationIdea,plan:IdeaPlan|null):Draft {
   const evaluation=plan?.evaluation;
   return {hypothesis:plan?.hypothesis || {problem:idea.problem||'',prediction:idea.hypothesis||'',priorWork:idea.relatedPaperIds?.join('\n')||'',conditions:idea.risks?.length?`已识别风险：\n${idea.risks.join('\n')}`:'',falsificationCondition:idea.humanReview?.falsificationCondition||''},
@@ -23,6 +42,7 @@ function evaluationOf(draft:Draft):IdeaEvaluation {
 function PlanHistory({projectId,plan}:{projectId:string;plan:IdeaPlan}) {
   const evaluation=plan.evaluation;
   return <div className="idea-plan-history-record"><p>版本 {plan.revision} · {plan.createdAt} · {plan.readiness.ready?'方案字段已齐备':'方案仍有缺口'} · 科学假设尚未验证</p>
+    <PlanOrigin projectId={projectId} plan={plan}/><RelatedWork projectId={projectId} work={plan.relatedWork}/>
     <dl>{hypothesisFields.map(([key,label])=><div key={key}><dt>{label}</dt><dd>{plan.hypothesis[key]||'未填写'}</dd></div>)}
       <div><dt>数据与划分</dt><dd>{evaluation.dataset||'数据未填写'} · {evaluation.datasetVersion||'版本未填写'} · {evaluation.split||'划分未填写'}</dd></div>
       <div><dt>固定随机种子</dt><dd>{evaluation.seed||'未填写'}</dd></div>
@@ -43,7 +63,7 @@ export function IdeaPlanEditor(props:IdeaPlanEditorProps) {
 }
 function Editor({projectId,idea,replicationRunId,onSaved,readOnly=false}:IdeaPlanEditorProps) {
   const [draft,setDraft]=useState<Draft>(()=>draftOf(idea,null)),[plan,setPlan]=useState<IdeaPlan|null>(null),[history,setHistory]=useState<IdeaPlan[]>([]),[historyVersion,setHistoryVersion]=useState('');
-  const [loading,setLoading]=useState(true),[ready,setReady]=useState(false),[saving,setSaving]=useState(false),[dirty,setDirty]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const [loading,setLoading]=useState(true),[ready,setReady]=useState(false),[saving,setSaving]=useState(false),[generating,setGenerating]=useState(false),[dirty,setDirty]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[query,setQuery]=useState(idea.title);
   const alive=useRef(true),lock=useRef(false);
   const load=async(preserveDraft=false)=>{
     if(lock.current)return;lock.current=true;setLoading(true);setError('');
@@ -65,18 +85,34 @@ function Editor({projectId,idea,replicationRunId,onSaved,readOnly=false}:IdeaPla
     catch(reason){if(alive.current)setError(`保存失败，草稿已保留：${String(reason)}。请读取最新版本并核对后手动保存，不会自动重放。`);}
     finally{lock.current=false;if(alive.current)setSaving(false);}
   };
-  const busy=loading||saving,evidence=plan?.evidence,selectedHistory=history.find(item=>String(item.revision)===historyVersion);
+  const generate=async()=>{
+    if(lock.current||!ready||readOnly||dirty)return;
+    lock.current=true;setGenerating(true);setError('');setNotice('检索相近工作并生成方案，可在任务与会话查看运行。');
+    const sourceRunId=plan?.evidence?.runId||replicationRunId;
+    try{const result=await generateIdeaPlan(projectId,idea.id,{expectedRevision:plan?.revision||0,...(query.trim()?{query:query.trim()}:{}),...(sourceRunId?{replicationRunId:sourceRunId}:{})});
+      if(alive.current){setPlan(result.plan);setHistory(result.history);setDraft(draftOf(idea,result.plan));setDirty(false);setNotice(`AI 已保存方案 v${result.plan.revision}；假设与新颖性仍需核查。`);
+        try{await onSaved?.();}catch{if(alive.current)setNotice('方案已保存，流程状态刷新失败请刷新页面。');}}}
+    catch(reason){if(alive.current){setError(`AI 补全失败，原方案与草稿已保留：${String(reason)}。请到原任务核对运行，再手动继续。`);setNotice('');}}
+    finally{lock.current=false;if(alive.current)setGenerating(false);}
+  };
+  const busy=loading||saving||generating,evidence=plan?.evidence,selectedHistory=history.find(item=>String(item.revision)===historyVersion);
   return <div className="idea-plan-body">
     <div className="idea-plan-status"><strong>{plan?`方案 v${plan.revision}`:'尚未保存方案'}</strong><span>{plan?.readiness.ready?'方案字段已齐备':'可保存为草稿'} · 科学假设尚未验证</span></div>
-    {loading&&<p role="status">正在读取方案版本…</p>}{error&&<p className="idea-plan-error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
+    {plan&&<PlanOrigin projectId={projectId} plan={plan}/>}
+    {loading&&<p role="status">正在读取方案版本…</p>}{error&&<p className="idea-plan-error" role="alert">{error} <Link to={`/project/${encodeURIComponent(projectId)}/tasks`}>查看原任务与会话</Link></p>}{notice&&<p role="status">{notice}</p>}
     {!ready&&!loading&&<button className="research-button research-button-quiet" type="button" onClick={()=>void load()}>重新读取</button>}
     {ready&&<>
       {plan?.readiness.issues.length? <div className="idea-plan-issues"><strong>待补充</strong><ul>{plan.readiness.issues.map((issue,index)=><li key={index}>{issue}</li>)}</ul></div>:null}
       {readOnly&&<p>当前阶段仅查看已存方案与历史；返回可编辑的创新阶段后可保存新版本。</p>}
+      <div className="idea-plan-ai"><label className="research-field"><span>相近工作检索关键词</span><input aria-label={`${idea.title} · 相近工作关键词`} value={query} maxLength={500} disabled={busy||readOnly} placeholder="可填写英文关键字，仅用于检索" onChange={event=>setQuery(event.target.value)}/></label>
+        <button className="research-button research-button-secondary" type="button" disabled={busy||readOnly||dirty} onClick={()=>void generate()}>{generating?'正在检索并生成…':'AI 补全验证方案'}</button>
+      </div>
+      {dirty&&<p className="idea-plan-hint">有未保存的方案草稿，请先保存后再让 AI 补全；检索关键词不会替换假设字段。</p>}
+      <RelatedWork projectId={projectId} work={plan?.relatedWork}/>
       <form onSubmit={event=>void save(event)}><fieldset disabled={busy||readOnly} className="idea-plan-fields">
         {hypothesisFields.map(([key,label,placeholder])=><label className="research-field" key={key}><span>{label}</span><textarea aria-label={`${idea.title} · ${label}`} rows={3} maxLength={4000} placeholder={placeholder} value={draft.hypothesis[key]} onChange={event=>change({hypothesis:{...draft.hypothesis,[key]:event.target.value}})}/></label>)}
         <label className="research-field"><span>研究类型</span><select value={draft.researchType} onChange={event=>change({researchType:event.target.value as IdeaEvaluation['researchType']})}><option value="empirical">实证研究</option><option value="computational">计算研究</option><option value="theoretical">理论研究</option></select></label>
-        <label className="research-field"><span>数据集</span><input value={draft.dataset} maxLength={500} placeholder="未确定可留空" onChange={event=>change({dataset:event.target.value})}/></label>
+        <label className="research-field"><span>固定数据名称 / ID</span><input value={draft.dataset} maxLength={500} placeholder="已取得的固定数据名称或 ID；未确定可留空" onChange={event=>change({dataset:event.target.value})}/></label>
         <label className="research-field"><span>数据版本</span><input value={draft.datasetVersion} maxLength={500} placeholder="固定版本或校验摘要" onChange={event=>change({datasetVersion:event.target.value})}/></label>
         <label className="research-field"><span>固定随机种子</span><input value={draft.seed} maxLength={100} placeholder="未确定可留空；0 是有效种子" onChange={event=>change({seed:event.target.value})}/></label>
         <label className="research-field idea-plan-wide"><span>数据划分与样本范围</span><textarea rows={2} value={draft.split} maxLength={4000} onChange={event=>change({split:event.target.value})}/></label>
