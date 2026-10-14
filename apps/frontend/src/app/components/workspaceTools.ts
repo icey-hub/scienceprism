@@ -6,7 +6,7 @@ export const WORKSPACE_TOOLS = [
   { id: 'search', label: '论文搜索', detail: '独立搜索论文，阅读摘要并加入文献库。', icon: Search },
   { id: 'websearch', label: '网页检索', detail: '检索网页、阅读结果并保存研究笔记。', icon: Globe2 },
   { id: 'vision', label: '图像识别', detail: '读取图片或公式，确认后插入文稿。', icon: Image },
-  { id: 'plot', label: '绘图', detail: '生成科研图形，批准后执行并查看产物。', icon: BarChart3 },
+  { id: 'plot', label: '科研图', detail: '管理数据图、图像草稿、版本与矢量导出。', icon: BarChart3 },
   { id: 'review', label: '论文评审', detail: '评审项目文稿，在独立结果页查看审稿意见。', icon: CheckCircle2 },
   { id: 'collab', label: '协作', detail: '生成项目邀请，查看协作连接并进入共享写作。', icon: Users }
 ] as const;
@@ -19,5 +19,6 @@ export function workspaceToolHref(projectId: string, tool: WorkspaceTool) {
   const id = encodeURIComponent(projectId);
   if (tool === 'agent') return `/project/${id}/chat`;
   if (tool === 'search') return `/project/${id}/papers/search`;
+  if (tool === 'plot') return `/project/${id}/lab/figures`;
   return `/project/${id}/tools/${tool}`;
 }

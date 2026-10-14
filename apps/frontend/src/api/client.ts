@@ -1112,25 +1112,6 @@ export function arxivBibtex(payload: { arxivId: string }) {
   );
 }
 
-export function plotFromTable(payload: {
-  projectId: string;
-  tableLatex: string;
-  chartType: string;
-  title?: string;
-  prompt?: string;
-  filename?: string;
-  retries?: number;
-  llmConfig?: Partial<LLMConfig>;
-}) {
-  return request<{ ok: boolean; assetPath?: string; error?: string }>(
-    '/api/plot/from-table',
-    {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    }
-  );
-}
-
 export function generateGptImage(payload: {
   projectId: string;
   prompt: string;

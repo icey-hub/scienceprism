@@ -20,6 +20,7 @@ const EditorPage = lazy(() => import('./EditorPage'));
 const ResearchPage = lazy(() => import('./workspace/ResearchPage'));
 const PaperReaderPage = lazy(() => import('./papers/PaperReaderPage'));
 const DataPage = lazy(() => import('./lab/DataPage'));
+const FigurePage = lazy(() => import('./lab/FigurePage'));
 const PaperSearchPage = lazy(() => import('./papers/PaperSearchPage'));
 
 function LegacyResearchRedirect() {
@@ -44,6 +45,7 @@ export default function App() {
       <Route path="/project/:projectId/:view" element={<ProjectDashboardPage />} />
       <Route path="/project/:projectId/chat" element={<ChatPage />} />
       <Route path="/project/:projectId/lab/data" element={<DataPage />} />
+      <Route path="/project/:projectId/lab/figures" element={<FigurePage />} />
       <Route path="/project/:projectId/papers/search" element={<PaperSearchPage />} />
       <Route path="/project/:projectId/papers/:paperId/read" element={<PaperReaderPage />} />
       <Route path="/project/:projectId/tools/:tool" element={<ToolPage />} />

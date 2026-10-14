@@ -5,7 +5,6 @@ export {
   compileProject,
   getAgentRuntime,
   generateGptImage,
-  plotFromTable,
   runAgent,
   uploadFiles,
   visionToLatex

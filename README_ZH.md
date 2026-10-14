@@ -39,7 +39,9 @@ npm run dev
 
 后端的 `npm run dev` 不会自动读取仓库根目录的 `.env`。如果使用 `.env`，请先在 Shell 中加载；不要把密钥提交到 Git。编辑器 Agent Tools 的默认运行时是 Legacy LangChain；DeepSeek Harness 是可选运行时，需要单独配置 SDK，见 [DeepSeek Harness 说明](docs/deepseek-harness.md)。
 
-编辑器「绘图」侧栏现可用 GPT Image 2 根据文字描述生成 PNG 示意图，保存到当前项目的 `assets/images/`，并插入 LaTeX figure。默认使用编辑器中的模型端点与密钥；如需单独设置后端，可用 `SCIENCEPRISM_IMAGE_ENDPOINT` 和 `SCIENCEPRISM_IMAGE_API_KEY`。端点可填写 `https://example.com/v1` 形式的 OpenAI 兼容地址；后端向 `/v1/images/generations` 发送 `gpt-image-2` 请求。生成的插图是位图；定量科研结果仍应使用可复现的数据绘图。
+项目「科研图」工作区的折叠图像草稿区可用 GPT Image 2 根据文字描述生成 PNG 示意图，保存到当前项目的 `assets/images/`，并插入 LaTeX figure。默认使用编辑器中的模型端点与密钥；如需单独设置后端，可用 `SCIENCEPRISM_IMAGE_ENDPOINT` 和 `SCIENCEPRISM_IMAGE_API_KEY`。端点可填写 `https://example.com/v1` 形式的 OpenAI 兼容地址；后端向 `/v1/images/generations` 发送 `gpt-image-2` 请求。生成的插图是位图；定量科研结果仍应使用可复现的数据绘图。
+
+项目「科研图」工作区（`/project/:projectId/lab/figures`）统一列出表格图与实验图。粘贴 LaTeX 表格可生成柱状图、折线图、热图，或按数值列生成多面板；原始表格及可选的项目源文件与图版本一起保留。旧绘图链接会进入此工作区，图像草稿与文稿插图功能仍可使用。
 
 实验阶段的已完成验证批次提供「真实结果 → 论文图」：选择候选与基线指标，调整标题、坐标名或配色，即可导出 SVG、PDF、PNG、来源 JSON 与固定绘图源码。全部预定种子均须有可核对的配对结果；`n` 指配对种子数，不推测误差条。修改样式会在 `assets/plots/` 保留独立版本。当前渲染器需要 macOS 实验沙箱，以及指向已安装 Matplotlib 的可信 Python 环境的绝对路径 `SCIENCEPRISM_FIGURE_PYTHON`；项目须启用实验执行。出图复用实际结果，不重跑实验或调用模型。
 

@@ -37,7 +37,7 @@ function CampaignFigures({projectId,campaign}:{projectId:string;campaign:Validat
     finally{inFlight.current=false;if(mounted.current)setBusy(false);}
   };
   return <section className="validation-figures" aria-label="真实结果论文图">
-    <div className="validation-evaluation-heading"><h4>真实结果 → 论文图</h4><span className="research-status-note">矢量导出 · 固定数据来源</span></div>
+    <div className="validation-evaluation-heading"><h4>真实结果 → 论文图</h4><Link to={`/project/${encodeURIComponent(projectId)}/lab/figures${figure?`?figure=${encodeURIComponent(figure.id)}`:''}`}>在科研图工作区打开 ↗</Link></div>
     <p className="research-panel-copy">选择实测指标生成配对图，可调整标题、坐标名和配色，并导出矢量文件。</p>
     <form onSubmit={event=>void generate(event)}><fieldset className="validation-figure-controls" disabled={busy}>
       <label className="research-field validation-figure-selection"><span>实测对比 / 指标</span><select value={selection} onChange={event=>choose(event.target.value)}><option value="">请选择实际基线比较</option>{comparisons.map(item=><option key={comparisonKey(item)} value={comparisonKey(item)}>{item.metricName} · {item.candidateLabel} / {item.comparisonLabel} · {item.completeSeeds}/{item.expectedSeeds.length} 配对</option>)}</select></label>

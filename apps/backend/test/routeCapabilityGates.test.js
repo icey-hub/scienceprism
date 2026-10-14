@@ -53,12 +53,12 @@ test('plot generation is denied when the project does not grant experiment.execu
   const response = await app.inject({
     method: 'POST',
     url: '/api/plot/from-table',
-    payload: { projectId, tableLatex: '\\begin{tabular}{cc}a & b\\end{tabular}' }
+    payload: { projectId, tableLatex: '\\begin{tabular}{lr}Group & Value \\\\ A & 1 \\\\ \\end{tabular}' }
   });
 
   const body = response.json();
   assert.equal(body.ok, false);
-  assert.equal(body.code, 'CAPABILITY_DENIED', 'model-authored Python must not run without an explicit capability');
+  assert.equal(body.code, 'CAPABILITY_DENIED', 'fixed figure rendering must not run without an explicit capability');
   await app.close();
 });
 
@@ -75,7 +75,7 @@ test('plot generation is denied when the execution feature flag is off', async (
   const response = await app.inject({
     method: 'POST',
     url: '/api/plot/from-table',
-    payload: { projectId, tableLatex: '\\begin{tabular}{cc}a & b\\end{tabular}' }
+    payload: { projectId, tableLatex: '\\begin{tabular}{lr}Group & Value \\\\ A & 1 \\\\ \\end{tabular}' }
   });
 
   const body = response.json();
