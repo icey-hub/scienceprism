@@ -36,6 +36,7 @@ export async function previewAssistantSkill(projectId, name) {
 
 /** The editor owns task intent; the server owns capabilities and execution. */
 export async function startAssistantRun(projectId, input = {}, overrides = {}) {
+  const source = overrides.source === 'paper-reading' ? 'paper-reading' : 'editor';
   const requestId = text(input.requestId, 100);
   if (!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)) {
     throw new HarnessRuntimeError(400, 'INVALID_REQUEST_ID', 'A task request id is required.');
@@ -47,7 +48,8 @@ export async function startAssistantRun(projectId, input = {}, overrides = {}) {
   }
   const permission = input.permission === 'read' ? 'read' : 'edit';
   const request = {
-    source: 'editor', requestId, permission,
+    source, requestId, permission,
+    ...(source === 'paper-reading' ? { readingSource: overrides.readingSource } : {}),
     ...(input.skillNames === undefined ? {} : { skillNames: [...input.skillNames].sort() }),
     task: text(input.task, 80) || 'custom',
     prompt: text(input.prompt, 16000),
@@ -69,7 +71,7 @@ export async function startAssistantRun(projectId, input = {}, overrides = {}) {
   const fingerprint = createHash('sha256').update(JSON.stringify(request)).digest('hex');
   const previous = starts.get(projectId) || Promise.resolve();
   const pending = previous.catch(() => {}).then(async () => {
-    const [repeated] = await listHarnessRuns(projectId, { source: 'editor', requestId, limit: 1 });
+    const [repeated] = await listHarnessRuns(projectId, { source, requestId, limit: 1 });
     if (repeated) {
       if (repeated.request?.fingerprint && repeated.request.fingerprint !== fingerprint) {
         throw new HarnessRuntimeError(409, 'REQUEST_ID_CONFLICT', 'This request id already belongs to a different task.', { runId: repeated.id });
@@ -77,7 +79,7 @@ export async function startAssistantRun(projectId, input = {}, overrides = {}) {
       return repeated;
     }
     for (const status of ['created', 'running', 'paused']) {
-      const [active] = await listHarnessRuns(projectId, { source: 'editor', status, limit: 1 });
+      const [active] = await listHarnessRuns(projectId, { source, status, limit: 1 });
       if (active) throw new HarnessRuntimeError(409, 'ASSISTANT_BUSY', 'Finish or stop the current task first.', { runId: active.id });
     }
     let selectedSkills = [];

@@ -7,12 +7,14 @@ import { attachmentUrl, type PaperAttachment, type ReadingSelection } from '../.
 import { TranslationPanel } from './TranslationPanel';
 import { usePaperAnnotations } from './usePaperAnnotations';
 import { ReadingNotes } from './ReadingNotes';
+import { ReadingGlossaryPanel } from './ReadingGlossaryPanel';
+import { ReadingExplanationPanel } from './ReadingExplanationPanel';
 
 const noVisible = () => {};
 export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projectId: string; paperId: string; attachment: PaperAttachment }) {
   const { pdf, outline, error } = usePdfDocument(attachmentUrl(projectId, paperId, attachment.id));
   const annotations = usePaperAnnotations(projectId, paperId);
-  const [panel, setPanel] = useState<'translation' | 'notes'>('translation');
+  const [panel, setPanel] = useState<'translation' | 'notes' | 'glossary' | 'explanation'>('translation');
   const scrollRef = useRef<HTMLDivElement>(null);
   const indexRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(1);
@@ -53,7 +55,7 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
   const select = () => {
     if (!scrollRef.current) return;
     const captured = capturePdfSelection(scrollRef.current, attachment.id, attachment.sha256);
-    if (captured.selection) { setSelection(previous => previous?.text === captured.selection!.text && previous.page === captured.selection!.page && previous.fileSha256 === captured.selection!.fileSha256 && JSON.stringify(previous.rects) === JSON.stringify(captured.selection!.rects) ? previous : captured.selection!); setPanel('translation'); setNotice(''); }
+    if (captured.selection) { setSelection(previous => previous?.text === captured.selection!.text && previous.page === captured.selection!.page && previous.fileSha256 === captured.selection!.fileSha256 && JSON.stringify(previous.rects) === JSON.stringify(captured.selection!.rects) ? previous : captured.selection!); setPanel(value=>value==='notes'?'translation':value); setNotice(''); }
     else if (captured.message) setNotice(captured.message);
   };
   const find = async () => {
@@ -98,6 +100,6 @@ export function PdfReadingWorkspace({ projectId, paperId, attachment }: { projec
         </div>
       </div>
     </div>
-    <aside className="reader-right-panel"><nav className="reader-panel-tabs" aria-label="阅读面板"><button aria-pressed={panel === 'translation'} onClick={() => setPanel('translation')}>翻译</button><button aria-pressed={panel === 'notes'} onClick={() => setPanel('notes')}>批注与笔记</button></nav><div hidden={panel !== 'translation'}><TranslationPanel projectId={projectId} paperId={paperId} selection={selection} onLocate={goToPage} onSave={annotations.save} /></div><div hidden={panel !== 'notes'}><ReadingNotes controller={annotations} hash={attachment.sha256} onLocate={goToPage} /></div></aside>
+    <aside className="reader-right-panel"><nav className="reader-panel-tabs" aria-label="阅读面板"><button aria-pressed={panel === 'translation'} onClick={() => setPanel('translation')}>翻译</button><button aria-pressed={panel === 'notes'} onClick={() => setPanel('notes')}>批注与笔记</button><button aria-pressed={panel === 'glossary'} onClick={()=>setPanel('glossary')}>术语</button><button aria-pressed={panel === 'explanation'} onClick={()=>setPanel('explanation')}>解释</button></nav><div hidden={panel !== 'translation'}><TranslationPanel projectId={projectId} paperId={paperId} selection={selection} onLocate={goToPage} onSave={annotations.save} /></div><div hidden={panel !== 'notes'}><ReadingNotes controller={annotations} hash={attachment.sha256} onLocate={goToPage} /></div><div hidden={panel !== 'glossary'}><ReadingGlossaryPanel projectId={projectId} paperId={paperId} attachmentId={attachment.id} fileSha256={attachment.sha256} selection={selection} onLocate={goToPage}/></div><div hidden={panel !== 'explanation'}><ReadingExplanationPanel projectId={projectId} paperId={paperId} attachmentId={attachment.id} fileSha256={attachment.sha256} selection={selection} onLocate={goToPage} active={panel==='explanation'}/></div></aside>
   </div>;
 }

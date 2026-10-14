@@ -92,6 +92,48 @@ Settings and identity receipts are stored in `.scienceprism/translation.json`
 without original text, translations or credentials. The default ledger retains
 up to 4096 identities and 4 MiB; full storage rejects new identities while
 preserving existing ones. This owner supports one backend process per data
-directory. Multi-process accounting, receipt archival/reconciliation controls,
-official provider budgets, terminology and model explanations need subsequent
-integration.
+directory. Multi-process accounting, receipt archival/reconciliation controls
+and vendor-account budget reconciliation need subsequent integration.
+
+## Reading glossary
+
+The reader's **Terms** tab stores human definitions at project scope. A term may
+link to a PDF selection (paper, attachment SHA-256, page, quote and rectangles).
+Saving verifies the actual attachment version and page; the link identifies the
+reader selection, without claiming OCR or semantic verification of the quote.
+Definitions do not replace translations or configure provider-native glossaries.
+
+`GET /api/projects/:id/reading-glossary` returns `entries` and a numeric `revision`.
+Create with `POST {expectedRevision, entry}`, edit with
+`PATCH /:entryId {expectedRevision, patch}`, and delete with
+`DELETE /:entryId {expectedRevision}`. Writes require the existing human actor
+header, `x-scienceprism-actor: human`. Entries contain `term`, `definition`,
+`sourceLanguage`, `targetLanguage`, and optional `source`; setting `source` to
+`null` detaches it. Server-generated IDs and timestamps cannot be supplied.
+A stale revision returns `409 GLOSSARY_CONFLICT`; refresh retains unsaved input
+for review. The project file `.scienceprism/reading-glossary.json` is written
+atomically and supports up to 1,000 entries, 200-character terms and
+4,000-character definitions.
+
+## Selected-text AI explanations
+
+The **AI explanation** tab calls the configured DeepSeek Harness only after an
+explicit click. It accepts the current selection and an optional question, uses
+the existing project token/time limits, and grants no file, network or execution
+tools. It does not silently fall back to another runtime or translation provider.
+The answer is a model interpretation, separately labelled from the original text
+and translation, and is not automatically saved into the manuscript or glossary.
+
+`POST /api/projects/:id/papers/:paperId/explanations` accepts
+`{requestId, selection, targetLanguage, question?}`. The selection includes `id`,
+`text`, `page`, `fileSha256`, `attachmentId` and normalized `rects`. The server
+verifies the owned PDF bytes, version and page before creating the original
+Harness Run with source `paper-reading`. The response is `{run}`; results live in
+`run.reply`, and `run.request.readingSource` preserves the input provenance.
+The browser cannot override model credentials or tool permissions.
+
+The same request ID returns the original Run, including after cancellation or
+restart; different input under that ID is rejected. Existing Run APIs provide
+status and cancellation. `GET` on the explanation URL returns the latest 100
+Runs for that paper. Refreshing history or switching selections does not launch
+a model request. Results remain attached to their original selection.

@@ -128,7 +128,7 @@ async function getRunDocument(projectId) {
     let recovered = false;
     for (const run of stored.runs) {
       if ((run.status === 'running' && !activeRuns.has(run.id)) ||
-          (run.status === 'created' && run.request?.source === 'editor' && run.runtimeInstanceId !== runtimeInstanceId)) {
+          (run.status === 'created' && ['editor', 'paper-reading'].includes(run.request?.source) && run.runtimeInstanceId !== runtimeInstanceId)) {
         run.status = 'failed';
         run.finishedAt = now();
         run.updatedAt = run.finishedAt;
@@ -402,7 +402,7 @@ export async function createHarnessRun(projectId, request = {}, { coordinatorSes
     // Conversation and composed execution history must retain proposals,
     // worker identity, sessions and the exact Skill evidence they used.
     const composedParents = new Set(allRuns.filter(old => old.kind === 'codex-worker').map(old => old.parentRunId));
-    const archivable = olderRuns.filter((old) => !['editor', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
+    const archivable = olderRuns.filter((old) => !['editor', 'paper-reading', 'research-automation'].includes(old.request?.source) && old.kind !== 'codex-worker' &&
       !composedParents.has(old.id) && !old.cleanup?.modelSlotRetained && TERMINAL_HARNESS_RUN_STATUSES.includes(old.status));
     const archivedIds = new Set(archivable.map((old) => old.id));
     document.runs = allRuns.filter((old) => !archivedIds.has(old.id));
@@ -436,7 +436,7 @@ export async function getHarnessRun(projectId, runId) {
   return clone(run);
 }
 
-export async function listHarnessRuns(projectId, { status, stage, parentRunId, source, requestId, limit = 50 } = {}) {
+export async function listHarnessRuns(projectId, { status, stage, parentRunId, source, requestId, readingPaperId, limit = 50 } = {}) {
   const { document } = await getRunDocument(projectId);
   const max = numberOr(limit, 50, { min: 1, max: 100 });
   const includeArchived = Boolean(parentRunId || source || requestId);
@@ -445,6 +445,7 @@ export async function listHarnessRuns(projectId, { status, stage, parentRunId, s
     .filter((run) => (!parentRunId || run.parentRunId === parentRunId))
     .filter((run) => (!source || run.request?.source === source))
     .filter((run) => (!requestId || run.request?.requestId === requestId))
+    .filter((run) => (!readingPaperId || run.request?.readingSource?.paperId === readingPaperId))
     .slice(0, max)
     .map(clone);
 }
