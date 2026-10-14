@@ -20,6 +20,8 @@ import { allowsControlledCodePatch } from '../harnessRuntime/dshFileBroker.js';
 import { prepareAutomationCodeTrial } from './codeRepair.js';
 import { isAutomationExecutionPlanLocked } from './executionPlan.js';
 import { getHarnessRun } from '../harnessRuntime/index.js';
+import { prepareCampaignWritingRequest, assertCampaignWritingContext, readCampaignWritingHandoff } from '../researchWorkflow/campaignWritingHandoff.js';
+import { sourceHash } from './handoff.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
@@ -30,7 +32,8 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     ['ideaId','expectedPlanRevision','planSha256','plan','seeds','variants','implementationNotes','sourceRunId'].map(key => [key,validationDesign[key]])) } : {};
   const beforeEffect = runtime.automationCheckpoint || (async () => {});
   const runHarness = createAutomationStageHarness({ projectId, session, stage, step, signal: runtime.signal, beforeEffect, saveStep });
-  const runStage = params => runResearchStage({ ...params, workflowStage: stage, context: { ...params.context, automationHandoff: step.handoff }, runHarness });
+  const runStage = params => runResearchStage({ ...params, workflowStage: stage, context: { ...params.context, automationHandoff: step.handoff },
+    runHarness:params.input?.validationCampaign?async request=>{const complete=await prepareCampaignWritingRequest(projectId,request);return runHarness(complete,{onPrepared:prepared=>assertCampaignWritingContext(prepared,complete)});}:runHarness });
   const search = createAutomationStageSearch({ session, stage, step, signal: runtime.signal, beforeEffect, saveStep });
   const actionOptions = { signal: runtime.signal, runStage, search, beforeCommit: beforeEffect };
   const body = { expectedVersion: workflow.version, role, llmConfig: runtime.llmConfig, adapter: runtime.adapter,
@@ -180,9 +183,18 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
   const action = { ideation: 'generate-ideas', method: 'generate-method', writing: 'handoff-writing' }[stage];
   if (!action) throw new ResearchWorkflowError(409, 'AUTOMATION_STAGE_UNSUPPORTED', '该阶段没有执行器。');
   const results = session.steps.filter(step => step.result).map(step => step.result);
+  const experimentStep=session.steps.find(step=>step.stage==='experiment');
+  const writingCampaign=stage==='writing'?session.writingCampaignSource:null;
+  const campaignId=stage==='writing'?writingCampaign?.id||experimentStep?.campaignId:null;
+  const campaignEvaluation=writingCampaign?null:campaignId?experimentStep?.campaignEvaluation:null;
+  if(campaignEvaluation&&(campaignEvaluation.campaignId!==campaignId||campaignEvaluation.status!=='completed'))throw new ResearchWorkflowError(409,'WRITING_CAMPAIGN_EVALUATION_INCOMPLETE','原链路批次评价归属不一致或尚未完成。');
+  const selectedEvaluationRunId=writingCampaign?.campaignEvaluationRunId||campaignEvaluation?.runId;
+  const frozenCampaignSource=writingCampaign||experimentStep?.result?.validationCampaign;
+  if(campaignId&&frozenCampaignSource){const currentSource=await readCampaignWritingHandoff(projectId,campaignId,selectedEvaluationRunId);
+    if(currentSource.sourceSha256!==frozenCampaignSource.sourceSha256||sourceHash(currentSource.actualExperimentRunIds)!==sourceHash(frozenCampaignSource.actualExperimentRunIds))throw new ResearchWorkflowError(409,'WRITING_CAMPAIGN_SOURCE_CHANGED','原自动链路冻结的完整写作来源已变化，未重新派发。');}
   const next = await runUiAction(projectId, { ...body, action, replicationResults: results,
     ...(session.steps.find(step => step.stage === 'replication')?.experimentRunId ? { replicationRunId: session.steps.find(step => step.stage === 'replication').experimentRunId } : {}),
-    ...(session.steps.find(step => step.stage === 'experiment')?.experimentRunId ? { experimentRunId: session.steps.find(step => step.stage === 'experiment').experimentRunId } : {}) }, 'system', actionOptions);
+    ...(campaignId?{validationCampaignId:campaignId,...(selectedEvaluationRunId?{campaignEvaluationRunId:selectedEvaluationRunId}:{})}:experimentStep?.experimentRunId ? { experimentRunId:experimentStep.experimentRunId } : {}) }, 'system', actionOptions);
   const task = stageData(next, stage).task;
   if (task?.validation?.ok === false || task?.status === 'failed') throw new ResearchWorkflowError(409, 'AUTOMATION_MODEL_FAILED', '当前阶段Agent输出未通过校验。');
   return next;

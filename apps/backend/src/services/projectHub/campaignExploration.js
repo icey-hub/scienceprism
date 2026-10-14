@@ -1,3 +1,4 @@
+import { sourceHash } from '../researchAutomation/handoff.js';
 import { assertCampaignEvaluationSource } from '../validationCampaign/agentEvaluation.js';
 
 /** Projection of saved campaign provenance. Never starts or repairs a Run. */
@@ -26,6 +27,26 @@ export function addCampaignExploration({ projectId, campaigns, harnessRuns, expe
     }
     if (experiments.has(campaign.baseRunId) && nodes.has(`experiment:${campaign.baseRunId}`)) {
       addEdge(`experiment:${campaign.baseRunId}`, id, 'provides', source(campaign.id, 'baseRunId'));
+    }
+  }
+  for (const run of harnessRuns) {
+    const material = run.request?.input?.validationCampaign, target = `harness:${run.id}`;
+    if (!['research:writing_brief', 'research:writing'].includes(run.task) || run.projectId !== projectId || !material || !nodes.has(target)) continue;
+    const { sourceSha256, ...snapshot } = material, campaign = campaignMap.get(material.campaignId);
+    try { if (!campaign || snapshot.projectId !== projectId || sourceHash(snapshot) !== sourceSha256) continue; }
+    catch { continue; }
+    const ref = field => ({ kind: 'harness', id: run.id, field: `request.input.validationCampaign.${field}` });
+    addEdge(`campaign:${campaign.id}`, target, 'provides', ref('campaignId'));
+    for (const id of material.actualExperimentRunIds || []) {
+      const actual = experiments.get(id);
+      if (actual?.manifest?.campaign?.campaignId === campaign.id && campaign.trials.some(trial => trial.runId === id && trial.id === actual.manifest.campaign.trialId) && nodes.has(`experiment:${id}`)) addEdge(`experiment:${id}`, target, 'provides', ref('actualExperimentRunIds'));
+    }
+    const evaluation = harnessRuns.find(item => item.id === material.agentEvaluation?.runId);
+    if (evaluation && nodes.has(`harness:${evaluation.id}`)) {
+      try {
+        const saved = assertCampaignEvaluationSource(evaluation, projectId, campaign.id);
+        if (saved.sourceSha256 === material.agentEvaluation.sourceSha256) addEdge(`harness:${evaluation.id}`, target, 'provides', ref('agentEvaluation.runId'));
+      } catch { /* Preserve the writer task, without endorsing a corrupt source. */ }
     }
   }
   for (const run of harnessRuns) {

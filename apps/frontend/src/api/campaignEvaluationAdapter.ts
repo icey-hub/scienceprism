@@ -3,6 +3,7 @@ import { request } from './client';
 export interface CampaignAgentEvaluationRecord {
   runId:string;
   requestId?:string;
+  automationSessionId?:string;
   status:string;
   createdAt:string;
   sourceSha256:string;

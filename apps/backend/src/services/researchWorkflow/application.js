@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import { writingClaimEvidenceId } from './writingClaims.js';
 import { getEnv } from '../../config/constants.js';
 import { applyQualityGate, listResearchSkills, resolveResearchSkillBindings, runResearchStage, validateResearchSkillBindings, normalizeQualityPolicy } from '../researchResearch/index.js';
 import { prioritizePaperCandidates } from '../researchResearch/paperCandidates.js';
@@ -10,6 +10,9 @@ import { getExperimentRun, experimentRunSummary } from '../experimentRunner/inde
 import { createStageTask } from './stageTask.js';
 import { writeWritingBriefArtifact } from './writingBriefArtifact.js';
 import { runWritingDelegation } from './writingDelegation.js';
+import { readCampaignWritingHandoff, campaignWritingHarness } from './campaignWritingHandoff.js';
+import { withWorkflowLock, resolveProjectRoot, readWorkflowFile } from './repository.js';
+import { applyStageUpdate } from './stateMachine.js';
 import {
   approveResearchWorkflow,
   getResearchWorkflow,
@@ -239,6 +242,10 @@ export async function runUiAction(projectId, body, actor, { signal, search = sea
     const selectedStage = stageData(workflow, 'selection');
     const selectedPapers = selectedStage.selectedPapers || [];
     const ideas = (stageData(workflow, 'ideation').ideas || []).filter((idea) => idea.selected || (body.ideaIds || []).includes(idea.id));
+    if(body.campaignEvaluationRunId&&!body.validationCampaignId)throw new ResearchWorkflowError(400,'WRITING_CAMPAIGN_REQUIRED','评价Run必须与明确批次一起交接。');
+    if(body.validationCampaignId&&(body.experimentRunId||body.agentMode==='multi-agent'))throw new ResearchWorkflowError(400,'WRITING_CAMPAIGN_MODE_CONFLICT','完整批次不能与单实验Run混用；本片使用完整批次写作及已选择的独立评价。');
+    const validationCampaign=body.validationCampaignId?await readCampaignWritingHandoff(projectId,body.validationCampaignId,body.campaignEvaluationRunId):null;
+    if(validationCampaign&&(body.expectedVersion??body.version)!==undefined&&(body.expectedVersion??body.version)!==workflow.version)throw new ResearchWorkflowError(409,'VERSION_CONFLICT','流程已变化，未启动批次写作。');
     const replicationRun = await readRunHandoff(projectId, body.replicationRunId, 'replication');
     const experimentRun = await readRunHandoff(projectId, body.experimentRunId, 'experiment');
     // The Evidence Ledger belongs in the writing input.
@@ -267,14 +274,16 @@ export async function runUiAction(projectId, body, actor, { signal, search = sea
       papers: selectedPapers,
       ideas,
       method: body.method || stageData(workflow, 'method').method || {},
-      experiment: handoffExperiment(workflow, body, experimentRun || replicationRun),
+      experiment: validationCampaign?{kind:'validation-campaign',campaignId:validationCampaign.campaignId,status:validationCampaign.status,comparison:validationCampaign.comparison,verificationNote:validationCampaign.verificationNote}:handoffExperiment(workflow, body, experimentRun || replicationRun),
+      ...(validationCampaign?{validationCampaign}:{}),
       ...(replicationRun ? { replicationRun } : {}),
       ...(experimentRun ? { experimentRun } : {}),
       evidenceLedger: citableEvidence
     };
     const harness = body.agentMode === 'multi-agent'
       ? await runWritingDelegation({ projectId, input, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeReviewResponses: body.fakeReviewResponses, adapter: body.adapter })
-      : await runStage({ stage: 'writing', projectId, input, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+      : await runStage({ stage: 'writing', projectId, input, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter,
+        ...(validationCampaign?{runHarness:campaignWritingHarness(projectId)}:{}) });
     const task = createStageTask({ stage: 'writing', input, output: harness.output, validation: taskValidation(harness.validation), harness, adapters: ['harness', 'evidence-ledger', ...(harness.delegation ? ['multi-agent-review'] : [])], error: harness.delegation ? harness.error : null });
     if (!harness.ok || !harness.output) {
       if (completedWorkflow) {
@@ -283,19 +292,41 @@ export async function runUiAction(projectId, body, actor, { signal, search = sea
       return updateStage(projectId, 'writing', { task, ready: false, harness: { ok: harness.ok, validation: harness.validation } }, body, actor);
     }
     const brief = harness.output;
+    if(validationCampaign) {
+      const writingData={...brief,ready:true,handoffAt:new Date().toISOString(),briefPath:'research/writing-brief.md',replicationRun,experimentRun:null,validationCampaign,
+        evidence:{paperIds:selectedPapers.map(paper=>paper.id),ideas,method:input.method,experiment:input.experiment,...(replicationRun?{replicationRun}:{}),validationCampaign},task};
+      const saveSources=async locked=>{
+        signal?.throwIfAborted();
+        await beforeCommit?.(locked);
+        if(locked.version!==workflow.version)throw new ResearchWorkflowError(409,'VERSION_CONFLICT','写作期间流程已变化，旧Brief与来源未覆盖。');
+        const current=await readCampaignWritingHandoff(projectId,body.validationCampaignId,body.campaignEvaluationRunId);
+        if(current.sourceSha256!==validationCampaign.sourceSha256)throw new ResearchWorkflowError(409,'WRITING_CAMPAIGN_SOURCE_CHANGED','写作期间完整批次或评价来源已变化，旧Brief与来源未覆盖。');
+        if(!completedWorkflow)applyStageUpdate(structuredClone(locked),{stageId:'writing',data:writingData,actor});
+        for(const claim of brief.claims||[]) {
+          const claimId=writingClaimEvidenceId(claim.id);
+          await upsertEvidence(projectId,{id:claimId,kind:'paper-claim',title:claim.id,summary:claim.text,verificationStatus:'pending',metadata:{evidenceIds:claim.evidenceIds||[],confidence:claim.confidence},evidenceVersions:claim.evidenceVersions||{}},{actor});
+          for(const evidenceId of claim.evidenceIds||[])try{await linkEvidence(projectId,{type:'supports',fromId:evidenceId,toId:claimId,actor},{actor});}catch{/* Existing claim checking remains authoritative. */}
+        }
+        await writeWritingBriefArtifact(projectId,brief,{replicationRun,validationCampaign});
+      };
+      if(completedWorkflow)return withWorkflowLock(projectId,async()=>{const current=await readWorkflowFile(await resolveProjectRoot(projectId),projectId,{readOnly:true});
+        if(body.expectedVersion!==undefined&&body.expectedVersion!==current.version)throw new ResearchWorkflowError(409,'VERSION_CONFLICT','写作流程版本已变化。');
+        await saveSources(current);return current;});
+      return updateResearchWorkflow(projectId,{...workflowOptions(body,actor),expectedVersion:body.expectedVersion??body.version??workflow.version,stageId:'writing',data:writingData,beforeCommit:saveSources});
+    }
     for (const claim of brief.claims || []) {
-      const claimId = `claim-${crypto.createHash('sha1').update(String(claim.id)).digest('hex').slice(0, 20)}`;
+      const claimId = writingClaimEvidenceId(claim.id);
       await upsertEvidence(projectId, { id: claimId, kind: 'paper-claim', title: claim.id, summary: claim.text, verificationStatus: 'pending', metadata: { evidenceIds: claim.evidenceIds || [], confidence: claim.confidence }, evidenceVersions: claim.evidenceVersions || {} }, { actor });
       for (const evidenceId of claim.evidenceIds || []) {
         try { await linkEvidence(projectId, { type: 'supports', fromId: evidenceId, toId: claimId, actor }, { actor }); } catch { /* the claim check remains authoritative */ }
       }
     }
-    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation, replicationRun, experimentRun });
+    const artifact = await writeWritingBriefArtifact(projectId, brief, { delegation: harness.delegation, replicationRun, experimentRun, validationCampaign });
     // A completed workflow is immutable, but researchers may need to refresh
     // its derived writing brief after new Evidence is verified. Save the new
     // artifact without reopening or rewriting the completed stage history.
     if (completedWorkflow) return workflow;
-    return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, replicationRun, experimentRun, evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment, ...(replicationRun ? { replicationRun } : {}), ...(experimentRun ? { experimentRun } : {}) }, task }, body, actor);
+    return updateStage(projectId, 'writing', { ...brief, ready: true, handoffAt: new Date().toISOString(), briefPath: artifact.path, replicationRun, experimentRun, ...(validationCampaign?{validationCampaign}:{}), evidence: { paperIds: selectedPapers.map((paper) => paper.id), ideas, method: input.method, experiment: input.experiment, ...(replicationRun ? { replicationRun } : {}), ...(experimentRun ? { experimentRun } : {}), ...(validationCampaign?{validationCampaign}:{} ) }, task }, body, actor);
   }
   throw new ResearchWorkflowError(400, 'UNKNOWN_ACTION', `Unknown research workflow action: ${action}`);
 }

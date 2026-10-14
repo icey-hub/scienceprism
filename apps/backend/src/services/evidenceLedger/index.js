@@ -13,6 +13,7 @@ import {
   sourceForEvidence
 } from './schema.js';
 import { clone, readEvidenceLedger, resolveEvidenceProjectRoot, withEvidenceLedgerLock, writeEvidenceLedger } from './repository.js';
+import { writingClaimEvidenceId, writingClaimMatchesLedger } from '../researchWorkflow/writingClaims.js';
 
 const MAX_ENTRIES = 2_000;
 
@@ -163,11 +164,20 @@ export function claimRows(ledger, workflow, suppliedClaims) {
   const ledgerClaims = ledger.entries.filter((entry) => entry.kind === 'paper-claim').map(claimFromEntry);
   const workflowClaims = suppliedClaims || claimsFromWorkflow(workflow);
   const byId = new Map(ledgerClaims.map((claim) => [claim.id, claim]));
+  const entriesById=new Map(ledger.entries.map(entry=>[entry.id,entry]));
+  const savedWritingClaims=workflow?.stages?.find(stage=>stage.id==='writing')?.data?.claims||[];
   for (const claim of workflowClaims) {
+    // Compatibility for original generated writing: only a fully matching
+    // saved workflow claim may alias its historical, hashed ledger owner.
+    if(!suppliedClaims&&!byId.has(claim.id)&&Array.isArray(savedWritingClaims)&&savedWritingClaims.some(saved=>String(saved?.id)===claim.id)) {
+      const entry=entriesById.get(writingClaimEvidenceId(claim.id));
+      if(writingClaimMatchesLedger(claim,entry))continue;
+    }
     const existing = byId.get(claim.id) || {};
     byId.set(claim.id, {
       ...existing,
       ...claim,
+      ...(existing.source==='ledger'?{verificationStatus:existing.verificationStatus,citations:existing.citations}:{}),
       evidenceIds: claim.evidenceIds?.length ? claim.evidenceIds : existing.evidenceIds || [],
       evidenceVersions: Object.keys(claim.evidenceVersions || {}).length ? claim.evidenceVersions : existing.evidenceVersions || {}
     });
@@ -246,10 +256,10 @@ export function collectEvidenceReferences(value, path = 'output', result = []) {
 }
 
 export async function getClaimEvidenceMatrix(projectId, { claims } = {}) {
-  const { ledger } = await readLedger(projectId);
+  const { ledger } = await readLedger(projectId,{readOnly:true});
   let workflow = null;
   try {
-    workflow = await readWorkflowFile(await resolveProjectRoot(projectId), projectId);
+    workflow = await readWorkflowFile(await resolveProjectRoot(projectId), projectId,{readOnly:true});
   } catch (error) {
     if (error?.code !== 'WORKFLOW_NOT_FOUND') throw error;
   }

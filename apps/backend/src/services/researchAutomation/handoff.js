@@ -52,18 +52,29 @@ export function buildAutomationHandoff(input) {
   for (const sourceStage of stages.slice(0, stages.indexOf(stage))) {
     const source = workflow.stages.find(value => value.id === sourceStage), data = source.data;
     if (!plain(data)) throw fail('AUTOMATION_HANDOFF_INPUT_INVALID', 'Saved source stage data must be a JSON object.');
-    if (!Object.keys(data).length) continue;
+    const writingCampaign=stage==='writing'&&sourceStage==='experiment'?session.writingCampaignSource:null;
+    if (!Object.keys(data).length&&!writingCampaign) continue;
     const step = session.steps.find(value => value.stage === sourceStage);
     const producerRunIds = references([...(step?.runIds === undefined ? [] : references(step.runIds, 'producer Run')),
       ...optionalReference(data.task?.harness?.runId, 'producer Run')], 'producer Run');
     const searchSessionIds = references([...(data.searchSessionIds === undefined ? [] : references(data.searchSessionIds, 'search session')),
       ...(data.task?.output?.searchSessionIds === undefined ? [] : references(data.task.output.searchSessionIds, 'search session'))], 'search session');
-    const experimentIds = references([...optionalReference(step?.experimentRunId, 'experiment Run'),
+    const campaignId=writingCampaign?.id||step?.campaignId||data.automaticResult?.validationCampaign?.id;
+    const campaignSource=writingCampaign||step?.result?.validationCampaign||data.automaticResult?.validationCampaign;
+    let campaignReferences={};
+    if(campaignId) {
+      if(!identity(campaignId)||!campaignSource||campaignSource.id!==campaignId||!Array.isArray(campaignSource.actualExperimentRunIds)||!/^[a-f0-9]{64}$/.test(campaignSource.sourceSha256||''))throw fail('AUTOMATION_HANDOFF_CAMPAIGN_SOURCE_INVALID','A complete saved campaign source and actual Run identities are required; reserved Run IDs are not executions.');
+      const evaluation=writingCampaign?writingCampaign.campaignEvaluationRunId?{campaignId,runId:writingCampaign.campaignEvaluationRunId,status:'completed'}:null:step?.campaignEvaluation||data.automaticResult?.campaignEvaluation;
+      if(evaluation&&(evaluation.campaignId!==campaignId||evaluation.status!=='completed'||!identity(evaluation.runId)))throw fail('AUTOMATION_HANDOFF_CAMPAIGN_SOURCE_INVALID','The saved evaluator does not belong to the completed campaign handoff.');
+      campaignReferences={validationCampaignId:campaignId,campaignSourceSha256:campaignSource.sourceSha256,
+        experimentRunIds:references(campaignSource.actualExperimentRunIds,'campaign experiment Run'),evaluationRunId:evaluation?.runId||null};
+    }
+    const experimentIds = campaignId?[]:references([...optionalReference(step?.experimentRunId, 'experiment Run'),
       ...optionalReference(data.experimentRunId, 'experiment Run'),
       ...(['replication', 'experiment'].includes(sourceStage) ? optionalReference(data.automaticResult?.id, 'experiment Run') : [])], 'experiment Run');
     if (experimentIds.length > 1) throw fail('AUTOMATION_HANDOFF_REFERENCE_CONFLICT', 'The saved source stage refers to different Experiment Runs.');
     inputArtifacts.push({ workflowId: workflow.id, workflowVersion: workflow.version, stage: sourceStage,
-      dataSha256: sourceHash(data), producerRunIds, searchSessionIds, experimentRunId: experimentIds[0] || null });
+      dataSha256: sourceHash(data), producerRunIds, searchSessionIds, experimentRunId: experimentIds[0] || null,...campaignReferences });
   }
   return { schemaVersion: 1, projectId, sessionId: session.id, workflowId: workflow.id, workflowVersion: workflow.version,
     stage, role, parentRunId: session.coordinatorRunId, inputArtifacts };

@@ -116,6 +116,9 @@ test('campaign graph connects frozen plan, all actual trials and evaluator witho
  const harnessFile=path.join(dir,'harness-runs.json'),harness=JSON.parse(await readFile(harnessFile,'utf8'));
  const saved={projectId:id,campaignId:'batch',planRevision:2,planSha256:'frozen-sha',trialRunIds:['candidate','failed-baseline','reserved','unrelated']};
  const review={id:'review',projectId:id,task:'campaign_evaluation',status:'completed',request:{source:'campaign-evaluation',evaluationSource:{campaignId:'batch',planRevision:2,planSha256:'frozen-sha',trialRunIds:saved.trialRunIds,snapshot:saved,sourceSha256:sourceHash(saved)}},events:[]};
+ const writingSource={projectId:id,campaignId:'batch',actualExperimentRunIds:['candidate','failed-baseline','reserved','unrelated'],agentEvaluation:{runId:'review',sourceSha256:review.request.evaluationSource.sourceSha256}};
+ const writer={id:'writer',projectId:id,task:'research:writing_brief',status:'completed',request:{input:{validationCampaign:{...writingSource,sourceSha256:sourceHash(writingSource)}}},events:[]};
+ harness.runs.push(writer,{...writer,id:'bad-writer',request:{input:{validationCampaign:{...writingSource,sourceSha256:'bad'}}}});
  harness.runs.push(review,{...review,id:'corrupt',request:{...review.request,evaluationSource:{...review.request.evaluationSource,sourceSha256:'invalid'}}},{...review,id:'other-project',projectId:'foreign'});
  await writeFile(harnessFile,JSON.stringify(harness));
  const before=await snapshot(root),graph=await getProjectExploration(id);
@@ -127,6 +130,8 @@ test('campaign graph connects frozen plan, all actual trials and evaluator witho
  assert.deepEqual(graph.edges.filter(edge=>edge.from==='campaign:batch'&&edge.type==='runs').map(edge=>edge.to).sort(),['experiment:candidate','experiment:failed-baseline']);
  assert.deepEqual(graph.edges.filter(edge=>edge.to==='harness:review'&&edge.type==='provides').map(edge=>edge.from).sort(),['experiment:candidate','experiment:failed-baseline']);
  assert.ok(graph.edges.some(edge=>edge.from==='campaign:batch'&&edge.to==='harness:review'&&edge.type==='evaluates'));
+ assert.deepEqual(graph.edges.filter(edge=>edge.to==='harness:writer').map(edge=>edge.from).sort(),['campaign:batch','experiment:candidate','experiment:failed-baseline','harness:review']);
+ assert.equal(graph.edges.some(edge=>edge.to==='harness:bad-writer'),false);
  assert.ok(graph.nodes.some(node=>node.id==='harness:corrupt'));
  assert.equal(graph.edges.some(edge=>['harness:corrupt','harness:other-project'].includes(edge.to)),false);
  assert.equal(graph.nodes.some(node=>node.id==='experiment:reserved'),false);

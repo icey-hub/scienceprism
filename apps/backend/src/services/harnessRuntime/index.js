@@ -128,7 +128,7 @@ async function getRunDocument(projectId) {
     let recovered = false;
     for (const run of stored.runs) {
       if ((run.status === 'running' && !activeRuns.has(run.id)) ||
-          (run.status === 'created' && ['editor', 'paper-reading', 'campaign-evaluation'].includes(run.request?.source) && run.runtimeInstanceId !== runtimeInstanceId)) {
+          (run.status === 'created' && ['editor', 'paper-reading', 'campaign-evaluation'].includes(run.request?.source) && run.runtimeInstanceId !== runtimeInstanceId && !(run.kind === 'research-stage' && run.request?.source === 'campaign-evaluation'))) {
         run.status = 'failed';
         run.finishedAt = now();
         run.updatedAt = run.finishedAt;
@@ -600,8 +600,8 @@ export async function recoverHarnessRun(projectId, runId, { request = {}, signal
   return entry.promise;
 }
 
-export async function cancelHarnessRun(projectId, runId) {
-  assertCoordinatorControl(await getHarnessRun(projectId, runId));
+export async function cancelHarnessRun(projectId, runId, { automationSessionId } = {}) {
+  assertCoordinatorControl(await getHarnessRun(projectId, runId), automationSessionId);
   const active = activeRuns.get(runId);
   if (!active) {
     return updateRun(projectId, runId, (current) => {
@@ -693,7 +693,8 @@ export async function runHarnessRequest(request = {}, { automationSessionId } = 
   const run = request.existingRunId
     ? await getHarnessRun(request.projectId, request.existingRunId)
     : await createHarnessRun(request.projectId, request, { automationSessionId });
-  const result = await startHarnessRun(request.projectId, run.id, { wait: true, request, signal: request.signal, automationSessionId });
+  const executionRequest = run.request?.source === 'campaign-evaluation' && run.kind === 'research-stage' && run.automationSessionId === automationSessionId ? {} : request;
+  const result = await startHarnessRun(request.projectId, run.id, { wait: true, request: executionRequest, signal: request.signal, automationSessionId });
   return {
     ok: result.status === 'completed',
     reply: result.reply || '',

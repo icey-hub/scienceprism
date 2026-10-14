@@ -26,10 +26,10 @@ const COLLAB_NAME_KEY = COLLAB_STORAGE_KEY;
 const COLLAB_COLORS = ['#b44a2f', '#2f6fb4', '#2f9b74', '#b48a2f', '#6b2fb4', '#b42f6d', '#2f8fb4'];
 
 const DEFAULT_SETTINGS: AppSettings = {
-  llmEndpoint: 'https://api.openai.com/v1/chat/completions',
+  llmEndpoint: '',
   llmApiKey: '',
-  llmModel: 'gpt-4o-mini',
-  agentRuntime: 'legacy',
+  llmModel: '',
+  agentRuntime: 'deepseek-harness',
   searchEndpoint: '',
   searchApiKey: '',
   searchModel: '',
@@ -46,7 +46,7 @@ export function loadSettings(): AppSettings {
     const parsed = stored as Partial<AppSettings>;
     const validEngines: CompileEngine[] = ['pdflatex', 'xelatex', 'lualatex', 'latexmk', 'tectonic'];
     const compileEngine = validEngines.includes(parsed.compileEngine as CompileEngine) ? parsed.compileEngine as CompileEngine : DEFAULT_SETTINGS.compileEngine;
-    return { ...DEFAULT_SETTINGS, ...parsed, agentRuntime: parsed.agentRuntime === 'deepseek-harness' ? 'deepseek-harness' : 'legacy', compileEngine };
+    return { ...DEFAULT_SETTINGS, ...parsed, agentRuntime: parsed.agentRuntime === 'legacy' ? 'legacy' : DEFAULT_SETTINGS.agentRuntime, compileEngine };
   } catch {
     return DEFAULT_SETTINGS;
   }

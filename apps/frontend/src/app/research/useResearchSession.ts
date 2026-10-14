@@ -1,3 +1,6 @@
+import { automationApi } from '../../api/automationAdapter';
+import { workspaceModel } from '../workspace/workspaceModel';
+import type { WritingCampaignInput } from './components/WritingCampaignSource';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import {
@@ -430,19 +433,34 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
     catch (requestError) { setError(`跳过复现失败：${getErrorMessage(requestError)}`); }
     finally { setBusy(false); }
   }, [commitWorkflow, navigate, persistHumanInstructions, projectId, workflow.replication?.note]);
-  const prepareWriting = useCallback(async () => {
+  const prepareWriting = useCallback(async (source: WritingCampaignInput = {}) => {
+    if (source.validationCampaignId && workflow.status !== 'completed') {
+      const epoch = projectEpoch.current;
+      setBusy(true); setError(''); setNotice('');
+      try {
+        await persistHumanInstructions(); assertCurrentProject(epoch);
+        await automationApi.action(projectId, 'start', { targetStage: 'writing', writingCampaign: {
+          campaignId: source.validationCampaignId, ...(source.campaignEvaluationRunId ? { evaluationRunId: source.campaignEvaluationRunId } : {})
+        } }, { ...workspaceModel(), ...llmConfig });
+        assertCurrentProject(epoch);
+        navigate(`/project/${encodeURIComponent(projectId)}/explore#research-automation`);
+      } catch (error) { if (isCurrentProject(epoch)) setError(`写作接续失败：${getErrorMessage(error)}`); }
+      finally { if (isCurrentProject(epoch)) setBusy(false); }
+      return;
+    }
+    const mode = source.validationCampaignId ? 'single-agent' : writingAgentMode;
     const next = await runAction('handoff-writing', {
       paperIds: selectedIds,
       ideas: (workflow.ideas || []).filter((idea) => idea.selected),
       method: workflow.method || {},
       experiment: workflow.experiment || {},
-      ...(experimentRun ? { experimentRunId: experimentRun.id } : {}),
+      ...(experimentRun && !source.validationCampaignId ? { experimentRunId: experimentRun.id } : {}),
       ...(replicationRun ? { replicationRunId: replicationRun.id } : {}),
-      agentMode: writingAgentMode
-    }, writingAgentMode === 'multi-agent' ? '子 Agent 审查已完成，请检查审查记录与写作材料。' : '研究材料已整理，可以打开论文写作工作台。');
+      ...source, agentMode: mode
+    }, mode === 'multi-agent' ? '子 Agent 审查已完成，请检查审查记录与写作材料。' : '研究材料已整理，可以打开论文写作工作台。');
     const briefPath = next?.writing?.briefPath;
-    if (writingAgentMode === 'single-agent' && next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
-  }, [experimentRun, navigate, projectId, replicationRun, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method, writingAgentMode]);
+    if (mode === 'single-agent' && next?.writing?.ready && briefPath) navigate(`/editor/${projectId}?open=${encodeURIComponent(briefPath)}`);
+  }, [assertCurrentProject, experimentRun, isCurrentProject, llmConfig, navigate, persistHumanInstructions, projectId, replicationRun, runAction, selectedIds, workflow.experiment, workflow.ideas, workflow.method, workflow.status, writingAgentMode]);
 
   return { workflow, skills, skillBindings, policy, setPolicy, paperFilter, setPaperFilter, projectName, loading, busy, harnessState, error, notice, instructionDrafts, setInstructionDrafts, claimMatrix, refreshCitations, citationRefreshError, stageRoles, experimentRun, replicationRun, evidenceEntries, evidenceLedgerError, writingAgentMode, setWritingAgentMode, loadWorkflow, saveHumanInstructions, patchStage, saveDirection, handleSkillBinding, handleSkillFiles, selectedIds, selectedIdeas, visiblePapers, refreshIdeaPlans, approveStage, rejectStage, resetWorkflow, updateWorkflow, runSearch, savePaperSelection, generateIdeas, saveIdeaSelection, generateMethod, saveMethod, saveExperiment, runExperiment, createControlledExperimentRun, approveControlledExperimentRun, startControlledExperimentRun, cancelControlledExperimentRun, saveReplication, createControlledReplicationRun, approveControlledReplicationRun, startControlledReplicationRun, cancelControlledReplicationRun, skipReplication, prepareWriting };
 }

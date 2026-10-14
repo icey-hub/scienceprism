@@ -16,7 +16,7 @@ const contractEnvelope = prompt => {
 /** The original stage call ledger owns every producer, including code workers.
  * Bind its effect receipt after the real Run is saved and before any model work. */
 export function createAutomationStageHarness({ projectId, session, stage, step, signal, beforeEffect, saveStep,
-  createRun = createHarnessRun, readRun = getHarnessRun, listRuns = listHarnessRuns, execute = runHarnessRequest }) {
+  createRun = createHarnessRun, readRun = getHarnessRun, listRuns = listHarnessRuns, execute = runHarnessRequest, campaignEvaluation = false }) {
   let calls = [...(step.calls || [])];
   const persist = () => saveStep({ calls: [...calls], runIds: calls.map(call => call.runId) });
   const check = (run, inputHash) => {
@@ -28,6 +28,7 @@ export function createAutomationStageHarness({ projectId, session, stage, step, 
   };
   return async (request, { onPrepared, requireExisting = false } = {}) => {
     await beforeEffect(); signal?.throwIfAborted();
+    if (campaignEvaluation && (request.source !== 'campaign-evaluation' || request.role !== 'campaign-evaluator' || request.task !== 'campaign_evaluation' || request.capabilities?.length !== 0 || request.fallback !== false)) fail('AUTOMATION_EVALUATION_REQUEST_INVALID', '自动评价仅允许固定空工具的独立评价入口。');
     let inputHash = identity(request), requestId = `${session.id}:${stage}:${inputHash}`;
     let saved = calls.findLast(call => call.inputHash === inputHash), previous;
     if (!saved) {
@@ -79,14 +80,14 @@ export function createAutomationStageHarness({ projectId, session, stage, step, 
         return previous.status === 'completed' ? result(previous)
           : execute({ ...request, existingRunId: previous.id, signal }, { automationSessionId: session.id });
       }
-      if (previous.retainedWorkspace && previous.recovery?.status !== 'ready'
+      if (campaignEvaluation || previous.retainedWorkspace && previous.recovery?.status !== 'ready'
         || !['failed', 'cancelled'].includes(previous.status) || (saved.attempt || 0) >= (session.attempt || 0)
         || request.context?.codeAuthorization) {
         fail('AUTOMATION_RUN_UNRESOLVED', '已记录阶段Run；不会重复启动未知、未结束或已绑定的代码调用。');
       }
     }
     const prepared = await createRun(projectId, { ...request, parentRunId: session.coordinatorRunId, delegationTask: request.task,
-      source: 'research-automation', requestId }, { automationSessionId: session.id });
+      source: campaignEvaluation ? 'campaign-evaluation' : 'research-automation', requestId }, { automationSessionId: session.id, campaignEvaluationAdmission: campaignEvaluation });
     check(prepared, inputHash);
     calls.push({ runId: prepared.id, inputHash, inputIdentityVersion: 2, task: request.task, attempt: session.attempt || 0 });
     await persist(); await onPrepared?.(prepared); await beforeEffect(); signal?.throwIfAborted();

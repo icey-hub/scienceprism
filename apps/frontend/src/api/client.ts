@@ -482,7 +482,7 @@ export interface HarnessRun {
   events?: RuntimeEvent[];
   eventRetention?: { limit: number; total: number; retained: number; dropped: number; priorRetentionUnknown: boolean };
   patches?: HarnessPatch[];
-  request?: Partial<AssistantRunInput> & { source?: string; evaluationSource?: { campaignId:string } };
+  request?: Partial<AssistantRunInput> & { source?: string; evaluationSource?: { campaignId:string }; input?: { validationCampaign?: { campaignId:string; agentEvaluation?: { runId:string } | null } } };
   documentVersions?: (FileVersion & { path: string })[];
   appliedPatches?: string[];
   patchDecisions?: Record<string, { status: string; at?: string }>;

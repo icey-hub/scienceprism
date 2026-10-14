@@ -1,3 +1,4 @@
+import type { CampaignAgentEvaluationRecord } from './campaignEvaluationAdapter';
 import type { LLMConfig, HarnessRun, ValidationVariant } from './client';
 type AutomationModel = Omit<LLMConfig,'apiKey'> & {apiKey?: string};
 export type ConfirmationMode = 'inherit' | 'auto' | 'manual';
@@ -34,11 +35,15 @@ export interface AutomationStep { stage: string; status: string; runIds: string[
   codePreparations?:AutomationCodePreparation[];
   codeTrials?:AutomationCodeTrial[];
   validationDesign?:AutomationValidationDesign;
+  campaignId?:string;
+  campaignEvaluation?:{version:1;campaignId:string;runId:string;requestId:string;sourceSha256:string;status:string;output:CampaignAgentEvaluationRecord['output'];error:CampaignAgentEvaluationRecord['error']};
   handoff?: { parentRunId: string; workflowVersion: number; role: string; inputArtifacts: {stage: string; dataSha256: string; producerRunIds: string[]; searchSessionIds: string[]; experimentRunId: string | null}[] }; }
 export interface AutomationState {
   version: number; policy: AutomationPolicy; agents: {stage: string; id: string; label: string; purpose: string}[];
   session: null | { id: string; coordinatorRunId?: string; ownerPid?: number; status: string; currentStage?: string; targetStage: string; message?: string; steps: AutomationStep[]; error?: {code: string; details?: {part?: string}};
     executionPlan?: AutomationExecutionPlan | null; executionPlanVersion?: number; executionPlanSha256?: string | null; executionPlanLocked?: boolean;
+    campaignEvaluationVersion?:1;
+    writingCampaignSource?:{id:string;campaignEvaluationRunId?:string;sourceSha256:string;actualExperimentRunIds:string[]};
     validationCampaignDesign?:{ideaId:string;expectedPlanRevision:number;planSha256?:string};
     validationCampaign?:{ideaId:string;expectedPlanRevision:number;seeds:string[];variants:ValidationVariant[]} };
 }

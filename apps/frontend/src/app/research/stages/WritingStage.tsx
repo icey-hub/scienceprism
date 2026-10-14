@@ -1,3 +1,4 @@
+import { WritingCampaignSource, useWritingCampaignSource, type WritingCampaignInput } from '../components/WritingCampaignSource';
 import type { WritingEvidenceSummary } from '../researchStages';
 import { ReplicationResultSummary } from './ReplicationResultSummary';
 import { ClaimMaterials } from '../../project/ClaimMaterials';
@@ -26,34 +27,36 @@ export interface WritingStageProps {
   delegation?: WritingDelegation | null;
   onAgentModeChange: (mode: 'single-agent' | 'multi-agent') => void;
   onOutlineChange: (outline: string) => void;
-  onPrepareWriting: () => void;
+  onPrepareWriting: (source?: WritingCampaignInput) => void;
   onOpenEditor: () => void;
 }
 
 export function WritingStage({ projectId, onCitationsSaved, citationRefreshError = '', value, busy = false, agentMode, delegation, onAgentModeChange, onOutlineChange, onPrepareWriting, onOpenEditor }: WritingStageProps) {
+  const campaignSource = useWritingCampaignSource(projectId);
   return (
     <div className="research-page-stack">
       <ReplicationResultSummary value={value.replicationRun} heading="写作中可引用的复现记录" />
-      <ReplicationResultSummary value={value.experimentRun} heading="写作中可引用的实验记录" />
+      {!campaignSource.campaignId && <ReplicationResultSummary value={value.experimentRun} heading="写作中可引用的实验记录" />}
+      <WritingCampaignSource projectId={projectId} source={campaignSource} busy={busy} />
       <section className="research-panel research-writing-summary">
         <div>
           <span className="research-overline">EVIDENCE HANDOFF</span>
           <h3>在同一项目中进入论文写作</h3>
-          <p>只将已确认的论文、创新点、方法和实验结果带入正文，避免把未经验证的内容写成结论。</p>
+          <p>汇总已保存的论文、创新方案和实际试验结果，保留每项核验状态与结论边界。</p>
         </div>
         <div className="research-summary-grid research-summary-grid-compact">
           <div><strong>{value.paperCount}</strong><span>已确认论文</span></div>
           <div><strong>{value.innovationCount}</strong><span>已确认创新点</span></div>
-          <div><strong>{value.metricCount}</strong><span>实验指标</span></div>
+          <div><strong>{campaignSource.campaign ? new Set(campaignSource.campaign.evaluation?.summaries.map(item => item.metricName)).size : value.metricCount}</strong><span>{campaignSource.campaign ? '批次比较指标' : '实验指标'}</span></div>
         </div>
       </section>
       <section className="research-panel">
         <div className="research-panel-heading"><div><span className="research-overline">OUTLINE</span><h3>论文结构建议</h3></div><span className={`research-status-note${value.ready ? ' is-ready' : ''}`}>{value.ready ? '材料已就绪' : '等待整理'}</span></div>
-        <label className="research-field research-agent-mode"><span>写作审查方式</span><select value={agentMode} disabled={busy} onChange={(event) => onAgentModeChange(event.target.value as 'single-agent' | 'multi-agent')}><option value="single-agent">单 Agent 生成</option><option value="multi-agent">两个子 Agent 审查后生成</option></select><small>多 Agent 模式依次运行论断证据审查、方法一致性审查和最终写作；会增加模型调用量。</small></label>
+        <label className="research-field research-agent-mode"><span>写作审查方式</span><select value={campaignSource.campaignId ? 'single-agent' : agentMode} disabled={busy || !!campaignSource.campaignId} onChange={(event) => onAgentModeChange(event.target.value as 'single-agent' | 'multi-agent')}><option value="single-agent">单 Agent 生成</option><option value="multi-agent">两个子 Agent 审查后生成</option></select><small>{campaignSource.campaignId ? '批次交接由写作 Agent 读取全体记录及所选独立评价。' : '多 Agent 模式依次运行论断证据审查、方法一致性审查和最终写作；会增加模型调用量。'}</small></label>
         <label className="research-field"><span>提纲与证据映射</span><textarea value={value.outline} rows={10} placeholder="先生成并确认论文提纲，再在编辑器中扩写正文。" onChange={(event) => onOutlineChange(event.target.value)} /></label>
         <div className="research-panel-footer">
           <p>正文编辑、引用和 PDF 预览仍由当前项目的编辑器承载。</p>
-          <div className="research-inline-actions"><button className="research-button research-button-quiet" disabled={busy} onClick={onPrepareWriting} type="button">整理写作材料</button><button className="research-button research-button-primary" disabled={busy || !value.ready} onClick={onOpenEditor} type="button">打开论文编辑器</button></div>
+          <div className="research-inline-actions"><button className="research-button research-button-quiet" disabled={busy || !campaignSource.ready} onClick={() => onPrepareWriting(campaignSource.input)} type="button">整理写作材料</button><button className="research-button research-button-primary" disabled={busy || !value.ready} onClick={onOpenEditor} type="button">打开论文编辑器</button></div>
         </div>
       </section>
       {delegation && <section className="research-panel" aria-label="子 Agent 审查记录">

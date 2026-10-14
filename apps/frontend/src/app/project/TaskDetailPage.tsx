@@ -53,7 +53,9 @@ function TaskDetail({ projectId, taskId }: { projectId: string; taskId: string }
   }, [task?.status, load]);
   const action = async (work: () => Promise<unknown>) => { setBusy(true); setError(''); try { await work(); await load(); } catch (error) { setError(String(error)); } finally { setBusy(false); } };
   const campaignId = run?.request?.source === 'campaign-evaluation' ? run.request.evaluationSource?.campaignId : experiment?.manifest?.campaign?.campaignId;
-  const stageHref = campaignId ? `/editor/${encodeURIComponent(projectId)}/research/experiment?campaign=${encodeURIComponent(campaignId)}#validation-campaign-results`
+  const writingSource = run && ['research:writing_brief', 'research:writing'].includes(run.task) ? run.request?.input?.validationCampaign : undefined;
+  const stageHref = writingSource?.campaignId ? `/editor/${encodeURIComponent(projectId)}/research/writing?campaign=${encodeURIComponent(writingSource.campaignId)}${writingSource.agentEvaluation?.runId ? `&evaluation=${encodeURIComponent(writingSource.agentEvaluation.runId)}` : ''}`
+    : campaignId ? `/editor/${encodeURIComponent(projectId)}/research/experiment?campaign=${encodeURIComponent(campaignId)}#validation-campaign-results`
     : task?.stage ? `/editor/${encodeURIComponent(projectId)}/research/${task.stage === 'ideation' ? 'innovation' : task.stage}` : null;
   const dataAuthorization=task&&['dataset-acquisition','environment-preparation'].includes(task.kind)&&task.metadata?.authorization&&typeof task.metadata.authorization==='object'?task.metadata.authorization as Record<string,unknown>:null;
   const ocrSource = task?.kind === 'paper-ocr' ? (task.metadata?.ocr as { source?: { paperId?: string; attachmentId?: string } } | undefined)?.source : undefined;

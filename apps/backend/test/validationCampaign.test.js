@@ -102,7 +102,7 @@ test('AI condition design enters the original automation ledger and runs every f
   const output = { stage: 'validation_design', ideaId: input.ideaId, seeds: ['0'], variants: f.input.variants,
     implementationNotes: ['Existing code multiplies the measured input mean by the supplied scale, not a hardcoded result.'], blockers: [] };
   await startAutomation(f.id, { actor: 'human', targetStage: 'experiment', validationCampaignDesign: input },
-    { adapter: 'fake', testInput: { validation_design: { fakeResponse: JSON.stringify(output) } } });
+    { adapter: 'fake', testInput: { validation_design: { fakeResponse: JSON.stringify(output) }, campaign_evaluation: { fakeResponse: JSON.stringify({ verdict: 'refuted', summary: 'Frozen arithmetic misses the improvement threshold.', findings: [], limitations: ['Controlled fixture only.'], nextPlanSuggestions: [] }) } } });
   let state;
   for (let i = 0; i < 300; i++) {
     state = await getAutomation(f.id);
