@@ -10,6 +10,7 @@ export interface AutomationCodePreparation {
   authorization: { schemaVersion:1; capability:'patch.propose'; actor:'system'; projectId:string; sessionId:string; parentRunId:string;
     stage:'replication'|'experiment'; inputSha256:string; policyVersion:number; scope:CodeScope; scopeSha256:string };
   producerRunId:string|null; preparationId:string|null; sha256:string|null; status:string; paths:string[];
+  repairOf?:{trialRunId:string;codePreparationId:string;repairIndex:1};
   error?:{code:string;message:string}|null;
 }
 export interface AutomationCodeTrial {

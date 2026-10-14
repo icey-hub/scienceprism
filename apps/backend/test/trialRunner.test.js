@@ -9,7 +9,7 @@ await fs.mkdir(cache, { recursive: true });
 const data = await fs.mkdtemp(path.join(cache, 'projects-'));
 process.env.SCIENCEPRISM_DATA_DIR = data;
 const runner = await import('../src/services/experimentRunner/index.js');
-const { createTrialAuthorization, assertTrialExperiment, assertCompletedTrial } = await import('../src/services/experimentRunner/trialContext.js');
+const { createTrialAuthorization, assertTrialExperiment, assertCompletedTrial, assertRepairableTrial } = await import('../src/services/experimentRunner/trialContext.js');
 const { experimentManifestHash } = await import('../src/services/experimentRunner/manifest.js');
 const { codePreparationService } = await import('../src/services/experimentRunner/codePreparations.js');
 const { datasetService } = await import('../src/services/datasets/index.js');
@@ -234,4 +234,59 @@ test('trial classification cannot be removed to gain the ordinary execution rout
   const changed = await runner.getExperimentRun(f.id, run.id);
   await assert.rejects(runner.startExperimentRun(f.id, run.id), { code: 'EXPERIMENT_TRIAL_PROVENANCE_INVALID' });
   assert.equal(runner.experimentRunSummary({ ...changed, status: 'completed' }, [{ id: `experiment-run-${changed.id}`, verificationStatus: 'human-confirmed' }]).supportsSuccessfulFinding, false);
+});
+
+test('repair receipt accepts an actual thrown implementation error without outputs and reads bounded verified archive logs', async () => {
+  const f = await fixture('repairable-throw', { content: "console.log('O'.repeat(21000)+'stdout-end'); console.error('E'.repeat(21000)+'stderr-end'); throw new Error('actual engineering implementation failure');" });
+  const run = await approved(f), done = await runner.startExperimentRun(f.id, run.id, controls(f, run));
+  assert.equal(done.status, 'failed'); assert.equal(done.error.code, 'ARTIFACT_MISSING'); assert.equal(done.execution.exitCode, 1);
+  Object.assign(f.step.codeTrials[0], { runId: done.id, status: 'failed', manifestSha256: experimentManifestHash(done.manifest) });
+  await f.saveState();
+  const receipt = await assertRepairableTrial(f.id, done, { sessionId: f.session.id, stage: 'replication', plan: f.plan });
+  assert.equal(receipt.runId, done.id); assert.equal(receipt.codePreparationId, f.plan.execution.codePreparationId);
+  assert.equal(receipt.manifestSha256, experimentManifestHash(done.manifest)); assert.equal(receipt.exitCode, 1);
+  assert.equal(receipt.stdout.length, 20000); assert.equal(receipt.stderr.length, 20000);
+  assert.match(receipt.stdout, /stdout-end/); assert.match(receipt.stderr, /actual engineering implementation failure/);
+  for (const stream of ['stdout', 'stderr']) {
+    const archive = done.artifacts.find(artifact => artifact.name === `${stream}.log`);
+    assert.equal(receipt[stream], (await fs.readFile(path.join(f.root, archive.path), 'utf8')).slice(-20000));
+  }
+  assert.deepEqual(receipt.artifacts, done.artifacts.map(({ path, sha256, bytes }) => ({ path, sha256, bytes })));
+  const log = done.artifacts.find(artifact => artifact.name === 'stderr.log');
+  await fs.writeFile(path.join(f.root, log.path), 'untrusted replacement stderr');
+  await assert.rejects(assertRepairableTrial(f.id, done, { sessionId: f.session.id, stage: 'replication', plan: f.plan }), { code: 'EXPERIMENT_TRIAL_ARCHIVE_CHANGED' });
+});
+
+test('repair receipt refuses non-engineering errors, unknown stop, source/binding changes and consumed plans', async () => {
+  const f = await fixture('repair-refusals', { content: "throw new Error('original failure remains retained');" });
+  const run = await approved(f), done = await runner.startExperimentRun(f.id, run.id, controls(f, run));
+  Object.assign(f.step.codeTrials[0], { runId: done.id, status: 'failed', manifestSha256: experimentManifestHash(done.manifest) });
+  await f.saveState();
+  const file = path.join(f.root, '.scienceprism/experiment-runs.json'), document = JSON.parse(await fs.readFile(file));
+  const check = current => assertRepairableTrial(f.id, current, { sessionId: f.session.id, stage: 'replication', plan: f.plan });
+  for (const change of [
+    value => { value.status = 'cancelled'; },
+    value => { value.execution.exitCode = 0; },
+    value => { value.execution.exitCode = null; },
+    value => { value.execution.signal = 'SIGTERM'; },
+    value => { value.execution.process.stopConfirmed = false; },
+    value => { value.error.code = 'EXPERIMENT_INTERRUPTED'; },
+    value => { value.error.code = 'EXPERIMENT_TIMEOUT'; },
+    value => { value.error.code = 'EXPERIMENT_PATH_DENIED'; },
+    value => { value.error.code = 'ARTIFACT_ARCHIVE_FAILED'; },
+    value => { value.evidenceError = { code: 'EVIDENCE_WRITE_FAILED' }; }
+  ]) {
+    const changed = structuredClone(done); change(changed); document.runs[0] = changed; await fs.writeFile(file, JSON.stringify(document));
+    await assert.rejects(check(changed), { code: 'EXPERIMENT_TRIAL_NOT_REPAIRABLE' });
+  }
+  const live = structuredClone(done); live.execution.process.pid = process.pid; document.runs[0] = live; await fs.writeFile(file, JSON.stringify(document));
+  await assert.rejects(check(live), { code: 'EXPERIMENT_TRIAL_STOP_UNCONFIRMED' });
+  const wrongBinding = structuredClone(done); wrongBinding.executionBinding.manifestSha256 = 'a'.repeat(64);
+  document.runs[0] = wrongBinding; await fs.writeFile(file, JSON.stringify(document));
+  await assert.rejects(check(wrongBinding), { code: 'EXPERIMENT_TRIAL_REPAIR_BINDING_CHANGED' });
+  document.runs[0] = done; await fs.writeFile(file, JSON.stringify(document));
+  f.step.codeTrials.push(structuredClone(f.step.codeTrials[0])); await f.saveState();
+  await assert.rejects(check(done), { code: 'EXPERIMENT_TRIAL_REGISTRATION_REQUIRED' });
+  f.step.codeTrials.pop(); f.step.executionPlanBinding = { version: 1, sha256: sourceHash(f.plan) }; await f.saveState();
+  await assert.rejects(check(done), { code: 'EXPERIMENT_TRIAL_OWNER_CHANGED' });
 });

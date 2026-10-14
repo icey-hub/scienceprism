@@ -18,7 +18,7 @@ import { allowsAutomatic, readAutomation } from './policy.js';
 import { prepareAutomationCode } from './codePreparation.js';
 import { codePreparationService } from '../experimentRunner/codePreparations.js';
 import { allowsControlledCodePatch } from '../harnessRuntime/dshFileBroker.js';
-import { prepareAutomationTrial } from './trialPreparation.js';
+import { prepareAutomationCodeTrial } from './codeRepair.js';
 
 export async function prepareAutomationStage(projectId, workflow, session, policy, runtime, saveStep) {
   const stage = workflow.currentStage, role = automationRole(stage, policy.agentMode);
@@ -156,7 +156,7 @@ export async function prepareAutomationStage(projectId, workflow, session, polic
     const currentCode = (await readAutomation(projectId)).session?.steps?.find(item => item.stage === stage)?.codePreparations;
     if (preparedCode && currentCode?.some(item => item.preparationId === preparedCode.preparation.id)) {
       if (!allowsAutomatic(policy, 'execution')) throw new ResearchWorkflowError(409, 'AUTOMATION_CONFIRMATION_REQUIRED', '工程试跑等待实验执行授权。', { part: 'execution' });
-      await prepareAutomationTrial({ projectId, session, stage, plan, saveStep, beforeEffect, signal: runtime.signal,
+      plan = await prepareAutomationCodeTrial({ projectId, session, stage, plan, saveStep, beforeEffect, runtime, runHarness, signal: runtime.signal,
         onRun: runtime.automationTrialRun });
     }
     await runtime.automationBindExecutionPlan(plan, origin);

@@ -66,6 +66,21 @@ test('grant then calls then producer identity are persisted before the worker; a
   assert.deepEqual(await fs.readdir(f.projectRoot), ['main.tex']); assert.equal(await fs.readFile(path.join(f.projectRoot, 'main.tex'), 'utf8'), 'original manuscript');
 });
 
+test('one repair persists its source and original task; cold reuse keeps the exact prompt and cannot acquire another repair grant', async t => {
+  const f = await fixture(t);
+  f.input.repairOf = { trialRunId: 'failed-trial', codePreparationId: 'failed-code', repairIndex: 1 };
+  f.input.input.engineeringRepair = { failure: { runId: 'failed-trial', codePreparationId: 'failed-code', stderr: 'NameError' } };
+  const prepared = await prepareAutomationCode(f.input);
+  assert.equal(f.requests[0].task, 'research:code-repair');
+  assert.match(f.requests[0].prompt, /ORIGINAL project baseVersion/);
+  assert.deepEqual(f.state.session.steps[0].codePreparations[0].repairOf, f.input.repairOf);
+  assert.equal((await prepareAutomationCode(f.input)).preparation.id, prepared.preparation.id);
+  assert.equal(f.requests.length, 1);
+  f.input.input.engineeringRepair.failure.stderr = 'different failure';
+  await assert.rejects(prepareAutomationCode(f.input), { code: 'AUTOMATION_CODE_REPAIR_LIMIT' });
+  assert.equal(f.requests.length, 1);
+});
+
 test('completed producer without a published version reuses its original Run and publishes no new model request', async t => {
   const f = await fixture(t); await prepareAutomationCode(f.input);
   Object.assign(f.state.session.steps[0].codePreparations[0], { preparationId: null, sha256: null, status: 'producing' }); await f.writeState();

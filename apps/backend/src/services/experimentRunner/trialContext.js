@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { isPathAllowed, isSensitivePath } from '../harnessRuntime/capabilities.js';
 import { readAutomation, requireAutomatic, validateAutomationExecution } from '../researchAutomation/policy.js';
@@ -211,4 +211,66 @@ export async function assertCompletedTrial(projectId, run, { sessionId, stage, p
     }
   }
   return stored;
+}
+
+/** A read-only failure receipt for the original bounded code repair. Missing
+ * outputs qualify only when a real process also exited nonzero; no permission,
+ * isolation, cancellation, interruption, timeout or other archive error does. */
+export async function assertRepairableTrial(projectId, run, { sessionId, stage, plan } = {}) {
+  const root = await resolveExperimentProjectRoot(projectId);
+  const stored = (await readExperimentRuns(root, projectId)).runs.find(item => item.id === run?.id);
+  const errors = ['EXPERIMENT_EXIT_NONZERO', 'ARTIFACT_MISSING'];
+  if (!stored || !isDeepStrictEqual(stored, run) || run.status !== 'failed' || run.purpose !== 'engineering-trial'
+    || run.manifest?.purpose !== 'engineering-trial' || !errors.includes(run.error?.code) || run.evidenceError
+    || !Number.isSafeInteger(run.execution?.exitCode) || run.execution.exitCode < 1 || run.execution.signal
+    || run.execution.error && !(run.error.code === 'ARTIFACT_MISSING' && run.execution.error.code === 'ARTIFACT_MISSING')
+    || run.execution.process?.stopConfirmed !== true || !Number.isSafeInteger(run.execution.process.pid) || run.execution.process.pid < 1) {
+    fail('EXPERIMENT_TRIAL_NOT_REPAIRABLE', 'Only an actual stopped nonzero engineering failure may request the original bounded code repair.');
+  }
+  try { process.kill(run.execution.process.pid, 0); fail('EXPERIMENT_TRIAL_STOP_UNCONFIRMED', 'The failed engineering process is still present.'); }
+  catch (error) { if (error.code !== 'ESRCH') throw error; }
+  const manifestSha256 = experimentManifestHash(run.manifest);
+  const authorization = await assertTrialExperiment(projectId, run.manifest, { executionBinding: run.executionBinding });
+  const state = await readAutomation(projectId), step = state.session?.steps?.find(item => item.stage === stage);
+  const rows = (step?.codeTrials || []).filter(item => item.runId === run.id);
+  if (state.session?.id !== sessionId || authorization.sessionId !== sessionId || authorization.stage !== stage
+    || state.session.coordinatorRunId !== authorization.parentRunId || state.session.currentStage !== stage
+    || state.session.status !== 'running' || state.session.stopRequested || state.session.executionPlan
+    || step.executionPlanBinding || step.experimentRunId || rows.length !== 1 || rows[0].status !== 'failed'
+    || !isDeepStrictEqual(rows[0].authorization, authorization) || !isDeepStrictEqual(rows[0].plan, plan)
+    || !isDeepStrictEqual(run.manifest.trial.plan, plan) || rows[0].manifestSha256 !== manifestSha256
+    || !run.executionBinding || run.executionBinding.parentRunId !== authorization.parentRunId
+    || run.executionBinding.policyVersion !== String(authorization.policyVersion)
+    || run.executionBinding.manifestSha256 !== manifestSha256) {
+    fail('EXPERIMENT_TRIAL_REPAIR_BINDING_CHANGED', 'The original failed trial, unconsumed draft or approved execution binding changed.');
+  }
+  const prefix = `.scienceprism/experiment-runs/${run.id}/artifacts/`;
+  const artifacts = [], logs = {};
+  if (!Array.isArray(run.artifacts) || !run.artifacts.length) fail('EXPERIMENT_TRIAL_ARCHIVE_REQUIRED', 'The original failed engineering archive is unavailable.');
+  for (const artifact of run.artifacts) {
+    if (typeof artifact.path !== 'string' || !artifact.path.startsWith(prefix) || artifact.path.slice(prefix.length).split('/').some(part => !part || ['.', '..'].includes(part))
+      || !Number.isSafeInteger(artifact.bytes) || artifact.bytes < 0 || artifact.bytes > run.manifest.resources.maxArtifactBytes
+      || !/^[a-f0-9]{64}$/.test(artifact.sha256) || artifacts.some(item => item.path === artifact.path)) {
+      fail('EXPERIMENT_TRIAL_ARCHIVE_CHANGED', 'The original engineering archive has invalid or duplicate fixed metadata.');
+    }
+    const target = safeJoin(root, artifact.path);
+    if (await fs.realpath(target) !== target) fail('EXPERIMENT_TRIAL_ARCHIVE_CHANGED', 'The failed engineering archive cannot follow filesystem links.');
+    const handle = await fs.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    let bytes;
+    try {
+      const initial = await handle.stat();
+      if (!initial.isFile() || initial.nlink !== 1 || initial.size !== artifact.bytes) fail('EXPERIMENT_TRIAL_ARCHIVE_CHANGED', 'An original archived file no longer matches its retained size.');
+      bytes = await handle.readFile();
+      const final = await handle.stat();
+      if (final.size !== initial.size || bytes.byteLength !== artifact.bytes || createHash('sha256').update(bytes).digest('hex') !== artifact.sha256) {
+        fail('EXPERIMENT_TRIAL_ARCHIVE_CHANGED', 'An original engineering archive no longer matches its retained bytes.');
+      }
+    } finally { await handle.close(); }
+    artifacts.push({ path: artifact.path, sha256: artifact.sha256, bytes: artifact.bytes });
+    if (artifact.path === `${prefix}stdout.log`) logs.stdout = bytes.toString('utf8').slice(-20000).toWellFormed();
+    if (artifact.path === `${prefix}stderr.log`) logs.stderr = bytes.toString('utf8').slice(-20000).toWellFormed();
+  }
+  if (logs.stdout === undefined || logs.stderr === undefined) fail('EXPERIMENT_TRIAL_ARCHIVE_REQUIRED', 'The failed trial must retain its actual stdout and stderr archives.');
+  return { runId: run.id, manifestSha256, codePreparationId: run.manifest.command.codePreparationId,
+    exitCode: run.execution.exitCode, stdout: logs.stdout, stderr: logs.stderr, artifacts };
 }
