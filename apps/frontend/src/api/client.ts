@@ -727,6 +727,26 @@ export function getExperimentRun(id: string, runId: string) {
   return request<{ ok: boolean; run: ExperimentRun }>(`/api/projects/${encodeURIComponent(id)}/experiment-runs/${encodeURIComponent(runId)}`);
 }
 
+export type PaperComparisonGap = 'none' | 'data-coverage' | 'missing-control' | 'generalization' | 'missing-report' | 'replication-failed';
+export interface PaperComparisonRowInput {
+  metricName: string; reportedValue: number | null; unit: string; referenceLocation: string; reportedText: string;
+  causeHypothesis: string; nextStep: string; gapType: PaperComparisonGap; tolerance: number | null;
+}
+export interface PaperComparisonRow extends PaperComparisonRowInput {
+  id: string; actualValue: number | null; difference: number | null; hypothesisStatus: 'unverified';
+  status: 'match' | 'different' | 'unassessed' | 'missing-report' | 'missing-result' | 'run-failed' | 'run-incomplete';
+}
+export interface PaperComparison {
+  revision: number; runId: string; paper: { id: string; title: string; doi?: string | null; url?: string | null; year?: number | null; sha256?: string };
+  paperBinding: 'run-bound' | 'analysis-linked'; source: 'human' | 'ai'; updatedAt: string; runStatus: string; rows: PaperComparisonRow[];
+}
+export function getPaperComparison(projectId: string, runId: string) {
+  return request<{ok:boolean;comparison:PaperComparison|null}>(`/api/projects/${encodeURIComponent(projectId)}/experiment-runs/${encodeURIComponent(runId)}/paper-comparison`);
+}
+export function savePaperComparison(projectId: string, runId: string, input: {expectedRevision:number;paperId:string;rows:PaperComparisonRowInput[]}) {
+  return request<{ok:boolean;comparison:PaperComparison}>(`/api/projects/${encodeURIComponent(projectId)}/experiment-runs/${encodeURIComponent(runId)}/paper-comparison`, {method:'PUT',body:JSON.stringify(input)});
+}
+
 export interface ProjectTask {
   id: string;
   kind: string;
@@ -794,6 +814,7 @@ export interface ReplicationProvenance {
 }
 
 export interface ExperimentRun {
+  paperComparison?: PaperComparison | null;
   id: string;
   projectId: string;
   executionBinding?: { parentRunId: string; policyVersion: string; manifestSha256: string };

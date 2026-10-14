@@ -317,7 +317,7 @@ export function useResearchSession(projectId: string, stage: ResearchStageId, na
       reason: paper.humanReview.reason, criterion: paper.humanReview.criterion
     }] : [])
   }, '人工筛选决定与理由已保存，请审阅后确认阶段。'), [runAction, selectedIds, workflow.papers]);
-  const generateIdeas = useCallback(() => runAction('generate-ideas', { paperIds: selectedIds, direction: workflow.direction || {} }, '创新点候选已生成，请人工比较并选择。'), [runAction, selectedIds, workflow.direction]);
+  const generateIdeas = useCallback(() => runAction('generate-ideas', { paperIds: selectedIds, direction: workflow.direction || {}, ...(replicationRun ? { replicationRunId: replicationRun.id } : {}) }, '创新点候选已生成，请人工比较并选择。'), [runAction, selectedIds, workflow.direction, replicationRun]);
   const saveIdeaSelection = useCallback(async () => {
     setBusy(true); setError(''); setNotice('');
     try {

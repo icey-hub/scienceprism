@@ -32,6 +32,7 @@ const plan = { dataset: 'data.json', datasetVersion: 'fixture-v1', protocol: 'Ca
   execution: { adapter: 'node', entrypoint: 'run.mjs', args: [] }, seed: 0, successCriteria: ['Record the actual mean'],
   artifacts: [{ path: 'results/metrics.json', kind: 'metric' }] };
 const runtime = { adapter: 'fake', testInput: {
+  replication_analysis: { fakeResponse: JSON.stringify({ stage: 'replication_analysis', paperId: 'p1', rows: [{ metricName: 'mean', reportedValue: null, unit: '', referenceLocation: '', reportedText: '', causeHypothesis: 'Source report unavailable; no scientific conclusion.', nextStep: 'Supply the source table.', gapType: 'missing-report', tolerance: null }] }) },
   search: { fakeResponse: JSON.stringify({ stage: 'search_strategy', researchQuestion: 'Question', humanDirection: 'Question', queries: ['Question'], sources: ['arxiv'], rationale: 'Controlled source' }) },
   paper_selection: { fakeResponse: JSON.stringify({ stage: 'paper_selection', paperIds: ['p1'], rationale: 'Relevant fixture' }) },
   reproduction_plan: { fakeResponse: JSON.stringify({ stage: 'reproduction_plan', paperId: 'p1', objective: 'Compute the sample mean.', metrics: ['mean'], expectedOutputs: ['results/metrics.json'], humanApprovalRequired: true }) },
@@ -163,7 +164,8 @@ test('a completed missing-materials proposal permits the first plan without repe
     const retained = runs.find(run => run.id === previous.id);
     assert.equal(retained.attempt, previous.attempt); assert.equal(retained.reply, previous.reply);
   }
-  assert.equal(runs.length, oldRuns.length + 1);
+  const added = runs.filter(run => !oldRuns.some(previous => previous.id === run.id));
+  assert.deepEqual(added.map(run => run.request.task).sort(), ['research:replication_analysis', 'research:reproduction_plan']);
   const experiment = await getExperimentRun(id, done.session.steps.find(step => step.stage === 'replication').experimentRunId);
   assert.equal(experiment.status, 'completed'); assert.equal(experiment.metrics[0].value, 4);
 });

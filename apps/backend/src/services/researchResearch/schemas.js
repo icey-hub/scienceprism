@@ -161,6 +161,14 @@ const writingBriefSchema = z.object({
 }).strict();
 
 export const RESEARCH_STAGE_SCHEMAS = Object.freeze({
+  replication_analysis: z.object({ stage: stage('replication_analysis'), paperId: nonEmpty,
+    rows: z.array(z.object({ metricName: nonEmpty.max(200), reportedValue: z.number().finite().nullable(),
+      unit: z.string().max(100), referenceLocation: z.string().max(1000), reportedText: z.string().max(4000),
+      causeHypothesis: z.string().max(4000), nextStep: z.string().max(4000),
+      gapType: z.enum(['none', 'data-coverage', 'missing-control', 'generalization', 'missing-report', 'replication-failed']),
+      tolerance: z.number().finite().nonnegative().nullable()
+    }).strict()).min(1).max(50)
+  }).strict(),
   environment_proposal:z.object({stage:stage('environment_proposal'),
     blockers:z.array(z.object({kind:z.enum(['entrypoint','dependency','runtime']),detail:nonEmpty}).strict()).max(20),
     deferred:z.array(z.object({kind:z.enum(['dataset','paper','protocol','evidence']),detail:nonEmpty}).strict()).max(20),
@@ -347,6 +355,11 @@ export function requiredResearchStageKeys(stageName) {
  * schema stay one edit apart.
  */
 const RESEARCH_STAGE_CONTRACT_NOTES = Object.freeze({
+  replication_analysis: Object.freeze([
+    'Use exactly input.paper.id. Compare only the supplied Run and actual archived metrics. Never output actualValue, difference or match status: the application computes these.',
+    'reportedValue requires a source excerpt in reportedText and its page/table in referenceLocation. If the paper does not report the metric or the source is unavailable, use null and missing-report; this is not author failure.',
+    'Use tolerance=null unless the supplied evaluation protocol explicitly defines a numeric tolerance. causeHypothesis is always an unverified explanation, not a scientific conclusion. Distinguish missing reports, data coverage, missing controls, untested generalization and execution failure.'
+  ]),
   environment_proposal:Object.freeze(['Propose only wheel paths and exact SHA256 values from input.availableWheels. packages=[] means standard library only, not permission to download or install arbitrary packages. blockers contains only actual absent Python entrypoint, dependency wheel or runtime requirements that prevent preparing this environment. A missing scientific dataset, paper, protocol or Evidence belongs in deferred and MUST NOT block preparation of otherwise valid Python code. deferred remains unverified for later reproduction/material checks. reason explains the fixed lock. The application owns preparation, authorization and verification; never claim that an environment or experiment ran successfully.']),
   dataset_discovery: Object.freeze([
     'Use paperId from input.papers. Cite a data availability statement or an exact source provided in input as evidenceQuote. Only return supported public file URLs; never invent a link, license, checksum, or successful download. Unknown or inaccessible sources belong in missing. This is a suggestion only; the application owns acquisition and permissions.'

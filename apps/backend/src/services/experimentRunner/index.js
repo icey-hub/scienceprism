@@ -22,6 +22,7 @@ import { assertReplicationPreparationUnchangedFromWorkflow, isReplicationRequest
 import { isDeepStrictEqual } from 'node:util';
 import { safeJoin } from '../../utils/pathUtils.js';
 import { assertTrialAuthorization, assertTrialExperiment, trialRunId } from './trialContext.js';
+import { validatePaperComparison, resolvePaperComparisonSource, buildPaperComparison, projectPaperComparison } from './paperComparison.js';
 
 const MAX_RUNS = 500;
 const MAX_LOG_TAIL = 20_000;
@@ -129,6 +130,7 @@ export function experimentRunSummary(run, evidenceEntries = []) {
     errorMessage: run.error?.message || run.execution?.error?.message || '',
     ...(run.manifest.replication ? { paperBinding: run.manifest.replication.paper ? 'bound' : 'unbound', ...(run.manifest.replication.paper ? { paper: run.manifest.replication.paper } : {}) } : {}),
     ...(run.manifest.evaluationProtocol ? { evaluationProtocol: run.manifest.evaluationProtocol } : {}),
+    ...(!engineeringTrial && run.paperComparison ? { paperComparison: projectPaperComparison(run) } : {}),
     metrics: Array.isArray(run.metrics) ? run.metrics : [],
     artifacts: artifactRows
   };
@@ -146,7 +148,33 @@ export async function getExperimentRun(projectId, runId) {
   const document = await recoverInterruptedExperiments(projectId);
   const run = document.runs.find((item) => item.id === runId);
   if (!run) throw new ExperimentRunnerError(404, 'EXPERIMENT_RUN_NOT_FOUND', 'Experiment Run not found.', { runId });
-  return clone(run);
+  return clone({ ...run, ...(run.paperComparison ? { paperComparison: projectPaperComparison(run) } : {}) });
+}
+
+export async function getExperimentPaperComparison(projectId, runId) {
+  const run = await getExperimentRun(projectId, runId);
+  if (isTrialRun(run)) throw new ExperimentRunnerError(403, 'PAPER_COMPARISON_ENGINEERING_TRIAL', 'Engineering trials cannot support a scientific paper comparison.');
+  return clone(run.paperComparison || null);
+}
+
+export async function saveExperimentPaperComparison(projectId, runId, input, { actor = 'human', sourceRunId } = {}) {
+  const validated = validatePaperComparison(input);
+  if (!['human', 'researcher', 'system', 'ai', 'harness'].includes(actor)) throw new ExperimentRunnerError(403, 'PAPER_COMPARISON_ACTOR_INVALID', 'Identify the human or original analysis agent.');
+  const run = await updateRun(projectId, runId, async current => {
+    if (isTrialRun(current)) throw new ExperimentRunnerError(403, 'PAPER_COMPARISON_ENGINEERING_TRIAL', 'Engineering trials cannot support a scientific paper comparison.');
+    if (validated.expectedRevision !== (current.paperComparison?.revision || 0)) throw new ExperimentRunnerError(409, 'PAPER_COMPARISON_CONFLICT', 'The comparison changed; refresh before saving so human corrections are preserved.');
+    if (!['human', 'researcher'].includes(actor)) {
+      if (!text(sourceRunId)) throw new ExperimentRunnerError(403, 'PAPER_COMPARISON_ANALYSIS_SOURCE_REQUIRED', 'AI comparison must identify its completed original analysis Run.');
+      const producer = await getHarnessRun(projectId, sourceRunId);
+      if (producer.projectId !== projectId || producer.status !== 'completed' || producer.request?.task !== 'research:replication_analysis'
+        || producer.request?.input?.run?.id !== runId) throw new ExperimentRunnerError(409, 'PAPER_COMPARISON_ANALYSIS_SOURCE_CHANGED', 'The completed analysis does not belong to this project and Experiment Run.');
+    }
+    const source = await resolvePaperComparisonSource(projectId, current, validated.paperId);
+    current.paperComparison = buildPaperComparison(current, validated, source, { actor, sourceRunId: ['human', 'researcher'].includes(actor) ? undefined : sourceRunId });
+    current.updatedAt = now();
+    return current;
+  });
+  return clone(run.paperComparison);
 }
 
 async function recoverInterruptedExperiments(projectId) {

@@ -3,6 +3,7 @@ import type { ExperimentRun, ReplicationEvaluationProtocol } from '../../../api/
 import type { PaperCandidate, ReplicationPlan } from '../researchStages';
 import { DatasetVersionPicker } from './DatasetVersionPicker';
 import { CodePreparationPanel } from './CodePreparationPanel';
+import { PaperComparisonPanel } from './PaperComparisonPanel';
 
 export interface ReplicationStageProps {
   projectId?: string;
@@ -128,6 +129,7 @@ export function ReplicationStage({ projectId, selectedPapers, value, busy = fals
           {metrics.length === 0 && <div className="research-empty-inline">指标未报告；未将运行记录视为复现结果。</div>}
         </>}
       </section>
+      {projectId && run && <PaperComparisonPanel projectId={projectId} runId={run.id} papers={selectedPapers}/>}
     </div>
   );
 }

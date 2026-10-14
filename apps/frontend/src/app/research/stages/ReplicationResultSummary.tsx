@@ -1,4 +1,5 @@
 import type { ReplicationResultSummary } from '../researchStages';
+import { PaperComparisonTable } from './PaperComparisonPanel';
 
 function statusLabel(status: string) {
   switch (status) {
@@ -74,6 +75,7 @@ export function ReplicationResultSummary({ value, heading = '论文复现结果'
       {value.status === 'completed' && !supportsConclusion && <div className="research-callout research-callout-warning"><strong>仍需人工核验</strong><p>服务端已记录运行结果，但当前 Evidence 状态为“{statusLabel(value.evidenceStatus)}”，不会自动进入已支持主张。</p></div>}
       {value.metrics.length > 0 && <div className="research-metric-table" aria-label={isReplication ? '复现指标' : '实验指标'}><div><span>指标</span><span>结果</span><span>不确定性</span></div>{value.metrics.map((metric) => <div key={metric.name}><span>{metric.name}</span><strong>{metric.value === undefined || metric.value === null ? '等待结果' : String(metric.value)}</strong><span>{metric.uncertainty === undefined || metric.uncertainty === null ? '—' : String(metric.uncertainty)}</span></div>)}</div>}
       {value.metrics.length === 0 && <div className="research-empty-inline">指标未报告；运行记录与归档产物不能代替实际指标。</div>}
+      {value.paperComparison && <div><h4>论文报告与实测结果</h4><p className="research-panel-copy">{value.paperComparison.paper.title} · 原因解释为待验证假设</p><PaperComparisonTable comparison={value.paperComparison} /></div>}
       {value.artifacts.length > 0 && <div className="research-artifact-list"><strong>归档产物</strong>{value.artifacts.map((artifact) => <span key={artifact.id}>{artifact.kind} · {artifact.path} · {evidenceLabel(artifact.evidenceStatus)} · {artifact.sha256.slice(0, 12)}</span>)}</div>}
     </section>
   );

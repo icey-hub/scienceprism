@@ -4,6 +4,7 @@ import { RESEARCH_SPECIALISTS, automationRole } from './agents.js';
 import { buildAutomationHandoff, assertAutomationHandoff, sourceHash } from './handoff.js';
 import { claimAutomationOwner, inspectAutomationOwner } from './owner.js';
 import { prepareAutomationStage } from './stages.js';
+import { analyzeAutomationReplication } from './paperComparison.js';
 import { initializeAutomationExecutionPlan, applyAutomationExecutionPlan, bindAutomationExecutionPlan, isAutomationExecutionPlanLocked, prepareAutomationExecutionMaterials } from './executionPlan.js';
 import { getResearchWorkflow } from '../researchWorkflow/queries.js';
 import { initializeResearchWorkflow, updateResearchWorkflow, mutateWorkflow } from '../researchWorkflow/commands.js';
@@ -250,7 +251,7 @@ async function walk(projectId, control, runtime) {
       let step = state.session.steps.find(step => step.stage === stage);
       if (!step) continue;
       if (step.handoff) await handoffCheckpoint(projectId, control, stage, step.handoff);
-      if (step.status === 'completed') continue;
+      if (step.status === 'completed' && !(stage === 'replication' && state.session.paperComparisonVersion === 1 && !step.skipped && !step.paperComparison)) continue;
       const savedStage = workflow.stages.find(item => item.id === stage);
       if (savedStage.status === 'rejected' || workflow.status === 'blocked') throw new ResearchWorkflowError(409, 'AUTOMATION_REJECTED', '阶段已拒绝，请修订或恢复流程后继续。');
       if (!['approved', 'skipped'].includes(savedStage.status)) {
@@ -296,6 +297,15 @@ async function walk(projectId, control, runtime) {
         await changeStep(projectId, control.id, stage, { approved: true, status: 'approved' });
       }
       if (['replication', 'experiment'].includes(stage) && savedStage.status !== 'skipped') await executeStep(projectId, control, stage);
+      if (stage === 'replication' && savedStage.status !== 'skipped' && state.session.paperComparisonVersion === 1) {
+        ({ state } = await checkpoint(projectId, control));
+        await analyzeAutomationReplication({ projectId, session: state.session, policy: state.policy,
+          runtime: { ...runtime, signal: control.controller.signal }, saveStep: change => changeStep(projectId, control.id, stage, change),
+          beforeEffect: async () => {
+            const current = await checkpoint(projectId, control);
+            if (!allowsAutomatic(current.state.policy, 'replication') && current.workflow.stages.find(item => item.id === 'replication')?.status !== 'approved') throw waiting('replication');
+          } });
+      }
       await checkpoint(projectId, control);
       await changeStep(projectId, control.id, stage, { status: 'completed', completedAt: now() });
       if (stage === state.session.targetStage) break;
@@ -341,7 +351,7 @@ export async function startAutomation(projectId, input = {}, runtime = {}) {
     if (workflow.currentStage === 'direction' && input.question) workflow = await updateResearchWorkflow(projectId, { actor: 'human', stageId: 'direction', expectedVersion: workflow.version, data: { researchQuestion: String(input.question).slice(0, 4000).trim() } });
     const state = await mutateAutomation(projectId, state => {
       if (state.session && !['completed', 'stopped'].includes(state.session.status)) throw new ResearchWorkflowError(409, 'AUTOMATION_SESSION_EXISTS', '请继续或停止已有链路，避免重复执行。');
-      state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true,
+      state.session = initializeAutomationExecutionPlan({ id: control.id, workflowId: workflow.id, status: 'queued', targetStage, skipReplication: input.skipReplication === true, paperComparisonVersion: 1,
         executionPlan, ownerPid: control.owner.pid, createdAt: now(), updatedAt: now(), stopRequested: false,
         ...(executionPlan ? { executionPlanOrigin: 'human' } : {}),
         steps: stageIds.slice(stageIds.indexOf(workflow.currentStage), stageIds.indexOf(targetStage) + 1).map(stage => ({ stage, status: 'pending', runIds: [] })) });

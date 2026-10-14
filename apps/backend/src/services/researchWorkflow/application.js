@@ -192,13 +192,16 @@ export async function runUiAction(projectId, body, actor, { signal, search = sea
   if (action === 'generate-ideas') {
     const selectedIds = Array.isArray(body.paperIds) ? body.paperIds : [...selectedPaperIdsFrom(workflow)];
     const papers = (stageData(workflow, 'selection').selectedPapers || stageData(workflow, 'search').papers || []).filter((paper) => selectedIds.includes(String(paper.id)) || selectedIds.includes(paper.id));
-    const harness = await runStage({ stage: 'innovation_ideas', projectId, input: { papers, direction: body.direction || stageData(workflow, 'direction'), ...(body.replicationResults ? { replicationResults: body.replicationResults } : {}) }, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
+    const replicationRun = await readRunHandoff(projectId, body.replicationRunId, 'replication');
+    const input = { papers, direction: body.direction || stageData(workflow, 'direction'),
+      ...(replicationRun ? { replicationResults: [replicationRun], paperComparison: replicationRun.paperComparison || null } : {}) };
+    const harness = await runStage({ stage: 'innovation_ideas', projectId, input, humanInstructions, role: body.role, llmConfig: body.llmConfig, fakeResponse: body.fakeResponse, fakeError: body.fakeError, adapter: body.adapter });
     // No fabricated fallback: a failed Harness Run leaves the stage empty so the
     // readiness gate blocks approval. Manufacturing placeholder ideas in code
     // produced content that looked like AI output but had no Run, model, context,
     // or provenance behind it.
     const ideas = harness.ok && harness.output?.ideas ? harness.output.ideas : [];
-    const task = createStageTask({ stage: 'ideation', input: { paperIds: selectedIds, direction: body.direction || stageData(workflow, 'direction') }, output: harness.ok ? harness.output : { ideas }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'evidence-ledger'] });
+    const task = createStageTask({ stage: 'ideation', input: { paperIds: selectedIds, direction: input.direction, ...(replicationRun ? { replicationRun } : {}) }, output: harness.ok ? harness.output : { ideas }, validation: taskValidation(harness.validation, []), harness, adapters: ['harness', 'evidence-ledger'] });
     return updateStage(projectId, 'ideation', { ideas, innovationPoints: ideas, humanDirection: harness.ok ? harness.output?.humanDirection || '' : '', comparison: harness.ok ? harness.output?.comparison || [] : [], caveats: harness.ok ? harness.output?.caveats || [] : [], harness: { ok: harness.ok, validation: harness.validation }, task }, body, actor);
   }
   if (action === 'select-ideas') {

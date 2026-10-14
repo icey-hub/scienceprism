@@ -14,7 +14,7 @@ const { startAutomation, getAutomation, resumeAutomation, stopAutomation, automa
 const { getResearchWorkflow } = await import('../src/services/researchWorkflow/queries.js');
 const { approveResearchWorkflow } = await import('../src/services/researchWorkflow/commands.js');
 const { getEvidenceLedger } = await import('../src/services/evidenceLedger/index.js');
-const { getExperimentRun } = await import('../src/services/experimentRunner/index.js');
+const { getExperimentRun, saveExperimentPaperComparison, listExperimentRuns } = await import('../src/services/experimentRunner/index.js');
 const { listHarnessRuns, runHarnessRequest, decideHarnessRun } = await import('../src/services/harnessRuntime/index.js');
 const { registerResearchSourceAdapter } = await import('../src/services/researchSources/index.js');
 const { registerResearchWorkflowRoutes } = await import('../src/routes/researchWorkflow.js');
@@ -49,6 +49,7 @@ test('a stale running snapshot cannot relabel a durably completed research chain
   assert.equal(delayedSnapshot, true); assert.equal(actual.session.status, 'completed'); assert.equal(actual.session.message, 'done');
 });
 const runtime = { adapter: 'fake', testInput: {
+  replication_analysis: { fakeResponse: JSON.stringify({ stage: 'replication_analysis', paperId: 'p1', rows: [{ metricName: 'mean', reportedValue: null, unit: '', referenceLocation: '', reportedText: '', causeHypothesis: 'Source report unavailable; no scientific conclusion.', nextStep: 'Supply the source table.', gapType: 'missing-report', tolerance: null }] }) },
   search: { fakeResponse: JSON.stringify({ stage: 'search_strategy', researchQuestion: 'Question', humanDirection: 'Question', queries: ['Question'], sources: ['arxiv'], rationale: 'Controlled strategy' }) },
   paper_selection: { fakeResponse: JSON.stringify({ stage: 'paper_selection', paperIds: ['p1'], rationale: 'Relevant controlled source' }) },
   reproduction_plan: { fakeResponse: JSON.stringify({ stage: 'reproduction_plan', paperId: 'p1', objective: 'Read the supplied data and calculate its mean.', metrics: ['mean'], expectedOutputs: ['results/metrics.json'], humanApprovalRequired: true }) },
@@ -131,6 +132,9 @@ test('a real Node reproduction is followed by a distinct analysis Agent without 
   const run = await getExperimentRun('pipeline', step.experimentRunId);
   assert.equal(run.status, 'completed'); assert.equal(run.metrics[0].value, 4);
   assert.equal(run.manifest.replication.paper.id, 'p1');
+  assert.equal(run.paperComparison.rows[0].actualValue, 4);
+  assert.equal(run.paperComparison.rows[0].status, 'missing-report');
+  assert.ok(step.calls.some(call => call.task === 'research:replication_analysis'));
   assert.equal(run.manifest.protocol, plan.protocol, 'The model objective must not replace the fixed execution protocol');
   assert.deepEqual(run.manifest.successCriteria, plan.successCriteria || []);
   assert.equal(run.approval.actor, 'system'); assert.equal(run.approval.authorization.sessionId, state.session.id);
@@ -142,6 +146,8 @@ test('a real Node reproduction is followed by a distinct analysis Agent without 
   assert.ok(runs.some(run => run.role === 'screening-agent' && run.stage === 'selection'));
   const analysis = runs.find(run => run.role === 'innovation-agent');
   assert.ok(JSON.stringify(analysis.request.input.replicationResults).includes(run.id));
+  assert.equal(analysis.request.input.paperComparison.revision, run.paperComparison.revision);
+  assert.equal(analysis.request.input.paperComparison.rows[0].actualValue, 4);
   assert.equal(await readFile(path.join(root, 'data.json'), 'utf8'), '[2,4,6]');
   assert.ok(!JSON.stringify(await readAutomation('pipeline')).includes('apiKey'));
 });
@@ -159,6 +165,32 @@ test('execution override waits at the real Run and revoked capability still refu
   await project('denied', false); await enable('denied');
   await startAutomation('denied', { actor: 'human', question: 'Question', executionPlan: plan }, runtime);
   state = await settled('denied'); assert.equal(state.session.status, 'blocked'); assert.equal(state.session.error.code, 'EXPERIMENT_EXECUTION_DENIED');
+});
+
+test('a researcher can correct a failed comparison and resume without rerunning the experiment or analysis', async () => {
+  const id = 'comparison-correction'; await project(id); await enable(id);
+  await startAutomation(id, { actor: 'human', question: 'Question', targetStage: 'replication', executionPlan: plan },
+    { ...runtime, testInput: { ...runtime.testInput, replication_analysis: { fakeResponse: 'invalid comparison' } } });
+  const blocked = await settled(id);
+  assert.equal(blocked.session.error.code, 'AUTOMATION_ANALYSIS_FAILED');
+  const step = blocked.session.steps.find(item => item.stage === 'replication');
+  const original = await getExperimentRun(id, step.experimentRunId);
+  assert.equal(original.status, 'completed');
+  const before = await listHarnessRuns(id);
+  await saveExperimentPaperComparison(id, original.id, { expectedRevision: 0, paperId: 'p1', rows: [{
+    metricName: 'mean', reportedValue: 4, unit: '', referenceLocation: 'Controlled fixture table 1', reportedText: 'Fixture mean: 4',
+    causeHypothesis: 'No scientific claim.', nextStep: 'Acquire real research data.', gapType: 'none', tolerance: 0
+  }] }, { actor: 'human' });
+  await enable(id, { replication: 'manual' });
+  await resumeAutomation(id, { actor: 'human' }, runtime);
+  const done = await settled(id);
+  assert.equal(done.session.status, 'completed', JSON.stringify(done.session.error));
+  assert.equal((await listExperimentRuns(id)).length, 1);
+  assert.equal((await listHarnessRuns(id)).length, before.length);
+  const retained = await getExperimentRun(id, original.id);
+  assert.deepEqual(retained.execution, original.execution);
+  assert.equal(retained.paperComparison.source, 'human');
+  assert.equal(retained.paperComparison.rows[0].status, 'match');
 });
 
 test('the full eight-stage chain hands two actual experiments to the writing Agent', async () => {

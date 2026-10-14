@@ -142,6 +142,7 @@ function runResultSummary(run: ExperimentRun | null | undefined, evidenceEntries
         ? 'Run completed, but its Evidence is pending or unverified; human verification is required before treating findings as successful.'
         : `Run status is ${run.status}; it cannot support a successful finding.`,
     provenance,
+    ...(run.paperComparison ? { paperComparison: run.paperComparison } : {}),
     ...(manifest.replication?.paper ? { paper: manifest.replication.paper } : {}),
     ...(manifest.evaluationProtocol ? { evaluationProtocol: manifest.evaluationProtocol } : {}),
     protocol: manifest.protocol || '',

@@ -193,6 +193,7 @@ export interface ExperimentResultSummary {
 }
 
 export interface ReplicationResultSummary {
+  paperComparison?: import('../../api/client').PaperComparison;
   id: string;
   status: string;
   evidenceId?: string;
