@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createCodexDelegation } from '../src/services/harnessRuntime/codexDelegation.js';
 import { createDshFileBroker } from '../src/services/harnessRuntime/dshFileBroker.js';
+import { createCodeAuthorization } from '../src/services/researchAutomation/codeAuthorization.js';
+import { sourceHash } from '../src/services/researchAutomation/handoff.js';
 
 async function fixture(t, perform) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'composition-test-'));
+  const cache = fileURLToPath(new URL('../../../.cache/research-workbench-v2/delegation-allocation/', import.meta.url)); await fs.mkdir(cache, { recursive: true });
+  const root = await fs.mkdtemp(path.join(cache, 'composition-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const workspace = path.join(root, 'parent');
   await fs.mkdir(workspace);
@@ -17,17 +20,18 @@ async function fixture(t, perform) {
   const rows = new Map([[parent.id, structuredClone(parent)]]);
   const controller = new AbortController();
   let policy = { projectId: 'p', runId: 'parent', role: parent.role, task: parent.task, version: 'v1', active: true, mode: 'auto', capabilities: parent.capabilities };
-  let calls = 0;
+  let calls = 0; const workerArgs = [];
   const events = [];
   const config = { parent, workspace, runtimeHome: root, skillProjection: { documents: [] }, provider: { model: 'test', apiKey: 'not-persisted' },
     readPolicy: async () => structuredClone(policy), getRun: async id => structuredClone(rows.get(id)),
     updateRun: async (id, fn) => { const next = fn(structuredClone(rows.get(id))); rows.set(id, next); return next; },
     signal: controller.signal, emit: event => events.push(event),
     runChild: async (child, childController, execute) => { rows.set(child.id, child); return execute(); },
-    worker: { run: async args => { calls++; await args.onSession({ threadId: 'thread', turnId: null }); await args.onSession({ threadId: 'thread', turnId: 'turn' });
+    worker: { run: async args => { calls++; workerArgs.push(args); await args.onSession({ threadId: 'thread', turnId: null }); await args.onSession({ threadId: 'thread', turnId: 'turn' });
       return perform ? perform(args, { rows, revoke: () => { policy = { ...policy, version: 'v2', capabilities: { ...policy.capabilities, granted: ['project.read'] } }; } }) : propose(args); } } };
   const delegate = createCodexDelegation(config);
-  return { root, workspace, rows, controller, delegate, config, events, calls: () => calls };
+  return { root, workspace, rows, controller, delegate, config, events, workerArgs, calls: () => calls,
+    setPolicy: patch => { policy = { ...policy, ...patch }; } };
 }
 async function propose(args) {
   const broker = await createDshFileBroker(args);
@@ -37,6 +41,22 @@ async function propose(args) {
     return { ok: true, finalResponse: 'done', usage: { totalTokens: 42 }, output: { codex: { threadId: 'thread', turnId: 'turn' } } };
   } finally { await broker.close(); }
 }
+
+function admittedAutomaticProducer(f, { maxTokens = 100000, timeoutMs = 10000 } = {}) {
+  const parent = f.config.parent, input = { codePreparationVersion: 2, protocolPath: 'protocol.json' };
+  const scope = { allowedPaths: ['code'], maxTokens, timeoutMs, maxVersions: 2 };
+  const auth = createCodeAuthorization({ projectId: parent.projectId,
+    session: { id: 'auto-session', coordinatorRunId: 'coordinator', status: 'running' }, stage: 'replication', policyVersion: 2,
+    policy: { enabled: true, overrides: { code: 'inherit' }, codeScope: scope }, inputSha256: sourceHash(input) });
+  Object.assign(parent, { kind: 'research-stage', automationSessionId: auth.sessionId, parentRunId: auth.parentRunId, stage: auth.stage,
+    role: 'experiment-code-producer', task: 'research:code-preparation', limits: { maxTokens, timeoutMs },
+    request: { input, context: { codeAuthorization: auth, automationHandoff: { sessionId: auth.sessionId } } } });
+  parent.capabilities = { ...parent.capabilities, allowedPaths: ['code', 'main.tex'], patchPaths: scope.allowedPaths };
+  f.rows.set(parent.id, structuredClone(parent));
+  f.setPolicy({ role: parent.role, task: parent.task, capabilities: parent.capabilities });
+  return parent;
+}
+const noPatchResult = (totalTokens = 100) => ({ ok: true, finalResponse: 'Allocation fixture only', usage: { totalTokens }, output: { codex: { threadId: 'thread', turnId: 'turn' } } });
 
 test('DSH delegates once per tool identity, records a child session and merges proposals into its own copy', async t => {
   const f = await fixture(t);
@@ -131,5 +151,60 @@ test('an explicit continuation reuses an already handed-off task without resetti
   assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'proposed');
   f.rows.get(first.runId).recovery.phase = 'handoff-failed';
   await assert.rejects(recovered.run({ task: 'change main.tex' }, { callId: 'tampered-result' }), { code: 'CODEX_RECOVERY_RESULT_CONFLICT' });
+  assert.equal(f.calls(), 1);
+});
+
+test('admitted automatic profile v2 allocates actual worker 80 percent tokens and 90 percent time independently of model hints', async t => {
+  const f = await fixture(t, async args => { assert.equal(args.maxTokens, 80000); assert.equal(args.timeoutMs, 9000); return noPatchResult(14173); });
+  admittedAutomaticProducer(f);
+  const result = await f.delegate.run({ task: 'prepare authorized code', maxTokens: 6000, timeoutMs: 1000 }, { callId: 'auto-profile' });
+  const child = f.rows.get(result.childRunId); assert.equal(child.limits.maxTokens, 80000); assert.equal(child.limits.timeoutMs, 9000);
+  assert.equal(child.limits.retryLimit, 0); assert.equal(child.limits.maxConcurrent, 1); assert.equal(f.calls(), 1);
+  assert.equal(child.status, 'completed'); assert.equal(f.delegate.usage.totalTokens, 14173); assert.equal(await fs.readFile(path.join(f.workspace, 'main.tex'), 'utf8'), 'original');
+});
+
+test('automatic allocation still obeys remaining parent usage and subsequent exhaustion rather than reserving unavailable budget', async t => {
+  const f = await fixture(t, async args => { assert.equal(args.maxTokens, 5000); return noPatchResult(5000); });
+  admittedAutomaticProducer(f); f.rows.get('parent').events = [{ type: 'usage', usage: { totalTokens: 95000 } }];
+  await f.delegate.run({ task: 'remaining only', maxTokens: 100000 }, { callId: 'remaining' });
+  await assert.rejects(f.delegate.run({ task: 'no remaining', maxTokens: 100000 }, { callId: 'exhausted' }), { code: 'HARNESS_BUDGET_EXHAUSTED' });
+  assert.equal(f.calls(), 1);
+});
+
+test('automatic minimum allocation cannot exceed actual remaining tokens or the parent deadline', async t => {
+  const f = await fixture(t, async args => { assert.equal(args.maxTokens, 128); assert.equal(args.timeoutMs, 9000); return noPatchResult(128); });
+  admittedAutomaticProducer(f, { maxTokens: 128 }); await f.delegate.run({ task: 'small original scope' }, { callId: 'minimum' });
+  assert.equal(f.calls(), 1);
+  const exhausted = await fixture(t, async () => { assert.fail('remaining budget cannot fund a worker'); });
+  admittedAutomaticProducer(exhausted); exhausted.rows.get('parent').events = [{ type: 'usage', usage: { totalTokens: 99873 } }];
+  await assert.rejects(exhausted.delegate.run({ task: 'remaining below minimum' }, { callId: 'below-minimum' }), { code: 'HARNESS_BUDGET_EXHAUSTED' });
+  assert.equal(exhausted.calls(), 0);
+  const expired = await fixture(t, async () => { assert.fail('expired parent cannot start a worker'); }); admittedAutomaticProducer(expired);
+  const originalNow = Date.now, instant = originalNow(); let reads = 0;
+  Date.now = () => instant + (reads++ ? 10000 : 0);
+  try {
+    const timed = createCodexDelegation(expired.config);
+    await assert.rejects(timed.run({ task: 'expired authorized deadline' }, { callId: 'deadline' }), { code: 'HARNESS_BUDGET_EXHAUSTED' }); assert.equal(expired.calls(), 0);
+  } finally { Date.now = originalNow; }
+});
+
+test('unknown auth, roles and fake parent metadata cannot enable automatic worker allocation', async t => {
+  for (const kind of ['role', 'schema', 'session', 'scope', 'input', 'policy', 'actual-run']) {
+    const f = await fixture(t, async args => { assert.equal(args.maxTokens, 6000); assert.equal(args.timeoutMs, 1000); return noPatchResult(); });
+    const parent = admittedAutomaticProducer(f);
+    if (kind === 'role') { parent.role = 'project-agent'; f.rows.get('parent').role = parent.role; f.setPolicy({ role: parent.role }); }
+    if (kind === 'schema') parent.request.context.codeAuthorization.schemaVersion = 99;
+    if (kind === 'session') parent.request.context.codeAuthorization.sessionId = 'foreign-session';
+    if (kind === 'scope') parent.request.context.codeAuthorization.scope.maxTokens = 1000;
+    if (kind === 'input') parent.request.input.codePreparationVersion = 1;
+    if (kind === 'policy') f.setPolicy({ runId: 'foreign-run' });
+    if (kind === 'actual-run') f.rows.get('parent').kind = 'ordinary-run';
+    await f.delegate.run({ task: `legacy allocation ${kind}`, maxTokens: 6000, timeoutMs: 1000 }, { callId: kind }); assert.equal(f.calls(), 1);
+  }
+});
+
+test('ordinary manual allocation retains explicit worker token and time requests', async t => {
+  const f = await fixture(t, async args => { assert.equal(args.maxTokens, 6000); assert.equal(args.timeoutMs, 1000); return noPatchResult(); });
+  await f.delegate.run({ task: 'manual explicit smaller worker', maxTokens: 6000, timeoutMs: 1000 }, { callId: 'manual-explicit' });
   assert.equal(f.calls(), 1);
 });

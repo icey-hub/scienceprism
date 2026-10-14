@@ -20,12 +20,18 @@ export async function prepareAutomationCode({ projectId, session, stage, input, 
     || !input || typeof input !== 'object' || Array.isArray(input) || !Array.isArray(paths) || !paths.length || paths.length > 20
     || paths.some(relative => typeof relative !== 'string' || path.posix.normalize(relative) !== relative || relative.split('/').some(part => !part || part.startsWith('.')))
     || new Set(paths).size !== paths.length) fail('AUTOMATION_CODE_CONTEXT_REQUIRED', '代码准备需要固定材料、源码路径和当前阶段上下文。');
-  const materials = structuredClone(input), selectedPaths = [...paths].sort(), inputSha256 = sourceHash(materials);
+  let materials = { ...structuredClone(input), codePreparationVersion: 2 }, inputSha256 = sourceHash(materials);
+  const selectedPaths = [...paths].sort();
   await beforeEffect(); cancelled(signal);
   const initial = await readState(), step = initial.session?.steps?.find(item => item.stage === stage);
   if (initial.session?.id !== session.id || initial.session?.coordinatorRunId !== session.coordinatorRunId || initial.session.currentStage !== stage || !step?.handoff) {
     fail('AUTOMATION_CODE_OWNER_CHANGED', '代码准备不属于当前研究会话和阶段。');
   }
+  // Already published or recoverable legacy work keeps its exact request.
+  // A failed old producer is retained; the updated profile is a new input grant.
+  const legacy = (step.codePreparations || []).find(item => item.authorization?.inputSha256 === sourceHash(input)
+    && (item.preparationId || item.producerRunId && !['failed','cancelled'].includes(item.status)));
+  if (legacy) { materials = structuredClone(input); inputSha256 = sourceHash(materials); }
   let entry = (step.codePreparations || []).find(item => item.authorization?.inputSha256 === inputSha256);
   if (entry && (sourceHash(entry.paths) !== sourceHash(selectedPaths) || sourceHash(entry.input) !== inputSha256)) fail('AUTOMATION_CODE_INPUT_CHANGED', '已有代码授权的材料或所选路径发生变化。');
   const authorization = structuredClone(entry?.authorization || createCodeAuthorization({ projectId, session: initial.session, stage,
@@ -34,7 +40,7 @@ export async function prepareAutomationCode({ projectId, session, stage, input, 
   if (selectedPaths.some(relative => !allowsControlledCodePatch(relative, { patchPaths: scope.allowedPaths }))) fail('AUTOMATION_CODE_PATH_DENIED', '所选源码路径超出原代码授权范围。');
   const handoff = structuredClone(step.handoff), grantHash = sourceHash(authorization);
   if (!entry) {
-    if (initial.session.steps.reduce((count, item) => count + (item.codePreparations?.length || 0), 0) >= scope.maxVersions) fail('AUTOMATION_CODE_LIMIT', '本研究链路已达到代码版本数量预算。');
+    if ((step.codePreparations?.length || 0) >= scope.maxVersions) fail('AUTOMATION_CODE_LIMIT', '本研究阶段已达到代码版本数量预算。');
     entry = { authorization, input: materials, paths: selectedPaths, status: 'prepared', attempt: initial.session.attempt || 0,
       producerRunId: null, preparationId: null, sha256: null };
     await beforeEffect(); cancelled(signal);
@@ -46,6 +52,7 @@ export async function prepareAutomationCode({ projectId, session, stage, input, 
     context: { automationHandoff: handoff, codeAuthorization: authorization },
     prompt: [
       'Prepare source code for the supplied research materials by delegating the coding work to the controlled Codex worker.',
+      ...(legacy ? [] : [`Delegate exactly once with research_delegate_codex, maxTokens ${Math.max(128, Math.floor(scope.maxTokens * 0.8))} and timeoutMs ${Math.max(100, Math.floor(scope.timeoutMs * 0.9))}. These limits include input and output tokens. Do not choose a smaller arbitrary budget. If that child fails, retain the failure and stop; never claim a proposal exists.`]),
       `Only propose these source files: ${selectedPaths.join(', ')}. Read existing protocol and input files through project_read_file.`,
       'Do not edit protocols, datasets, the manuscript or unrelated files. Do not run commands or experiments, install packages, or claim reproduction or scientific success.',
       'The application later runs the frozen code in an isolated Experiment Runner. SCIENCEPRISM_EXPERIMENT_INPUT is an absolute path to a JSON file: open and parse that file, never parse the environment variable itself as JSON. Use its dataset.input.path within the runner workspace.',
@@ -60,7 +67,7 @@ export async function prepareAutomationCode({ projectId, session, stage, input, 
     const bound = currentStep?.codePreparations?.find(item => sourceHash(item.authorization) === grantHash);
     if (current.session.currentStage !== stage || sourceHash(currentStep?.handoff) !== sourceHash(handoff) || !bound
       || sourceHash(bound.paths) !== sourceHash(selectedPaths) || sourceHash(bound.input) !== inputSha256
-      || current.session.steps.reduce((count, item) => count + (item.codePreparations?.length || 0), 0) > scope.maxVersions) {
+      || (currentStep?.codePreparations?.length || 0) > scope.maxVersions) {
       fail('AUTOMATION_CODE_AUTHORIZATION_CHANGED', '已保存的代码授权、材料或阶段交接发生变化。');
     }
     if (entry.producerRunId && bound.producerRunId !== entry.producerRunId || producerRequired && !bound.producerRunId) fail('AUTOMATION_CODE_PRODUCER_CHANGED', '原代码生产任务身份发生变化。');

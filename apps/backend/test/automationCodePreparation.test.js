@@ -4,6 +4,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { createCodePreparationService } from '../src/services/experimentRunner/codePreparations.js';
 import { prepareAutomationCode } from '../src/services/researchAutomation/codePreparation.js';
+import { sourceHash } from '../src/services/researchAutomation/handoff.js';
+import { createCodeAuthorization } from '../src/services/researchAutomation/codeAuthorization.js';
 
 const relative = 'code/baseline.py', code = 'print("proposal fixture")\n';
 async function fixture(t, options = {}) {
@@ -57,6 +59,8 @@ test('grant then calls then producer identity are persisted before the worker; a
   const request = f.requests[0]; assert.equal(request.kind, 'research-stage'); assert.equal(request.adapter, 'deepseek'); assert.equal(request.fallback, false);
   assert.deepEqual(request.capabilities, ['project.read', 'patch.propose']); assert.deepEqual(request.limits, { maxTokens: 2048, timeoutMs: 5000, retryLimit: 0, maxConcurrent: 1 });
   assert.match(request.prompt, /delegating.*Codex/); assert.match(request.prompt, /absolute path to a JSON file/); assert.match(request.prompt, /never parse the environment variable itself/);
+  assert.equal(request.input.codePreparationVersion, 2);
+  assert.match(request.prompt, /maxTokens 1638 and timeoutMs 4500/);
   const again = await prepareAutomationCode({ ...f.input, service: createCodePreparationService(f.serviceOptions) });
   assert.equal(again.preparation.id, result.preparation.id); assert.equal(f.requests.length, 1); assert.equal((await f.service.list('project')).preparations.length, 1);
   assert.deepEqual(await fs.readdir(f.projectRoot), ['main.tex']); assert.equal(await fs.readFile(path.join(f.projectRoot, 'main.tex'), 'utf8'), 'original manuscript');
@@ -66,6 +70,19 @@ test('completed producer without a published version reuses its original Run and
   const f = await fixture(t); await prepareAutomationCode(f.input);
   Object.assign(f.state.session.steps[0].codePreparations[0], { preparationId: null, sha256: null, status: 'producing' }); await f.writeState();
   const result = await prepareAutomationCode(f.input); assert.ok(result.preparation.id); assert.equal(f.requests.length, 1);
+});
+
+test('published legacy preparation keeps its exact request after a worker budget profile update', async t => {
+  const f = await fixture(t), first = await prepareAutomationCode(f.input), run = f.source('producer');
+  delete run.request.input.codePreparationVersion;
+  run.request.context.codeAuthorization.inputSha256 = sourceHash(run.request.input);
+  run.request.prompt = run.request.prompt.split('\n\n').filter(part => !part.startsWith('Delegate exactly once')).join('\n\n');
+  run.request.prompt = run.request.prompt.split('Fixed materials:\n')[0] + `Fixed materials:\n${JSON.stringify(run.request.input, null, 2)}`;
+  const entry = f.state.session.steps[0].codePreparations[0];
+  entry.authorization = structuredClone(run.request.context.codeAuthorization); entry.input = structuredClone(run.request.input); await f.writeState();
+  const before = f.requests.length, again = await prepareAutomationCode(f.input);
+  assert.equal(again.preparation.id, first.preparation.id); assert.equal(f.requests.length, before);
+  assert.equal(f.state.session.steps[0].codePreparations.length, 1);
 });
 
 test('prepared original Run is resumed with onPrepared on the same ID, never a replacement producer', async t => {
@@ -105,11 +122,24 @@ test('parent cancellation before or during production prevents all code publicat
   assert.equal(f.state.session.steps[0].codePreparations[0].producerRunId, 'producer'); assert.equal((await f.service.list('project')).preparations.length, 0);
 });
 
-test('same material cannot change selected paths and exhausted chain version budget cannot create a producer', async t => {
+test('same material cannot change selected paths and exhausted stage version budget cannot create a producer', async t => {
   const f = await fixture(t); await prepareAutomationCode(f.input);
   await assert.rejects(prepareAutomationCode({ ...f.input, paths: ['code/other.py'] }), { code: 'AUTOMATION_CODE_INPUT_CHANGED' });
   f.state.policy.codeScope.maxVersions = 1; f.state.version++; await f.writeState();
   await assert.rejects(prepareAutomationCode({ ...f.input, input: { protocolPath: 'different.json' } }), { code: 'AUTOMATION_CODE_LIMIT' }); assert.equal(f.requests.length, 1);
+});
+
+test('earlier reproduction versions do not consume the later experiment stage budget', async t => {
+  const f = await fixture(t);
+  f.state.session.currentStage = 'experiment'; f.state.session.steps[0].stage = 'experiment';
+  f.state.session.steps[0].handoff.stage = 'experiment'; f.input.stage = 'experiment';
+  f.input.session.currentStage = 'experiment';
+  const previous = [0,1].map(index => ({ status: 'completed', authorization: createCodeAuthorization({ projectId:'project',
+    session:f.state.session,stage:'replication',policyVersion:f.state.version,policy:f.state.policy,inputSha256:sourceHash({earlierReproduction:index}) }) }));
+  f.state.session.steps.push({stage:'replication',status:'completed',codePreparations:previous}); await f.writeState();
+  const result = await prepareAutomationCode(f.input);
+  assert.ok(result.preparation.id); assert.equal(f.requests.length,1); assert.equal(f.requests[0].stage,'experiment');
+  assert.equal(f.state.session.steps[0].codePreparations.length,1); assert.equal(f.state.session.steps[1].codePreparations.length,2);
 });
 
 test('real C1 rejects missing completed Codex identity and preparation replay rechecks immutable source contents', async t => {

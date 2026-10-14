@@ -7,11 +7,39 @@ import { createDshFileBroker } from './dshFileBroker.js';
 import { createCodexToolReceipts } from './codexToolReceipts.js';
 import { appendRuntimeEvents, summarizeEvent, sumEventUsage } from './runtimeEvents.js';
 import { safeJoin } from '../../utils/pathUtils.js';
+import { validateCodeScope } from '../researchAutomation/codeAuthorization.js';
+import { sourceHash } from '../researchAutomation/handoff.js';
 
 const now = () => new Date().toISOString();
 const fail = (code, message) => new HarnessRuntimeError(409, code, message);
 export const usageTotal = usage => Number(usage?.totalTokens ?? usage?.total_tokens ?? usage?.total
   ?? ((usage?.inputTokens ?? usage?.input ?? 0) + (usage?.outputTokens ?? usage?.output ?? 0)));
+
+function automaticCodeAllocation(parent, current, policy) {
+  const auth = parent.request?.context?.codeAuthorization;
+  if (!auth || ![parent, current].every(run => run.kind === 'research-stage' && run.adapter === 'deepseek' && run.status === 'running'
+    && run.id === parent.id && run.projectId === parent.projectId && run.role === 'experiment-code-producer'
+    && run.automationSessionId === parent.automationSessionId && run.parentRunId === auth.parentRunId && run.stage === auth.stage
+    && ['research:code-preparation', 'research:code-repair'].includes(run.task) && run.task === parent.task
+    && run.request?.input?.codePreparationVersion === 2)
+    || auth.schemaVersion !== 1 || auth.actor !== 'system' || auth.capability !== 'patch.propose'
+    || auth.projectId !== parent.projectId || typeof auth.sessionId !== 'string' || !auth.sessionId || auth.sessionId !== parent.automationSessionId
+    || typeof auth.parentRunId !== 'string' || !auth.parentRunId || !['replication', 'experiment'].includes(auth.stage)
+    || !Number.isSafeInteger(auth.policyVersion) || auth.policyVersion < 1 || policy.mode !== 'auto'
+    || policy.projectId !== parent.projectId || policy.runId !== parent.id || policy.role !== parent.role || policy.task !== parent.task) return null;
+  try {
+    const scope = validateCodeScope(auth.scope);
+    if (!scope || auth.scopeSha256 !== sourceHash(scope) || sourceHash(auth.scope) !== sourceHash(scope)
+      || auth.inputSha256 !== sourceHash(parent.request.input) || sourceHash(current.request.input) !== auth.inputSha256
+      || sourceHash(current.request.context?.codeAuthorization) !== sourceHash(auth)
+      || parent.request.context?.automationHandoff?.sessionId !== auth.sessionId || current.request.context?.automationHandoff?.sessionId !== auth.sessionId
+      || sourceHash(policy.capabilities.patchPaths) !== sourceHash(scope.allowedPaths)
+      || !Number.isSafeInteger(parent.limits.maxTokens) || parent.limits.maxTokens < 128 || parent.limits.maxTokens > scope.maxTokens
+      || !Number.isSafeInteger(parent.limits.timeoutMs) || parent.limits.timeoutMs < 100 || parent.limits.timeoutMs > scope.timeoutMs
+      || current.limits?.maxTokens !== parent.limits.maxTokens || current.limits?.timeoutMs !== parent.limits.timeoutMs) return null;
+    return { maxTokens: Math.max(128, Math.floor(parent.limits.maxTokens * 0.8)), timeoutMs: Math.max(100, Math.floor(parent.limits.timeoutMs * 0.9)) };
+  } catch { return null; }
+}
 
 // An internal tool callback, not another scheduler or public runtime selector.
 // The parent's model slot remains held while DSH awaits this worker.
@@ -49,8 +77,9 @@ export function createCodexDelegation({ parent, workspace, runtimeHome, skillPro
         proposals: (stored.patches || []).map(patch => ({ path: patch.path, baseVersion: patch.baseVersion })) };
     }
     const remaining = parent.limits.maxTokens - usageTotal(sumEventUsage(current.events)) - childTokens;
-    const limits = { maxTokens: Math.min(remaining, input.maxTokens ?? remaining, 100000),
-      timeoutMs: Math.min(deadline - Date.now(), input.timeoutMs ?? 600000, 600000), maxConcurrent: 1, retryLimit: 0 };
+    const allocation = automaticCodeAllocation(parent, current, policy);
+    const limits = { maxTokens: Math.min(remaining, allocation?.maxTokens ?? input.maxTokens ?? remaining, 100000),
+      timeoutMs: Math.min(deadline - Date.now(), allocation?.timeoutMs ?? input.timeoutMs ?? 600000, 600000), maxConcurrent: 1, retryLimit: 0 };
     if (limits.maxTokens < 128 || limits.timeoutMs < 100) throw fail('HARNESS_BUDGET_EXHAUSTED', 'The parent has no remaining worker budget.');
     const controller = new AbortController();
     const combined = AbortSignal.any([signal, controller.signal, ...(options.signal ? [options.signal] : [])]);
